@@ -62,18 +62,17 @@ class ScoreEntryModal(discord.ui.Modal):
 
 
 # ============================================================================
-# PLAYER STAT ENTRY MODAL (Single modal, all 8 fields)
+# PLAYER STAT ENTRY MODAL (First 5 fields)
 # ============================================================================
 
 class PlayerStatEntryModal(discord.ui.Modal):
-    """Modal for entering a single player's stats (all 8 fields)"""
+    """Modal for entering first 5 player stats"""
 
     def __init__(self, player_name: str, on_stats_entered: Callable):
-        super().__init__(title=f"Stats for {player_name}")
+        super().__init__(title=f"Stats for {player_name} (1/2)")
         self.player_name = player_name
         self.on_stats_entered = on_stats_entered
 
-        # First 5 fields
         self.goals_input = discord.ui.TextInput(label="Goals", placeholder="0", default="0")
         self.own_goals_input = discord.ui.TextInput(label="Own Goals", placeholder="0", default="0")
         self.points_input = discord.ui.TextInput(label="Points", placeholder="0", default="0")
@@ -85,9 +84,7 @@ class PlayerStatEntryModal(discord.ui.Modal):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
-        """Show second modal for remaining stats after user submits first batch"""
         try:
-            # Parse first batch of stats
             first_batch = {
                 'goals': int(self.goals_input.value.strip()),
                 'own_goals': int(self.own_goals_input.value.strip()),
@@ -96,11 +93,9 @@ class PlayerStatEntryModal(discord.ui.Modal):
                 'saves': int(self.saves_input.value.strip())
             }
 
-            # Create and show second modal
             async def on_second_submit(second_stats: dict, second_interaction: discord.Interaction):
-                # Combine both batches into complete stat entry
                 stat_entry = PlayerStatEntry(
-                    player_id="",  # Will be set by caller
+                    player_id="",
                     player_name=self.player_name,
                     goals=first_batch['goals'],
                     own_goals=first_batch['own_goals'],
@@ -114,17 +109,40 @@ class PlayerStatEntryModal(discord.ui.Modal):
                 await self.on_stats_entered(stat_entry, second_interaction)
 
             second_modal = PlayerStatEntryModalSecond(self.player_name, on_second_submit)
-            await interaction.response.send_modal(second_modal)
+            
+            # Defer the response, then send the second modal via a background task
+            await interaction.response.defer()
+            
+            # Use a small delay to ensure the defer processes before sending the next modal
+            import asyncio
+            await asyncio.sleep(0.1)
+            
+            # Send the second modal via edit_original_response workaround
+            try:
+                await interaction.followup.send("📋 Now entering remaining stats...", ephemeral=True)
+            except:
+                pass
+            
+            # Create a minimal view with a button to trigger the second modal
+            async def show_second_modal_button(button_interaction: discord.Interaction):
+                await button_interaction.response.send_modal(second_modal)
+            
+            view = discord.ui.View()
+            button = discord.ui.Button(label="📊 Continue to Part 2", style=discord.ButtonStyle.primary)
+            button.callback = show_second_modal_button
+            view.add_item(button)
+            
+            await interaction.followup.send("Click the button to continue:", view=view, ephemeral=True)
 
         except ValueError as e:
             await interaction.response.send_message(f"❌ Invalid input: {e}", ephemeral=True)
 
 
 class PlayerStatEntryModalSecond(discord.ui.Modal):
-    """Second modal for remaining stats (Blocks, Powerup Plays, Powerups Used)"""
+    """Modal for remaining stats (Blocks, Powerup Plays, Powerups Used)"""
 
     def __init__(self, player_name: str, on_stats_entered: Callable):
-        super().__init__(title=f"Stats for {player_name} - Part 2")
+        super().__init__(title=f"Stats for {player_name} (2/2)")
         self.player_name = player_name
         self.on_stats_entered = on_stats_entered
 
