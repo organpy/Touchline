@@ -126,6 +126,8 @@ class OffensiveStatsModal(discord.ui.Modal):
                 'assists': int(self.assists_input.value.strip()),
                 'powerup_plays': int(self.powerup_plays_input.value.strip())
             }
+            # Defer so we can show the next modal via followup
+            await interaction.response.defer()
             await self.on_offensive_submitted(offensive_stats, interaction)
         except ValueError as e:
             await interaction.response.send_message(f"❌ Invalid input: {e}", ephemeral=True)
@@ -221,7 +223,8 @@ class TeamStatsEntryView(discord.ui.View):
                 await self.update_summary(defensive_interaction)
 
             defensive_modal = DefensiveStatsModal(cached_player.display_name, offensive_stats, on_stats_submitted)
-            await offensive_interaction.response.send_modal(defensive_modal)
+            # Use followup.send to show modal after the offensive modal is deferred
+            await offensive_interaction.followup.send(modal=defensive_modal)
 
         offensive_modal = OffensiveStatsModal(cached_player.display_name, on_offensive_submitted)
         await interaction.response.send_modal(offensive_modal)
