@@ -62,128 +62,87 @@ class ScoreEntryModal(discord.ui.Modal):
 
 
 # ============================================================================
-# PLAYER STAT ENTRY MODALS (Split into two: Offensive & Defensive)
+# PLAYER STAT ENTRY MODAL (Single modal, all 8 fields)
 # ============================================================================
 
-class OffensiveStatsModal(discord.ui.Modal):
-    """Modal for offensive stats (Goals, Points, Assists, etc.)"""
+class PlayerStatEntryModal(discord.ui.Modal):
+    """Modal for entering a single player's stats (all 8 fields)"""
 
-    def __init__(self, player_name: str, on_offensive_submitted: Callable):
-        super().__init__(title=f"{player_name} - Offensive Stats")
+    def __init__(self, player_name: str, on_stats_entered: Callable):
+        super().__init__(title=f"Stats for {player_name}")
         self.player_name = player_name
-        self.on_offensive_submitted = on_offensive_submitted
+        self.on_stats_entered = on_stats_entered
 
-        self.goals_input = discord.ui.TextInput(
-            label="Goals",
-            placeholder="0",
-            default="0",
-            min_length=1,
-            max_length=2
-        )
-
-        self.own_goals_input = discord.ui.TextInput(
-            label="Own Goals",
-            placeholder="0",
-            default="0",
-            min_length=1,
-            max_length=2
-        )
-
-        self.points_input = discord.ui.TextInput(
-            label="Points",
-            placeholder="0",
-            default="0",
-            min_length=1,
-            max_length=2
-        )
-
-        self.assists_input = discord.ui.TextInput(
-            label="Assists",
-            placeholder="0",
-            default="0",
-            min_length=1,
-            max_length=2
-        )
-
-        self.powerup_plays_input = discord.ui.TextInput(
-            label="Powerup Plays",
-            placeholder="0",
-            default="0",
-            min_length=1,
-            max_length=2
-        )
+        # First 5 fields
+        self.goals_input = discord.ui.TextInput(label="Goals", placeholder="0", default="0")
+        self.own_goals_input = discord.ui.TextInput(label="Own Goals", placeholder="0", default="0")
+        self.points_input = discord.ui.TextInput(label="Points", placeholder="0", default="0")
+        self.assists_input = discord.ui.TextInput(label="Assists", placeholder="0", default="0")
+        self.saves_input = discord.ui.TextInput(label="Saves", placeholder="0", default="0")
 
         for item in (self.goals_input, self.own_goals_input, self.points_input, 
-                     self.assists_input, self.powerup_plays_input):
+                     self.assists_input, self.saves_input):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
+        """Show second modal for remaining stats after user submits first batch"""
         try:
-            offensive_stats = {
+            # Parse first batch of stats
+            first_batch = {
                 'goals': int(self.goals_input.value.strip()),
                 'own_goals': int(self.own_goals_input.value.strip()),
                 'points': int(self.points_input.value.strip()),
                 'assists': int(self.assists_input.value.strip()),
-                'powerup_plays': int(self.powerup_plays_input.value.strip())
+                'saves': int(self.saves_input.value.strip())
             }
-            # Defer so we can show the next modal via followup
-            await interaction.response.defer()
-            await self.on_offensive_submitted(offensive_stats, interaction)
+
+            # Create and show second modal
+            async def on_second_submit(second_stats: dict, second_interaction: discord.Interaction):
+                # Combine both batches into complete stat entry
+                stat_entry = PlayerStatEntry(
+                    player_id="",  # Will be set by caller
+                    player_name=self.player_name,
+                    goals=first_batch['goals'],
+                    own_goals=first_batch['own_goals'],
+                    points=first_batch['points'],
+                    assists=first_batch['assists'],
+                    saves=first_batch['saves'],
+                    blocks=second_stats['blocks'],
+                    powerup_plays=second_stats['powerup_plays'],
+                    powerups_used=second_stats['powerups_used']
+                )
+                await self.on_stats_entered(stat_entry, second_interaction)
+
+            second_modal = PlayerStatEntryModalSecond(self.player_name, on_second_submit)
+            await interaction.response.send_modal(second_modal)
+
         except ValueError as e:
             await interaction.response.send_message(f"❌ Invalid input: {e}", ephemeral=True)
 
 
-class DefensiveStatsModal(discord.ui.Modal):
-    """Modal for defensive stats (Saves, Blocks, Powerups Used)"""
+class PlayerStatEntryModalSecond(discord.ui.Modal):
+    """Second modal for remaining stats (Blocks, Powerup Plays, Powerups Used)"""
 
-    def __init__(self, player_name: str, offensive_stats: dict, on_stats_entered: Callable):
-        super().__init__(title=f"{player_name} - Defensive Stats")
+    def __init__(self, player_name: str, on_stats_entered: Callable):
+        super().__init__(title=f"Stats for {player_name} - Part 2")
         self.player_name = player_name
-        self.offensive_stats = offensive_stats
         self.on_stats_entered = on_stats_entered
 
-        self.saves_input = discord.ui.TextInput(
-            label="Saves",
-            placeholder="0",
-            default="0",
-            min_length=1,
-            max_length=2
-        )
+        self.blocks_input = discord.ui.TextInput(label="Blocks", placeholder="0", default="0")
+        self.powerup_plays_input = discord.ui.TextInput(label="Powerup Plays", placeholder="0", default="0")
+        self.powerups_used_input = discord.ui.TextInput(label="Powerups Used", placeholder="0", default="0")
 
-        self.blocks_input = discord.ui.TextInput(
-            label="Blocks",
-            placeholder="0",
-            default="0",
-            min_length=1,
-            max_length=2
-        )
-
-        self.powerups_used_input = discord.ui.TextInput(
-            label="Powerups Used",
-            placeholder="0",
-            default="0",
-            min_length=1,
-            max_length=2
-        )
-
-        for item in (self.saves_input, self.blocks_input, self.powerups_used_input):
+        for item in (self.blocks_input, self.powerup_plays_input, self.powerups_used_input):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            stat_entry = PlayerStatEntry(
-                player_id="",  # Will be set by caller
-                player_name=self.player_name,
-                goals=self.offensive_stats['goals'],
-                own_goals=self.offensive_stats['own_goals'],
-                points=self.offensive_stats['points'],
-                assists=self.offensive_stats['assists'],
-                saves=int(self.saves_input.value.strip()),
-                blocks=int(self.blocks_input.value.strip()),
-                powerup_plays=self.offensive_stats['powerup_plays'],
-                powerups_used=int(self.powerups_used_input.value.strip())
-            )
-            await self.on_stats_entered(stat_entry, interaction)
+            second_stats = {
+                'blocks': int(self.blocks_input.value.strip()),
+                'powerup_plays': int(self.powerup_plays_input.value.strip()),
+                'powerups_used': int(self.powerups_used_input.value.strip())
+            }
+            await self.on_stats_entered(second_stats, interaction)
         except ValueError as e:
             await interaction.response.send_message(f"❌ Invalid input: {e}", ephemeral=True)
 
@@ -214,20 +173,14 @@ class TeamStatsEntryView(discord.ui.View):
             await interaction.response.send_message("❌ Player not found", ephemeral=True)
             return
 
-        # Show offensive stats modal first
-        async def on_offensive_submitted(offensive_stats: dict, offensive_interaction: discord.Interaction):
-            # After offensive stats, show defensive stats modal
-            async def on_stats_submitted(stat_entry: PlayerStatEntry, defensive_interaction: discord.Interaction):
-                stat_entry.player_id = cached_player.player_id
-                self.team_match_entry.add_player_stats(stat_entry)
-                await self.update_summary(defensive_interaction)
+        # Show stat entry modal
+        async def on_stats_submitted(stat_entry: PlayerStatEntry, modal_interaction: discord.Interaction):
+            stat_entry.player_id = cached_player.player_id
+            self.team_match_entry.add_player_stats(stat_entry)
+            await self.update_summary(modal_interaction)
 
-            defensive_modal = DefensiveStatsModal(cached_player.display_name, offensive_stats, on_stats_submitted)
-            # Use followup.send to show modal after the offensive modal is deferred
-            await offensive_interaction.followup.send(modal=defensive_modal)
-
-        offensive_modal = OffensiveStatsModal(cached_player.display_name, on_offensive_submitted)
-        await interaction.response.send_modal(offensive_modal)
+        modal = PlayerStatEntryModal(cached_player.display_name, on_stats_submitted)
+        await interaction.response.send_modal(modal)
 
     async def update_summary(self, interaction: discord.Interaction):
         """Update the embed showing current players added"""
