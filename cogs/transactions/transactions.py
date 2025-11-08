@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import discord
 from discord import app_commands, utils
@@ -77,6 +77,44 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         self.supabase = get_supabase()
         self.repo = TransactionsRepository(self.supabase)
         self.config = get_config_manager()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+    def _get_league_display(self, season: Dict[str, Any]) -> tuple[str, str]:
+        """Return human-friendly league string and uppercase code for a season."""
+        league_code = (season.get('league_type') or '').upper()
+        league_name = ''
+
+        division_id = season.get('division_id')
+        if division_id:
+            try:
+                response = (
+                    self.supabase
+                    .table('divisions')
+                    .select('name, league_type')
+                    .eq('id', division_id)
+                    .limit(1)
+                    .execute()
+                )
+                division = (response.data or [None])[0]
+                if division:
+                    league_name = (division.get('name') or '').strip()
+                    division_code = division.get('league_type')
+                    if division_code:
+                        league_code = division_code.upper()
+            except Exception as exc:  # pragma: no cover - network path
+                logger.error(
+                    "Failed to resolve league metadata for season %s: %s",
+                    season.get('id'),
+                    exc,
+                )
+
+        display = league_name or league_code or "Unknown League"
+        if league_name and league_code and league_name.upper() != league_code:
+            display = f"{league_name} ({league_code})"
+
+        return display, league_code
 
     async def cog_load(self) -> None:
         """Recover pending offers on cog load (bot restart)."""
@@ -210,6 +248,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             await interaction.followup.send("❌ Failed to create pending signing. Please try again later.", ephemeral=True)
             return
 
+        league_display, league_code = self._get_league_display(season)
         # Compose announcement details.
         expiry_text = utils.format_dt(expires_at, style='R')
         embed = discord.Embed(
@@ -217,11 +256,16 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             description=f"{player.mention}, **{team['name']}** would like to sign you!",
             color=discord.Color.blurple()
         )
-        embed.add_field(name="Team", value=f"{team['name']} (`{team['code']}`)")
-        embed.add_field(name="Coach", value=interaction.user.mention)
+        embed.add_field(name="League", value=league_display, inline=True)
+        embed.add_field(name="Season", value=season.get('name', 'Unknown Season'), inline=True)
+        embed.add_field(name="Player", value=player.display_name, inline=True)
+        embed.add_field(name="Team", value=f"{team['name']} (`{team['code']}`)", inline=True)
+        embed.add_field(name="Coach", value=interaction.user.mention, inline=True)
         embed.add_field(name="Expires", value=expiry_text, inline=False)
+        embed.timestamp = datetime.utcnow()
+        embed.set_footer(text="Respond with the buttons below to confirm or decline the offer.")
 
-        view = PendingSigningView(self, pending, player, team, season)
+        view = PendingSigningView(self, pending, player, team, season, league_display, league_code)
 
         # Use configured transactions channel when available.
         channel = interaction.channel
@@ -321,13 +365,17 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             )
             return
 
+        league_display, league_code = self._get_league_display(season)
+
         modal = ReleaseConfirmationModal(
             cog=self,
             player_member=player,
             player_record=player_record,
             team=team,
             season=season,
-            channel_id=transactions_cfg.get('channel_id')
+            channel_id=transactions_cfg.get('channel_id'),
+            league_display=league_display,
+            league_code=league_code,
         )
 
         await interaction.response.send_modal(modal)

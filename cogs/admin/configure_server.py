@@ -133,36 +133,6 @@ class ConfigurationView(discord.ui.View):
             "Choose the channel where admin commands can be used.",
         )
 
-    @discord.ui.button(label="Scores Channel", emoji="🎯", style=discord.ButtonStyle.primary, row=0)
-    async def scores_channel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await self._handle_channel_selection(
-            interaction,
-            "Scores Channel",
-            "scoresChannelId",
-            "🎯 Select Scores Channel",
-            "Choose the channel where match reports will be sent.",
-        )
-
-    @discord.ui.button(label="Results Channel", emoji="📊", style=discord.ButtonStyle.primary, row=0)
-    async def results_channel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await self._handle_channel_selection(
-            interaction,
-            "Results Channel",
-            "resultsChannelId",
-            "📊 Select Results Channel",
-            "Choose the channel where results will be posted.",
-        )
-
-    @discord.ui.button(label="Transactions Channel", emoji="💳", style=discord.ButtonStyle.primary, row=1)
-    async def transactions_channel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await self._handle_channel_selection(
-            interaction,
-            "Transactions Channel",
-            "transactionsChannelId",
-            "💳 Select Transactions Channel",
-            "Choose the channel for transaction notifications (signs, releases, trades).",
-        )
-
     async def _handle_channel_selection(
         self,
         interaction: discord.Interaction,
@@ -200,38 +170,7 @@ class ConfigurationView(discord.ui.View):
             self.set_buttons_state(False)
             await self.update_display()
 
-    @discord.ui.button(label="Result Channels", emoji="🏆", style=discord.ButtonStyle.primary, row=1)
-    async def result_channels(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        if self.is_busy:
-            await interaction.response.send_message(
-                "⏳ Please wait for the current operation to complete.",
-                ephemeral=True,
-            )
-            return
-
-        self.is_busy = True
-        self.set_buttons_state(True)
-        await self.update_display()
-
-        try:
-            view = ResultChannelView(self.config_data.get("result_channels", {}))
-            embed = discord.Embed(
-                title="🏆 Result Channels Configuration",
-                description="Configure channels for different divisions.",
-                color=discord.Color.purple(),
-            )
-            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
-            await view.wait()
-
-            if view.changes_made:
-                self.config_data.setdefault("result_channels", {}).update(view.result_channels)
-                self.mark_changes()
-        finally:
-            self.is_busy = False
-            self.set_buttons_state(False)
-            await self.update_display()
-
-    @discord.ui.button(label="Transaction Settings", emoji="⚙️", style=discord.ButtonStyle.primary, row=2)
+    @discord.ui.button(label="Transaction Settings", emoji="⚙️", style=discord.ButtonStyle.primary, row=1)
     async def transaction_settings(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         if self.is_busy:
             await interaction.response.send_message(
@@ -263,7 +202,7 @@ class ConfigurationView(discord.ui.View):
             self.set_buttons_state(False)
             await self.update_display()
 
-    @discord.ui.button(label="Save Configuration", emoji="💾", style=discord.ButtonStyle.success, row=2)
+    @discord.ui.button(label="Save Configuration", emoji="💾", style=discord.ButtonStyle.success, row=1)
     async def save_config(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         if self.is_busy:
             await interaction.response.send_message(
@@ -331,14 +270,8 @@ class ConfigurationView(discord.ui.View):
                 "server_configured": False,
                 "guild_name": self.config_data.get("guild_name", ""),
                 "transactionsChannelId": "",
-                "resultsChannelId": "",
-                "result_channels": {
-                    "division_2": None,
-                    "division_1": None,
-                },
                 "admin_role_id": "",
                 "adminCommandsChannelId": "",
-                "scoresChannelId": "",
             }
             self.mark_changes()
 
@@ -430,96 +363,6 @@ class ChannelSelectView(discord.ui.View):
         embed = discord.Embed(
             title=f"✅ {self.display_name} Selected",
             description=f"Selected channel: {channel.mention}",
-            color=discord.Color.green(),
-        )
-
-        for item in self.children:
-            item.disabled = True
-
-        await interaction.response.edit_message(embed=embed, view=self)
-        self.stop()
-
-
-class ResultChannelView(discord.ui.View):
-    def __init__(self, current_result_channels: Dict[str, Optional[str]]) -> None:
-        super().__init__(timeout=120)
-        self.result_channels = current_result_channels.copy()
-        self.changes_made = False
-
-    def create_embed(self) -> discord.Embed:
-        embed = discord.Embed(
-            title="🏆 Result Channels Configuration",
-            description="Configure channels for different divisions.",
-            color=discord.Color.purple(),
-        )
-
-        div1_channel = self.result_channels.get("division_1")
-        div2_channel = self.result_channels.get("division_2")
-
-        div1_text = f"<#{div1_channel}>" if div1_channel else "Not Set"
-        div2_text = f"<#{div2_channel}>" if div2_channel else "Not Set"
-
-        embed.add_field(name="🥇 Division 1", value=div1_text, inline=True)
-        embed.add_field(name="🥈 Division 2", value=div2_text, inline=True)
-
-        if self.changes_made:
-            embed.add_field(name="📝 Status", value="⚠️ Changes pending", inline=False)
-
-        return embed
-
-    async def update_embed(self, interaction: discord.Interaction) -> None:
-        try:
-            await interaction.edit_original_response(embed=self.create_embed(), view=self)
-        except Exception as exc:  # pragma: no cover - network path
-            logger.error("Failed to refresh result channel embed: %s", exc)
-
-    @discord.ui.button(label="Division 1 Channel", emoji="🥇", style=discord.ButtonStyle.primary)
-    async def division1_channel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.defer()
-
-        view = ChannelSelectView("Division 1 Results Channel")
-        embed = discord.Embed(
-            title="🥇 Select Division 1 Results Channel",
-            description="Choose the channel for Division 1 match results.",
-            color=discord.Color.gold(),
-        )
-
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-        await view.wait()
-
-        if view.selected_channel_id:
-            self.result_channels["division_1"] = view.selected_channel_id
-            self.changes_made = True
-            await self.update_embed(interaction)
-
-    @discord.ui.button(label="Division 2 Channel", emoji="🥈", style=discord.ButtonStyle.primary)
-    async def division2_channel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.defer()
-
-        view = ChannelSelectView("Division 2 Results Channel")
-        embed = discord.Embed(
-            title="🥈 Select Division 2 Results Channel",
-            description="Choose the channel for Division 2 match results.",
-            color=discord.Color.from_rgb(192, 192, 192),
-        )
-
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-        await view.wait()
-
-        if view.selected_channel_id:
-            self.result_channels["division_2"] = view.selected_channel_id
-            self.changes_made = True
-            await self.update_embed(interaction)
-
-    @discord.ui.button(label="Done", emoji="✅", style=discord.ButtonStyle.success)
-    async def done(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        status_text = "Result channels configuration complete!"
-        if self.changes_made:
-            status_text = "✅ Changes will be applied when you save the main configuration!"
-
-        embed = discord.Embed(
-            title="✅ Result Channels Configuration Complete",
-            description=status_text,
             color=discord.Color.green(),
         )
 

@@ -32,14 +32,8 @@ class ConfigUtility:
             "server_configured": False,
             "guild_name": "",
             "transactionsChannelId": "",
-            "resultsChannelId": "",
             "admin_role_id": "",
             "adminCommandsChannelId": "",
-            "scoresChannelId": "",
-            "result_channels": {
-                "division_1": None,
-                "division_2": None,
-            },
             # Namespaced config groups (timer/stats/transactions etc.)
             "timer": {},
             "stats": {},
@@ -53,7 +47,7 @@ class ConfigUtility:
         merged.update(supabase_config)
 
         # Normalise channel ids to strings for embed display.
-        for field in ("transactionsChannelId", "adminCommandsChannelId", "scoresChannelId"):
+        for field in ("transactionsChannelId", "adminCommandsChannelId"):
             if merged.get(field):
                 merged[field] = str(merged[field])
 
@@ -184,21 +178,6 @@ class ConfigUtility:
         config["blacklist_role_id"] = str(role_id)
         await ConfigUtility.save_guild_config(bot, guild_id, config)
 
-    @staticmethod
-    async def get_scores_channel_id(bot: Any, guild_id: int) -> Optional[int]:
-        config = await ConfigUtility.get_guild_config(bot, guild_id)
-        channel_id = config.get("scoresChannelId")
-        try:
-            return int(channel_id)
-        except (TypeError, ValueError):
-            return None
-
-    @staticmethod
-    async def set_scores_channel_id(bot: Any, guild_id: int, channel_id: Optional[int]) -> None:
-        config = await ConfigUtility.get_guild_config(bot, guild_id)
-        config["scoresChannelId"] = str(channel_id) if channel_id else ""
-        await ConfigUtility.save_guild_config(bot, guild_id, config)
-
     # ------------------------------------------------------------------
     # UI helpers
     # ------------------------------------------------------------------
@@ -231,28 +210,6 @@ class ConfigUtility:
         admin_channel = config_data.get("adminCommandsChannelId")
         admin_channel_text = f"<#{admin_channel}>" if admin_channel else "Not Set"
         embed.add_field(name="⚡ Admin Commands Channel", value=admin_channel_text, inline=True)
-
-        scores_channel = config_data.get("scoresChannelId")
-        scores_channel_text = f"<#{scores_channel}>" if scores_channel else "Not Set"
-        embed.add_field(name="🎯 Scores Channel", value=scores_channel_text, inline=True)
-
-        results_channel = config_data.get("resultsChannelId")
-        results_channel_text = f"<#{results_channel}>" if results_channel else "Not Set"
-        embed.add_field(name="📊 Results Channel", value=results_channel_text, inline=True)
-
-        result_channels = config_data.get("result_channels", {}) or {}
-        div1_channel = result_channels.get("division_1")
-        div2_channel = result_channels.get("division_2")
-        result_lines = []
-        if div1_channel:
-            result_lines.append(f"Division 1: <#{div1_channel}>")
-        if div2_channel:
-            result_lines.append(f"Division 2: <#{div2_channel}>")
-        embed.add_field(
-            name="🏆 Result Channels",
-            value="\n".join(result_lines) if result_lines else "Not Set",
-            inline=False,
-        )
 
         blacklist_role_id = config_data.get("blacklist_role_id")
         blacklist_role_text = f"<@&{blacklist_role_id}>" if blacklist_role_id else "Not Set"

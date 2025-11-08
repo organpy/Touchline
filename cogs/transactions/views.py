@@ -27,7 +27,9 @@ class PendingSigningView(discord.ui.View):
         pending_signing: Dict[str, Any],
         player: discord.Member,
         team: Dict[str, Any],
-        season: Dict[str, Any]
+        season: Dict[str, Any],
+        league_display: str,
+        league_code: str,
     ):
         super().__init__(timeout=None)
         self.cog = cog
@@ -35,6 +37,9 @@ class PendingSigningView(discord.ui.View):
         self.player = player
         self.team = team
         self.season = season
+        self.league_display = league_display
+        self.league_code = league_code
+        self.season_name = self.season.get('name', 'Unknown Season')
         self.resolved = False
         self.message: Optional[discord.Message] = None
 
@@ -60,6 +65,14 @@ class PendingSigningView(discord.ui.View):
             "⚠️ This signing offer has already been resolved.",
             ephemeral=True,
         )
+
+    def _league_field_value(self) -> str:
+        code = (self.league_code or self.season.get('league_type') or '').upper()
+        if self.league_display and code and self.league_display.upper() != code:
+            return self.league_display
+        if self.league_display:
+            return self.league_display
+        return code or "Unknown League"
 
     # ------------------------------------------------------------------
     # Discord view overrides
@@ -182,9 +195,12 @@ class PendingSigningView(discord.ui.View):
             description=f"{self.player.mention} has joined **{self.team['name']}**!",
             color=discord.Color.green()
         )
-        embed.add_field(name="Player", value=str(self.player))
-        embed.add_field(name="Team", value=f"{self.team['name']} (`{self.team['code']}`)")
-        embed.add_field(name="Accepted By", value=interaction.user.mention, inline=False)
+        embed.add_field(name="League", value=self._league_field_value(), inline=True)
+        embed.add_field(name="Season", value=self.season_name, inline=True)
+        embed.add_field(name="Player", value=str(self.player), inline=True)
+        embed.add_field(name="Team", value=f"{self.team['name']} (`{self.team['code']}`)", inline=True)
+        embed.add_field(name="Accepted By", value=interaction.user.mention, inline=True)
+        embed.timestamp = datetime.utcnow()
 
         await self._finalize(embed)
         await interaction.followup.send("✅ Offer accepted! Welcome to the team.", ephemeral=True)
@@ -216,9 +232,12 @@ class PendingSigningView(discord.ui.View):
             description=f"{self.player.mention} declined the offer from **{self.team['name']}**.",
             color=discord.Color.red()
         )
-        embed.add_field(name="Player", value=str(self.player))
-        embed.add_field(name="Team", value=f"{self.team['name']} (`{self.team['code']}`)")
-        embed.add_field(name="Updated By", value=actor.mention, inline=False)
+        embed.add_field(name="League", value=self._league_field_value(), inline=True)
+        embed.add_field(name="Season", value=self.season_name, inline=True)
+        embed.add_field(name="Player", value=str(self.player), inline=True)
+        embed.add_field(name="Team", value=f"{self.team['name']} (`{self.team['code']}`)", inline=True)
+        embed.add_field(name="Updated By", value=actor.mention, inline=True)
+        embed.timestamp = datetime.utcnow()
         return embed
 
     def _already_signed_embed(self) -> discord.Embed:
@@ -227,8 +246,11 @@ class PendingSigningView(discord.ui.View):
             description=f"{self.player.mention} is already rostered on **{self.team['name']}**.",
             color=discord.Color.gold()
         )
-        embed.add_field(name="Player", value=str(self.player))
-        embed.add_field(name="Team", value=f"{self.team['name']} (`{self.team['code']}`)")
+        embed.add_field(name="League", value=self._league_field_value(), inline=True)
+        embed.add_field(name="Season", value=self.season_name, inline=True)
+        embed.add_field(name="Player", value=str(self.player), inline=True)
+        embed.add_field(name="Team", value=f"{self.team['name']} (`{self.team['code']}`)", inline=True)
+        embed.timestamp = datetime.utcnow()
         return embed
 
 
@@ -242,7 +264,9 @@ class ReleaseConfirmationModal(discord.ui.Modal):
         player_record: Dict[str, Any],
         team: Dict[str, Any],
         season: Dict[str, Any],
-        channel_id: Optional[int]
+        channel_id: Optional[int],
+        league_display: str,
+        league_code: str,
     ):
         super().__init__(title="Confirm Release")
         self.cog = cog
@@ -251,6 +275,9 @@ class ReleaseConfirmationModal(discord.ui.Modal):
         self.team = team
         self.season = season
         self.channel_id = channel_id
+        self.league_display = league_display
+        self.league_code = league_code
+        self.season_name = self.season.get('name', 'Unknown Season')
 
         self.reason: discord.ui.TextInput = discord.ui.TextInput(
             label="Reason (optional)",
@@ -330,9 +357,12 @@ class ReleaseConfirmationModal(discord.ui.Modal):
             description=f"{self.player_member.mention} has been released from **{self.team['name']}**.",
             color=discord.Color.orange()
         )
-        embed.add_field(name="Player", value=str(self.player_member))
-        embed.add_field(name="Team", value=f"{self.team['name']} (`{self.team['code']}`)")
-        embed.add_field(name="Released By", value=interaction.user.mention, inline=False)
+        league_value = self.league_display or (self.league_code or self.season.get('league_type') or 'Unknown League')
+        embed.add_field(name="League", value=league_value, inline=True)
+        embed.add_field(name="Season", value=self.season_name, inline=True)
+        embed.add_field(name="Player", value=str(self.player_member), inline=True)
+        embed.add_field(name="Team", value=f"{self.team['name']} (`{self.team['code']}`)", inline=True)
+        embed.add_field(name="Released By", value=interaction.user.mention, inline=True)
         if reason:
             embed.add_field(name="Reason", value=reason, inline=False)
         embed.timestamp = datetime.utcnow()
