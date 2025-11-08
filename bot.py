@@ -18,6 +18,7 @@ load_dotenv()
 # Initialize Supabase client for config manager
 from db import get_supabase
 from utils.config_manager import init_config_manager
+from utils.team_player_cache import TeamPlayerCache
 
 # ============================================================================
 # CONFIG
@@ -60,7 +61,7 @@ class NBLBot(commands.Bot):
         excluded_files = {
             '__init__.py', 'base.py', 'utils.py', 'models.py', 'views.py', 'roster_cache.py',
             # Transaction helper modules (not standalone cogs)
-            'history.py', 'trade_approval.py', 'trade_views.py', 'admin_seed_picks.py'
+            'history.py', 'trade_approval.py', 'trade_views.py'
         }
 
         for root, dirs, files in os.walk(cogs_directory):
@@ -85,6 +86,15 @@ class NBLBot(commands.Bot):
             logger.info("✅ ConfigManager initialized")
         except Exception as e:
             logger.error(f"❌ Failed to initialize ConfigManager: {e}", exc_info=True)
+        
+        logger.info("🔄 Initializing TeamPlayerCache...")
+        try:
+            supabase = get_supabase()
+            TeamPlayerCache.set_supabase(supabase)
+            await TeamPlayerCache.refresh()
+            logger.info("✅ TeamPlayerCache initialized")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize TeamPlayerCache: {e}", exc_info=True)
         
         logger.info("🔄 Discovering cogs...")
         extensions = self.discover_cogs()

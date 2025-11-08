@@ -14,12 +14,59 @@ from discord.ext import commands
 from db import get_supabase, queries
 from db.transactions_repository import TransactionsRepository
 from utils.config_manager import get_config_manager
+from utils.team_player_cache import TeamPlayerCache
 
 from .views import PendingSigningView, ReleaseConfirmationModal
 from .trade_views import TradeAssetModal
 from .history import fetch_filtered_transactions, build_history_embed
 
 logger = logging.getLogger(__name__)
+
+
+# ==================== AUTOCOMPLETE FUNCTIONS ====================
+
+async def autocomplete_team_code(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[app_commands.Choice[str]]:
+    """Autocomplete team codes from cache."""
+    cache = TeamPlayerCache()
+    all_codes = cache.get_team_codes()
+    
+    # Filter to matching codes
+    filtered = [code for code in all_codes if current.upper() in code]
+    
+    # Return as choices (max 25)
+    return [
+        app_commands.Choice(name=code, value=code)
+        for code in filtered[:25]
+    ]
+
+
+async def autocomplete_team_player(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[app_commands.Choice[str]]:
+    """Autocomplete player names on user's team."""
+    cache = TeamPlayerCache()
+    supabase = get_supabase()
+    
+    # Get user's team
+    team = await queries.get_team_by_owner(supabase, interaction.user.id)
+    if not team:
+        return []
+    
+    # Get players on that team
+    player_names = cache.get_team_player_names(team['id'])
+    
+    # Filter to matching names
+    filtered = [name for name in player_names if current.lower() in name.lower()]
+    
+    # Return as choices (max 25)
+    return [
+        app_commands.Choice(name=name, value=name)
+        for name in filtered[:25]
+    ]
 
 
 class TransactionsCog(commands.GroupCog, name="transactions"):

@@ -148,8 +148,8 @@ async def fetch_filtered_transactions(
 
         query = supabase.table('transactions').select(
             '*, players(id, display_name), '
-            'teams:from_team_id(id, code, name), '
-            'teams:to_team_id(id, code, name)'
+            'from_team:from_team_id(id, code, name), '
+            'to_team:to_team_id(id, code, name)'
         ).eq('season_id', season_id).gte('created_at', since).order(
             'created_at', desc=True
         )
@@ -169,8 +169,8 @@ async def fetch_filtered_transactions(
             for txn in transactions:
                 # Team filter
                 if team_code_upper:
-                    from_team = txn.get('teams', {}) or {}
-                    to_team = txn.get('teams_1', {}) or {}  # Supabase renames second relation
+                    from_team = txn.get('from_team', {}) or {}
+                    to_team = txn.get('to_team', {}) or {}
                     from_code = from_team.get('code', '').upper() if from_team else ''
                     to_code = to_team.get('code', '').upper() if to_team else ''
 

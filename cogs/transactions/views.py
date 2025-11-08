@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 import discord
 
 from cogs.score.roster_cache import RosterCache
+from utils.team_player_cache import TeamPlayerCache
 
 if TYPE_CHECKING:  # pragma: no cover - hints only
     from .transactions import TransactionsCog
@@ -173,6 +174,8 @@ class PendingSigningView(discord.ui.View):
         # Refresh roster cache so new signing appears immediately
         logger.info("🔄 Invalidating roster cache for signing acceptance")
         RosterCache().invalidate()
+        logger.info("🔄 Invalidating team player cache for signing acceptance")
+        await TeamPlayerCache.refresh()
 
         embed = discord.Embed(
             title="✅ Signing Accepted",
@@ -308,7 +311,10 @@ class ReleaseConfirmationModal(discord.ui.Modal):
             transaction['id']
         )
 
+        logger.info("🔄 Invalidating roster cache for release")
         RosterCache().invalidate()
+        logger.info("🔄 Invalidating team player cache for release")
+        await TeamPlayerCache.refresh()
 
         embed = discord.Embed(
             title="Player Released",

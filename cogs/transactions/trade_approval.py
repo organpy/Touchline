@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 import discord
 
 from cogs.score.roster_cache import RosterCache
+from utils.team_player_cache import TeamPlayerCache
 
 if TYPE_CHECKING:  # pragma: no cover - hints only
     from .transactions import TransactionsCog
@@ -207,7 +208,10 @@ class TradeApprovalView(discord.ui.View):
             self.cog.repo.update_trade_status(self.trade_proposal['id'], 'executed')
 
             # Refresh cache
+            logger.info("🔄 Invalidating roster cache for trade execution")
             RosterCache().invalidate()
+            logger.info("🔄 Invalidating team player cache for trade execution")
+            await TeamPlayerCache.refresh()
 
             logger.info(
                 "✅ Trade executed: %s → %s (proposal=%s)",
