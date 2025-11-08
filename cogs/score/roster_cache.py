@@ -52,7 +52,7 @@ class RosterCache:
         """Load all teams and active rosters from Supabase at startup"""
         logger.info("🔄 Loading roster cache...")
         try:
-            # Get all teams (assuming NBL division)
+            # Get all teams across all divisions
             teams_response = supabase_client.table('teams').select('*').execute()
             for team_row in teams_response.data:
                 team = CachedTeam(
@@ -64,40 +64,39 @@ class RosterCache:
                 self.teams[team_row['code']] = team
                 logger.debug(f"  Cached team: {team_row['code']}")
 
-            # Get active season
-            seasons_response = supabase_client.table('seasons').select('id').eq('active', True).limit(1).execute()
-            if not seasons_response.data:
-                logger.warning("⚠️  No active season found")
-                self.loaded = True
-                return
-
-            active_season_id = seasons_response.data[0]['id']
-            logger.debug(f"  Active season: {active_season_id}")
-
-            # Get all active rosters (left_at IS NULL)
+            # Get all active rosters (left_at IS NULL) - NO season filter
+            # This includes players from ALL seasons who are currently active (left_at IS NULL)
             rosters_response = supabase_client.table('rosters').select(
                 'id, player_id, team_id, season_id, joined_at, left_at, '
                 'players(id, display_name, discord_id), teams(code)'
-            ).eq('season_id', active_season_id).is_('left_at', 'null').execute()
+            ).is_('left_at', 'null').execute()
 
             roster_count = 0
+            loaded_player_ids = set()  # Track unique players to avoid duplicates
+            
             for roster_row in rosters_response.data:
                 player_data = roster_row['players']
                 team_code = roster_row['teams']['code']
+                player_id = player_data['id']
+
+                # Skip if we've already loaded this player (they might be in multiple rosters)
+                if player_id in loaded_player_ids:
+                    continue
 
                 player = CachedPlayer(
-                    player_id=player_data['id'],
+                    player_id=player_id,
                     display_name=player_data['display_name'],
                     discord_id=player_data.get('discord_id')
                 )
 
-                # Cache player
-                self.players[player_data['id']] = player
+                # Cache player (once per unique player)
+                self.players[player_id] = player
+                loaded_player_ids.add(player_id)
 
                 # Add to team's active players
                 if team_code in self.teams:
-                    # Avoid duplicates
-                    if not any(p.player_id == player.player_id for p in self.teams[team_code].active_players):
+                    # Avoid duplicates in team roster
+                    if not any(p.player_id == player_id for p in self.teams[team_code].active_players):
                         self.teams[team_code].active_players.append(player)
                         roster_count += 1
 

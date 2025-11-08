@@ -1,51 +1,29 @@
 """
-Timer Cog - Match timer for time-based competitions (10-minute games)
-Supports pause/resume/stop with beautiful UI and live score updates
+Simple Timer Cog - Match timer with pause/resume/stop buttons
 """
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 import logging
-import asyncio
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
-
-from db import get_supabase, queries
-from utils.config_manager import get_config_manager
-from .views import (
-    TimerControlView,
-    TimerConfirmView,
-    TeamSelectionForTimerView,
-    TimerDisplayEmbed,
-    LiveScoreUpdateView
-)
+from datetime import datetime
+from typing import Optional, Dict
 
 logger = logging.getLogger(__name__)
 
 
 class TimerSession:
-    """Represents an active match timer session"""
+    """Represents an active match timer"""
 
-    def __init__(
-        self,
-        message_id: int,
-        channel_id: int,
-        guild_id: int,
-        team1: Dict[str, Any],
-        team2: Dict[str, Any],
-        duration_seconds: int
-    ):
+    def __init__(self, message_id: int, channel_id: int, guild_id: int, user_id: int, duration_seconds: int = 600):
         self.message_id = message_id
         self.channel_id = channel_id
         self.guild_id = guild_id
-        self.team1 = team1
-        self.team2 = team2
+        self.user_id = user_id  # Only this user can control the timer
         self.duration_seconds = duration_seconds
         self.elapsed_seconds = 0
         self.is_running = True
         self.created_at = datetime.utcnow()
-        self.paused_at: Optional[datetime] = None
 
     @property
     def time_remaining(self) -> int:
@@ -57,15 +35,21 @@ class TimerSession:
         """Check if timer has finished"""
         return self.time_remaining <= 0
 
+    @property
+    def formatted_time(self) -> str:
+        """Format time as MM:SS"""
+        remaining = self.time_remaining
+        minutes = remaining // 60
+        seconds = remaining % 60
+        return f"{minutes:02d}:{seconds:02d}"
+
     def pause(self):
         """Pause the timer"""
         self.is_running = False
-        self.paused_at = datetime.utcnow()
 
     def resume(self):
         """Resume the timer"""
         self.is_running = True
-        self.paused_at = None
 
     def tick(self):
         """Advance timer by 1 second"""
@@ -73,14 +57,60 @@ class TimerSession:
             self.elapsed_seconds += 1
 
 
+class TimerControlView(discord.ui.View):
+    """Control buttons for timer (pause/resume/stop)"""
+
+    def __init__(self, session: TimerSession, on_stop_callback):
+        super().__init__(timeout=None)
+        self.session = session
+        self.on_stop_callback = on_stop_callback
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Only allow the user who started the timer to interact"""
+        if interaction.user.id != self.session.user_id:
+            await interaction.response.send_message(
+                "❌ Only the person who started this timer can control it!",
+                ephemeral=True
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="⏸️ Pause", style=discord.ButtonStyle.primary)
+    async def pause_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.session.is_running:
+            await interaction.response.defer()
+            return
+        
+        self.session.pause()
+        self.pause_button.disabled = True
+        self.resume_button.disabled = False
+        await interaction.response.edit_message(view=self)
+
+    @discord.ui.button(label="▶️ Resume", style=discord.ButtonStyle.success, disabled=True)
+    async def resume_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.session.is_running:
+            await interaction.response.defer()
+            return
+        
+        self.session.resume()
+        self.pause_button.disabled = False
+        self.resume_button.disabled = True
+        await interaction.response.edit_message(view=self)
+
+    @discord.ui.button(label="⏹️ Stop", style=discord.ButtonStyle.danger)
+    async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        await self.on_stop_callback(interaction)
+
+
 class TimerCog(commands.Cog):
-    """Cog for match timer functionality"""
+    """Simple timer cog for matches"""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.supabase = get_supabase()
-        self.config_manager = get_config_manager()
-        self.active_timers: Dict[int, TimerSession] = {}  # guild_id -> TimerSession
+        # Changed from guild_id -> session to (guild_id, user_id) -> session
+        # This allows multiple timers per guild (one per user)
+        self.active_timers: Dict[tuple, TimerSession] = {}  # (guild_id, user_id) -> TimerSession
         self.timer_loop.start()
 
     def cog_unload(self):
@@ -91,9 +121,9 @@ class TimerCog(commands.Cog):
     async def timer_loop(self):
         """Main timer loop - runs every second"""
         try:
-            guild_ids_to_remove = []
+            keys_to_remove = []
             
-            for guild_id, session in self.active_timers.items():
+            for (guild_id, user_id), session in self.active_timers.items():
                 # Advance timer
                 session.tick()
                 
@@ -101,43 +131,53 @@ class TimerCog(commands.Cog):
                 try:
                     guild = self.bot.get_guild(guild_id)
                     if not guild:
-                        guild_ids_to_remove.append(guild_id)
+                        keys_to_remove.append((guild_id, user_id))
                         continue
                     
                     channel = guild.get_channel(session.channel_id)
                     if not channel:
-                        guild_ids_to_remove.append(guild_id)
+                        keys_to_remove.append((guild_id, user_id))
                         continue
                     
                     try:
                         message = await channel.fetch_message(session.message_id)
-                        embed = TimerDisplayEmbed(
-                            session.team1,
-                            session.team2,
-                            session.time_remaining,
-                            is_running=session.is_running
+                        
+                        # Create embed with current time
+                        embed = discord.Embed(
+                            title="⏱️ Match Timer",
+                            description=f"**{session.formatted_time}**",
+                            color=discord.Color.blue() if session.is_running else discord.Color.orange()
                         )
+                        embed.add_field(
+                            name="Status",
+                            value="▶️ Running" if session.is_running else "⏸️ Paused",
+                            inline=False
+                        )
+                        
                         await message.edit(embed=embed)
                     except discord.NotFound:
-                        guild_ids_to_remove.append(guild_id)
+                        keys_to_remove.append((guild_id, user_id))
                         continue
                     
                     # Check if timer finished
                     if session.is_finished:
-                        # Auto-end match if configured
-                        timer_config = await self.config_manager.get_timer_config(guild_id)
-                        if timer_config.get('auto_end', True):
-                            await self._end_match(guild, session)
-                            guild_ids_to_remove.append(guild_id)
+                        # Send completion message
+                        embed = discord.Embed(
+                            title="⏱️ Match Timer Complete!",
+                            description="**00:00**",
+                            color=discord.Color.green()
+                        )
+                        await channel.send(embed=embed)
+                        keys_to_remove.append((guild_id, user_id))
                 
                 except Exception as e:
-                    logger.error(f"Error updating timer for guild {guild_id}: {e}")
-                    guild_ids_to_remove.append(guild_id)
+                    logger.error(f"Error updating timer for {(guild_id, user_id)}: {e}")
+                    keys_to_remove.append((guild_id, user_id))
             
             # Clean up finished timers
-            for guild_id in guild_ids_to_remove:
-                if guild_id in self.active_timers:
-                    del self.active_timers[guild_id]
+            for key in keys_to_remove:
+                if key in self.active_timers:
+                    del self.active_timers[key]
         
         except Exception as e:
             logger.error(f"Error in timer loop: {e}")
@@ -149,186 +189,110 @@ class TimerCog(commands.Cog):
 
     @app_commands.command(
         name="timer",
-        description="Start a match timer (time-based game)"
+        description="Start a 10-minute match timer"
     )
-    async def start_timer(self, interaction: discord.Interaction):
+    @app_commands.describe(minutes="Duration in minutes (default: 10)")
+    async def start_timer(self, interaction: discord.Interaction, minutes: int = 10):
         """Start a new match timer"""
         
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         
-        # Check if already has active timer
-        if interaction.guild_id in self.active_timers:
+        # Check if this user already has an active timer
+        timer_key = (interaction.guild_id, interaction.user.id)
+        if timer_key in self.active_timers:
             await interaction.followup.send(
-                "⏱️ Timer already running! Use `/timer-stop` to end it.",
+                "⏱️ You already have a timer running! Use the Stop button to end it.",
                 ephemeral=True
             )
             return
         
         try:
-            # Get active season
-            season = await queries.get_active_season(self.supabase)
-            if not season:
-                await interaction.followup.send("❌ No active season found", ephemeral=True)
+            # Validate duration
+            if minutes < 1 or minutes > 120:
+                await interaction.followup.send("❌ Duration must be between 1 and 120 minutes", ephemeral=True)
                 return
             
-            # Get all teams for this season
-            teams = await queries.get_all_teams_for_season(self.supabase, season['id'])
-            if not teams:
-                await interaction.followup.send("❌ No teams found for this season", ephemeral=True)
-                return
-            
-            # Show team selection
-            teams_data = [
-                {
-                    'code': t['code'],
-                    'name': t['name'],
-                    'emoji': t.get('emoji', '🏀'),
-                    'id': t['id'],
-                    'score': 0
-                }
-                for t in teams
-            ]
-            
-            embed = discord.Embed(
-                title="🏆 Select Teams for Timer",
-                description="Click two team buttons to start the timer",
-                color=discord.Color.blue()
-            )
-            
-            selection_view = TeamSelectionForTimerView(teams_data, self._on_teams_selected)
-            await interaction.followup.send(embed=embed, view=selection_view, ephemeral=True)
-        
-        except Exception as e:
-            logger.error(f"Error starting timer: {e}")
-            await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
-
-    async def _on_teams_selected(self, interaction: discord.Interaction, selected_teams: list):
-        """Handle team selection for timer"""
-        
-        try:
-            await interaction.response.defer()
-            
-            team1 = selected_teams[0]
-            team2 = selected_teams[1]
-            
-            # Get timer config
-            timer_config = await self.config_manager.get_timer_config(interaction.guild_id)
-            duration = timer_config.get('duration_seconds', 600)  # Default 10 minutes
+            duration_seconds = minutes * 60
             
             # Create timer session
             session = TimerSession(
                 message_id=0,  # Will be set after sending message
                 channel_id=interaction.channel_id,
                 guild_id=interaction.guild_id,
-                team1=team1,
-                team2=team2,
-                duration_seconds=duration
+                user_id=interaction.user.id,  # Store user ID
+                duration_seconds=duration_seconds
             )
             
             # Create embed
-            embed = TimerDisplayEmbed(team1, team2, duration, is_running=True)
-            
-            # Create views
-            async def on_pause(pause_interaction: discord.Interaction):
-                session.pause()
-                await pause_interaction.response.defer()
-            
-            async def on_resume(resume_interaction: discord.Interaction):
-                session.resume()
-                await resume_interaction.response.defer()
-            
-            async def on_stop(stop_interaction: discord.Interaction):
-                async def on_confirm(confirm_interaction: discord.Interaction):
-                    await self._end_match(interaction.guild, session)
-                    del self.active_timers[interaction.guild_id]
-                
-                async def on_cancel(cancel_interaction: discord.Interaction):
-                    await cancel_interaction.response.defer()
-                
-                confirm_view = TimerConfirmView(on_confirm, on_cancel)
-                await stop_interaction.response.send_message(
-                    "⚠️ Are you sure you want to end this match?",
-                    view=confirm_view,
-                    ephemeral=True
-                )
-            
-            timer_control_view = TimerControlView(on_pause, on_resume, on_stop)
-            
-            # Send timer message
-            timer_message = await interaction.channel.send(
-                embed=embed,
-                view=timer_control_view
+            embed = discord.Embed(
+                title="⏱️ Match Timer",
+                description=f"**{session.formatted_time}**",
+                color=discord.Color.blue()
             )
+            embed.add_field(name="Status", value="▶️ Running", inline=False)
+            embed.add_field(name="Duration", value=f"{minutes} minute{'s' if minutes != 1 else ''}", inline=False)
+            embed.set_footer(text=f"Started by {interaction.user.name}")
             
-            session.message_id = timer_message.id
-            self.active_timers[interaction.guild_id] = session
+            # Create view with control buttons
+            async def on_stop(stop_interaction: discord.Interaction):
+                """Handle stop button"""
+                if timer_key in self.active_timers:
+                    del self.active_timers[timer_key]
+                embed = discord.Embed(
+                    title="⏹️ Timer Stopped",
+                    description=f"Match stopped at **{session.formatted_time}**",
+                    color=discord.Color.red()
+                )
+                try:
+                    await message.edit(embed=embed, view=None)
+                except:
+                    pass
             
-            logger.info(f"✅ Timer started: {team1['name']} vs {team2['name']} in guild {interaction.guild_id}")
+            view = TimerControlView(session, on_stop)
+            
+            # Send message
+            message = await interaction.followup.send(embed=embed, view=view)
+            session.message_id = message.id
+            
+            # Store session (one per user)
+            self.active_timers[timer_key] = session
+            logger.info(f"✅ Timer started for {interaction.user.name} in guild {interaction.guild_id} ({minutes}m)")
         
         except Exception as e:
-            logger.error(f"Error selecting teams: {e}")
+            logger.error(f"Error starting timer: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
 
-    async def _end_match(self, guild: discord.Guild, session: TimerSession):
-        """End match and display results"""
+    @app_commands.command(
+        name="timer-stop",
+        description="Stop the active timer"
+    )
+    async def stop_timer_cmd(self, interaction: discord.Interaction):
+        """Stop active timer via command"""
+        await interaction.response.defer(ephemeral=True)
+        
+        timer_key = (interaction.guild_id, interaction.user.id)
+        if timer_key not in self.active_timers:
+            await interaction.followup.send("❌ You don't have an active timer", ephemeral=True)
+            return
+        
+        session = self.active_timers[timer_key]
+        del self.active_timers[timer_key]
+        
+        embed = discord.Embed(
+            title="⏹️ Timer Stopped",
+            description=f"Match stopped at **{session.formatted_time}**",
+            color=discord.Color.red()
+        )
         
         try:
-            channel = guild.get_channel(session.channel_id)
-            if not channel:
-                return
-            
-            # Get final message
-            try:
+            channel = interaction.guild.get_channel(session.channel_id)
+            if channel:
                 message = await channel.fetch_message(session.message_id)
-                
-                # Create end embed
-                embed = TimerDisplayEmbed.create_end_embed(
-                    session.team1,
-                    session.team2,
-                    session.elapsed_seconds
-                )
-                
-                # Edit with final state
-                await message.edit(
-                    embed=embed,
-                    view=None  # Remove buttons
-                )
-            except discord.NotFound:
-                pass
-            
-            # Send summary to channel
-            summary_embed = discord.Embed(
-                title="🏁 Match Summary",
-                description=f"Timer completed",
-                color=discord.Color.gold()
-            )
-            
-            summary_embed.add_field(
-                name=f"🥇 {session.team1['name']}",
-                value=f"**{session.team1['score']}** pts",
-                inline=True
-            )
-            
-            summary_embed.add_field(
-                name="Final",
-                value=f"{session.elapsed_seconds // 60}:{session.elapsed_seconds % 60:02d}",
-                inline=True
-            )
-            
-            summary_embed.add_field(
-                name=f"{session.team2['name']} 🥈",
-                value=f"**{session.team2['score']}** pts",
-                inline=True
-            )
-            
-            summary_embed.set_footer(text="Use `/report-stats` to record individual player statistics")
-            
-            await channel.send(embed=summary_embed)
-            
-            logger.info(f"✅ Match ended in guild {session.guild_id}")
+                await message.edit(embed=embed, view=None)
+        except:
+            pass
         
-        except Exception as e:
-            logger.error(f"Error ending match: {e}")
+        await interaction.followup.send("✅ Timer stopped", ephemeral=True)
 
     @app_commands.command(
         name="timer-config",
@@ -346,12 +310,6 @@ class TimerCog(commands.Cog):
         try:
             await interaction.response.defer(ephemeral=True)
             
-            await self.config_manager.set_timer_config(
-                interaction.guild_id,
-                duration_seconds=duration_minutes * 60,
-                auto_end=auto_end
-            )
-            
             embed = discord.Embed(
                 title="⏱️ Timer Configuration Updated",
                 color=discord.Color.green()
@@ -364,34 +322,6 @@ class TimerCog(commands.Cog):
         
         except Exception as e:
             logger.error(f"Error configuring timer: {e}")
-            await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
-
-    @app_commands.command(
-        name="timer-stop",
-        description="Stop the current match timer"
-    )
-    @app_commands.checks.has_permissions(moderate_members=True)
-    async def stop_timer(self, interaction: discord.Interaction):
-        """Stop the current timer"""
-        
-        if interaction.guild_id not in self.active_timers:
-            await interaction.response.send_message(
-                "❌ No active timer found",
-                ephemeral=True
-            )
-            return
-        
-        try:
-            await interaction.response.defer(ephemeral=True)
-            
-            session = self.active_timers[interaction.guild_id]
-            await self._end_match(interaction.guild, session)
-            del self.active_timers[interaction.guild_id]
-            
-            await interaction.followup.send("✅ Timer stopped", ephemeral=True)
-        
-        except Exception as e:
-            logger.error(f"Error stopping timer: {e}")
             await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
 
 
