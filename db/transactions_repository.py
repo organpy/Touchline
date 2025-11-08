@@ -173,6 +173,28 @@ class TransactionsRepository:
             )
             return False
 
+    def mark_player_released(self, season_id: str, player_id: str, from_team_id: str) -> bool:
+        """Mark player as released (left from team without joining another)."""
+        try:
+            now = datetime.utcnow().isoformat() + 'Z'
+
+            # Mark roster entry as left
+            self.supabase.table('rosters').update(
+                {'left_at': now}
+            ).eq('season_id', season_id).eq('player_id', player_id).eq(
+                'team_id', from_team_id
+            ).is_('left_at', None).execute()
+
+            return True
+        except Exception as exc:
+            logger.error(
+                "Failed to mark player %s as released from %s: %s",
+                player_id,
+                from_team_id,
+                exc
+            )
+            return False
+
     # ------------------------------------------------------------------
     # Transactions log
     # ------------------------------------------------------------------

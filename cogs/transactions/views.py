@@ -311,6 +311,15 @@ class ReleaseConfirmationModal(discord.ui.Modal):
             transaction['id']
         )
 
+        # Mark roster entry as left
+        logger.info("📝 Marking roster entry as left for player %s", self.player_record['id'])
+        if not self.cog.repo.mark_player_released(
+            self.season['id'],
+            self.player_record['id'],
+            self.team['id']
+        ):
+            logger.warning("⚠️ Failed to mark roster entry as left for player %s", self.player_record['id'])
+
         logger.info("🔄 Invalidating roster cache for release")
         RosterCache().invalidate()
         logger.info("🔄 Invalidating team player cache for release")
