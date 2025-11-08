@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
+# Initialize Supabase client for config manager
+from db import get_supabase
+from utils.config_manager import init_config_manager
+
 # ============================================================================
 # CONFIG
 # ============================================================================
@@ -70,6 +74,14 @@ class NBLBot(commands.Bot):
 
     async def setup_hook(self):
         """Setup hook: discover and load all cogs"""
+        logger.info("🔄 Initializing ConfigManager...")
+        try:
+            supabase = get_supabase()
+            init_config_manager(supabase)
+            logger.info("✅ ConfigManager initialized")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize ConfigManager: {e}", exc_info=True)
+        
         logger.info("🔄 Discovering cogs...")
         extensions = self.discover_cogs()
 

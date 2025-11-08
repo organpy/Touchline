@@ -50,10 +50,10 @@ class StatRegistrationCog(commands.Cog):
             logger.info("✅ Roster cache ready!")
 
     @app_commands.command(
-        name="start-match",
+        name="report-stats",
         description="Start recording a match with individual player statistics"
     )
-    async def start_match(self, interaction: discord.Interaction):
+    async def report_stats(self, interaction: discord.Interaction):
         """Main command to initiate stat registration flow"""
 
         if not self.roster_cache.loaded:
