@@ -70,7 +70,7 @@ class NBLBot(commands.Bot):
             # Transaction helper modules (not standalone cogs)
             'history.py', 'trade_approval.py', 'trade_views.py',
             # Admin panel helper modules
-            'admin_transactions_views_example.py', 'teams.py', 'rosters.py', 'picks.py'
+            'admin_transactions_views_example.py', 'teams.py', 'rosters.py', 'picks.py', "common.py",
         }
 
         for root, dirs, files in os.walk(cogs_directory):
