@@ -61,7 +61,9 @@ class NBLBot(commands.Bot):
         excluded_files = {
             '__init__.py', 'base.py', 'utils.py', 'models.py', 'views.py', 'roster_cache.py',
             # Transaction helper modules (not standalone cogs)
-            'history.py', 'trade_approval.py', 'trade_views.py'
+            'history.py', 'trade_approval.py', 'trade_views.py',
+            # Admin panel helper modules
+            'admin_transactions_views_example.py', 'teams.py', 'rosters.py', 'picks.py'
         }
 
         for root, dirs, files in os.walk(cogs_directory):

@@ -7,6 +7,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from cogs.admin.teams import TeamActionsView
+from cogs.admin.rosters import RosterActionsView
+from cogs.admin.picks import PicksActionsView
 from utils.config_utility import ConfigUtility
 
 logger = logging.getLogger(__name__)
@@ -69,10 +72,16 @@ class AdminDashboardView(discord.ui.View):
 
     @discord.ui.button(label="Team Management", emoji="🏢", style=discord.ButtonStyle.primary, row=0)
     async def teams(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.send_message(
-            "🏢 Team Management - Coming soon!",
-            ephemeral=True,
-        )
+        """Open team management interface."""
+        from cogs.admin.teams import TeamActionsView
+        
+        view = TeamActionsView(self.bot, interaction.guild.id, self.bot.supabase)
+        embed = view.create_embed()
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        try:
+            view.original_message = await interaction.original_response()
+        except Exception as exc:  # pragma: no cover
+            logger.error("Unable to fetch original response for team management: %s", exc)
 
     @discord.ui.button(label="Player Management", emoji="👤", style=discord.ButtonStyle.primary, row=0)
     async def players(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
@@ -83,17 +92,29 @@ class AdminDashboardView(discord.ui.View):
 
     @discord.ui.button(label="Roster Management", emoji="🏀", style=discord.ButtonStyle.primary, row=0)
     async def rosters(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.send_message(
-            "🏀 Roster Management - Coming soon!",
-            ephemeral=True,
-        )
+        """Open roster management interface."""
+        from cogs.admin.rosters import RosterActionsView
+        
+        view = RosterActionsView(self.bot, interaction.guild.id, self.bot.supabase)
+        embed = view.create_embed()
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        try:
+            view.original_message = await interaction.original_response()
+        except Exception as exc:  # pragma: no cover
+            logger.error("Unable to fetch original response for roster management: %s", exc)
 
     @discord.ui.button(label="Draft Picks", emoji="🏆", style=discord.ButtonStyle.primary, row=0)
     async def picks(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.send_message(
-            "🏆 Draft Pick Management - Coming soon!",
-            ephemeral=True,
-        )
+        """Open draft picks management interface."""
+        from cogs.admin.picks import PicksActionsView
+        
+        view = PicksActionsView(self.bot, interaction.guild.id, self.bot.supabase)
+        embed = view.create_embed()
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        try:
+            view.original_message = await interaction.original_response()
+        except Exception as exc:  # pragma: no cover
+            logger.error("Unable to fetch original response for draft picks management: %s", exc)
 
     @discord.ui.button(label="Transaction Overrides", emoji="📝", style=discord.ButtonStyle.primary, row=1)
     async def transactions(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:

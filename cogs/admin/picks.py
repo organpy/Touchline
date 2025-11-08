@@ -1,0 +1,672 @@
+"""Draft Picks Management UI for admin transactions dashboard."""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+import discord
+from discord import app_commands
+
+from db import queries
+from db.transactions_repository import TransactionsRepository
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .admin_transactions import AdminTransactionsCog
+
+logger = logging.getLogger(__name__)
+
+
+class PicksActionsView(discord.ui.View):
+    """Buttons for draft picks management."""
+
+    def __init__(self, bot: Any, guild_id: int, supabase: Any) -> None:
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.guild_id = guild_id
+        self.supabase = supabase
+        self.original_message: Optional[discord.Message] = None
+        self.repo = TransactionsRepository(supabase)
+
+    def create_embed(self) -> discord.Embed:
+        """Build draft picks management embed."""
+        embed = discord.Embed(
+            title="🏆 Draft Pick Management",
+            description="Manage draft picks, seed rounds, and reassign ownership.",
+            color=discord.Color.purple(),
+        )
+        embed.add_field(
+            name="Available Actions",
+            value=(
+                "• 🌱 **Seed Picks** - Generate draft picks for season\n"
+                "• 🔄 **Reassign Pick** - Transfer pick ownership\n"
+                "• 📋 **View Picks** - List all picks for season\n"
+                "• 🗂️ **View by Team** - See picks owned by team"
+            ),
+            inline=False,
+        )
+        embed.set_footer(text="Click a button below.")
+        return embed
+
+    async def update_display(self) -> None:
+        """Refresh the embed message."""
+        if not self.original_message:
+            return
+        try:
+            await self.original_message.edit(embed=self.create_embed(), view=self)
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to update draft picks management embed: %s", exc)
+
+    @discord.ui.button(label="Seed Picks", emoji="🌱", style=discord.ButtonStyle.primary, row=0)
+    async def seed_picks(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        view = SeedPicksView(self.supabase, self, self.repo)
+        embed = discord.Embed(
+            title="🌱 Seed Draft Picks",
+            description="Generate draft picks for a season. Select season and number of teams.",
+            color=discord.Color.purple(),
+        )
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        view.original_message = await interaction.original_response()
+
+    @discord.ui.button(label="Reassign Pick", emoji="🔄", style=discord.ButtonStyle.primary, row=0)
+    async def reassign_pick(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        view = ReassignPickView(self.supabase, self, self.repo)
+        embed = discord.Embed(
+            title="🔄 Reassign Draft Pick",
+            description="Select pick and new owner.",
+            color=discord.Color.purple(),
+        )
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        view.original_message = await interaction.original_response()
+
+    @discord.ui.button(label="View Picks", emoji="📋", style=discord.ButtonStyle.secondary, row=0)
+    async def view_picks(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        view = ViewPicksView(self.supabase, self)
+        embed = discord.Embed(
+            title="📋 View All Picks",
+            description="Select season to view draft order.",
+            color=discord.Color.purple(),
+        )
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        view.original_message = await interaction.original_response()
+
+    @discord.ui.button(label="View by Team", emoji="🗂️", style=discord.ButtonStyle.secondary, row=0)
+    async def view_by_team(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        view = ViewPicksByTeamView(self.supabase, self)
+        embed = discord.Embed(
+            title="🗂️ View Team Picks",
+            description="Select team to view their draft picks.",
+            color=discord.Color.purple(),
+        )
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        view.original_message = await interaction.original_response()
+
+    @discord.ui.button(label="Back", emoji="◀️", style=discord.ButtonStyle.secondary, row=1)
+    async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        """Return to main dashboard."""
+        await interaction.response.defer()
+        self.stop()
+
+
+class SeedPicksView(discord.ui.View):
+    """Seed draft picks: Season → Num Teams → Confirm."""
+
+    def __init__(self, supabase: Any, parent_view: PicksActionsView, repo: TransactionsRepository) -> None:
+        super().__init__(timeout=300)
+        self.supabase = supabase
+        self.parent_view = parent_view
+        self.repo = repo
+        self.original_message: Optional[discord.Message] = None
+        self._initialized = False
+        self._selected_season: Optional[Dict[str, Any]] = None
+
+    async def _initialize_seasons(self) -> None:
+        """Load available seasons."""
+        if self._initialized:
+            return
+
+        try:
+            seasons = self.supabase.table('seasons').select('*').order('created_at', desc=True).execute()
+            if seasons.data:
+                season_select = discord.ui.Select(
+                    placeholder="Select season to seed picks...",
+                    options=[
+                        discord.SelectOption(
+                            label=s.get('name', 'Unknown'),
+                            value=s.get('id', ''),
+                            description="✅ Active" if s.get('active') else "⏸️ Inactive",
+                        )
+                        for s in seasons.data[:25]
+                    ],
+                    row=0,
+                )
+                season_select.callback = self.select_season
+                self.add_item(season_select)
+                self._initialized = True
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to initialize season select for seed picks: %s", exc)
+
+    async def select_season(self, interaction: discord.Interaction) -> None:
+        """Handle season selection."""
+        await interaction.response.defer(ephemeral=True)
+        season_id = interaction.data['values'][0]
+
+        try:
+            season = self.supabase.table('seasons').select('*').eq('id', season_id).limit(1).execute()
+            if season.data:
+                self._selected_season = season.data[0]
+
+                # Check if picks already exist
+                existing_picks = self.repo.list_draft_picks(season_id)
+                if existing_picks:
+                    await interaction.followup.send(
+                        f"⚠️ **{self._selected_season.get('name')}** already has {len(existing_picks)} draft picks.",
+                        ephemeral=True,
+                    )
+                    return
+
+                # Show num teams input
+                modal = NumTeamsModal(self.supabase, self, self._selected_season, self.repo)
+                await interaction.response.send_modal(modal)
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to fetch season: %s", exc)
+            await interaction.followup.send("❌ Failed to fetch season.", ephemeral=True)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Initialize on first interaction."""
+        if not self._initialized:
+            await self._initialize_seasons()
+        return True
+
+
+class NumTeamsModal(discord.ui.Modal, title="Number of Teams for Seeding"):
+    """Modal to input number of teams."""
+
+    num_teams = discord.ui.TextInput(
+        label="Number of Teams",
+        placeholder="e.g., 8",
+        max_length=3,
+    )
+    num_rounds = discord.ui.TextInput(
+        label="Number of Rounds",
+        placeholder="e.g., 3 (optional)",
+        required=False,
+        max_length=3,
+    )
+
+    def __init__(self, supabase: Any, view: SeedPicksView, season: Dict[str, Any], repo: TransactionsRepository) -> None:
+        super().__init__()
+        self.supabase = supabase
+        self.view = view
+        self.season = season
+        self.repo = repo
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            num_teams = int(self.num_teams.value.strip())
+            num_rounds = int(self.num_rounds.value.strip()) if self.num_rounds.value.strip() else 1
+
+            if num_teams < 2 or num_teams > 50:
+                await interaction.followup.send("❌ Number of teams must be between 2 and 50.", ephemeral=True)
+                return
+
+            if num_rounds < 1 or num_rounds > 10:
+                await interaction.followup.send("❌ Number of rounds must be between 1 and 10.", ephemeral=True)
+                return
+
+            # Get all teams
+            teams = await queries.get_all_teams(self.supabase)
+            if len(teams) < num_teams:
+                await interaction.followup.send(
+                    f"❌ Only {len(teams)} teams exist, but {num_teams} requested.",
+                    ephemeral=True,
+                )
+                return
+
+            # Confirmation
+            class ConfirmSeedView(discord.ui.View):
+                def __init__(self) -> None:
+                    super().__init__(timeout=60)
+
+                @discord.ui.button(label="Confirm Seed", style=discord.ButtonStyle.success, emoji="✅")
+                async def confirm(self, confirm_interaction: discord.Interaction, _: discord.ui.Button) -> None:
+                    await confirm_interaction.response.defer(ephemeral=True)
+                    try:
+                        # Generate picks
+                        picks_to_insert = []
+                        overall_count = 1
+
+                        for round_num in range(1, num_rounds + 1):
+                            for team_idx in range(num_teams):
+                                team = teams[team_idx]
+                                picks_to_insert.append({
+                                    'season_id': self.season['id'],
+                                    'round': round_num,
+                                    'position_in_round': team_idx + 1,
+                                    'overall': overall_count,
+                                    'current_owner_team_id': team.get('id'),
+                                    'original_owner_team_id': team.get('id'),
+                                })
+                                overall_count += 1
+
+                        # Batch insert
+                        if picks_to_insert:
+                            result = self.supabase.table('draft_picks').insert(picks_to_insert).execute()
+                            if result.data:
+                                logger.info(
+                                    "✅ Seeded %d draft picks for %s (%d teams, %d rounds) by %s",
+                                    len(picks_to_insert),
+                                    self.season.get('name', '?'),
+                                    num_teams,
+                                    num_rounds,
+                                    confirm_interaction.user.id,
+                                )
+                                await confirm_interaction.followup.send(
+                                    f"✅ Seeded **{len(picks_to_insert)}** draft picks for "
+                                    f"**{self.season.get('name')}** ({num_teams} teams × {num_rounds} rounds)",
+                                    ephemeral=True,
+                                )
+                                await self.view.parent_view.update_display()
+                            else:
+                                raise Exception("No data returned from insert")
+                        else:
+                            await confirm_interaction.followup.send("❌ No picks generated.", ephemeral=True)
+                    except Exception as exc:  # pragma: no cover
+                        logger.error("Failed to seed picks: %s", exc)
+                        await confirm_interaction.followup.send(
+                            "❌ Failed to seed picks. Check server logs.",
+                            ephemeral=True,
+                        )
+
+                @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+                async def cancel(self, cancel_interaction: discord.Interaction, _: discord.ui.Button) -> None:
+                    await cancel_interaction.response.defer(ephemeral=True)
+                    await cancel_interaction.followup.send("❌ Cancelled.", ephemeral=True)
+
+            confirm_view = ConfirmSeedView()
+            confirm_view.supabase = self.supabase
+            confirm_view.view = self.view
+            confirm_view.season = self.season
+
+            embed = discord.Embed(
+                title="✅ Confirm Seed Draft Picks",
+                description=(
+                    f"**Season**: {self.season.get('name')}\n"
+                    f"**Teams**: {num_teams}\n"
+                    f"**Rounds**: {num_rounds}\n"
+                    f"**Total Picks**: {num_teams * num_rounds}\n\n"
+                    f"Generate draft picks?"
+                ),
+                color=discord.Color.purple(),
+            )
+            await interaction.followup.send(embed=embed, view=confirm_view, ephemeral=True)
+        except ValueError:
+            await interaction.followup.send("❌ Please enter valid numbers.", ephemeral=True)
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to seed picks: %s", exc)
+            await interaction.followup.send("❌ Failed to seed picks. Check server logs.", ephemeral=True)
+
+
+class ReassignPickView(discord.ui.View):
+    """Reassign pick ownership."""
+
+    def __init__(self, supabase: Any, parent_view: PicksActionsView, repo: TransactionsRepository) -> None:
+        super().__init__(timeout=300)
+        self.supabase = supabase
+        self.parent_view = parent_view
+        self.repo = repo
+        self.original_message: Optional[discord.Message] = None
+        self._initialized = False
+        self._selected_pick: Optional[Dict[str, Any]] = None
+
+    async def _initialize_seasons(self) -> None:
+        """Load available seasons with picks."""
+        if self._initialized:
+            return
+
+        try:
+            seasons = self.supabase.table('seasons').select('*').order('created_at', desc=True).execute()
+            if seasons.data:
+                season_select = discord.ui.Select(
+                    placeholder="Select season...",
+                    options=[
+                        discord.SelectOption(
+                            label=s.get('name', 'Unknown'),
+                            value=s.get('id', ''),
+                        )
+                        for s in seasons.data[:25]
+                    ],
+                    row=0,
+                )
+                season_select.callback = self.select_season
+                self.add_item(season_select)
+                self._initialized = True
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to initialize season select for reassign: %s", exc)
+
+    async def select_season(self, interaction: discord.Interaction) -> None:
+        """Handle season selection."""
+        await interaction.response.defer(ephemeral=True)
+        season_id = interaction.data['values'][0]
+
+        try:
+            picks = self.repo.list_draft_picks(season_id)
+            if not picks:
+                await interaction.followup.send("❌ No draft picks found for this season.", ephemeral=True)
+                return
+
+            # Build pick select (show round, position, overall)
+            pick_select = discord.ui.Select(
+                placeholder="Select pick to reassign...",
+                options=[
+                    discord.SelectOption(
+                        label=f"R{p.get('round', '?')}.{p.get('position_in_round', '?')} "
+                               f"(Overall: {p.get('overall', '?')})",
+                        value=p.get('id', ''),
+                        description=f"Owner: {p.get('current_owner_team_id', '?')[:10]}",
+                    )
+                    for p in picks[:25]
+                ],
+                row=0,
+            )
+            pick_select.callback = self.select_pick
+            view = discord.ui.View()
+            view.add_item(pick_select)
+
+            await interaction.followup.send("Select a pick to reassign:", view=view, ephemeral=True)
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to fetch picks: %s", exc)
+            await interaction.followup.send("❌ Failed to fetch picks.", ephemeral=True)
+
+    async def select_pick(self, interaction: discord.Interaction) -> None:
+        """Handle pick selection."""
+        await interaction.response.defer(ephemeral=True)
+        pick_id = interaction.data['values'][0]
+
+        try:
+            pick_result = self.supabase.table('draft_picks').select('*').eq('id', pick_id).limit(1).execute()
+            if pick_result.data:
+                self._selected_pick = pick_result.data[0]
+
+                # Show team select for new owner
+                teams = await queries.get_all_teams(self.supabase)
+                if not teams:
+                    await interaction.followup.send("❌ No teams found.", ephemeral=True)
+                    return
+
+                team_select = discord.ui.Select(
+                    placeholder="Select new owner team...",
+                    options=[
+                        discord.SelectOption(
+                            label=t.get('name', 'Unknown')[:100],
+                            value=t.get('id', ''),
+                            description=t.get('code', '?'),
+                        )
+                        for t in sorted(teams, key=lambda x: x.get('code', ''))
+                    ],
+                    row=0,
+                )
+                team_select.callback = self.select_new_owner
+                view = discord.ui.View()
+                view.add_item(team_select)
+
+                embed = discord.Embed(
+                    title="Current Pick Details",
+                    description=(
+                        f"Round: {self._selected_pick.get('round')}.{self._selected_pick.get('position_in_round')}\n"
+                        f"Overall: {self._selected_pick.get('overall')}\n"
+                        f"Current Owner: {self._selected_pick.get('current_owner_team_id')}\n\n"
+                        f"Select new owner:"
+                    ),
+                    color=discord.Color.purple(),
+                )
+                await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to fetch pick: %s", exc)
+            await interaction.followup.send("❌ Failed to fetch pick.", ephemeral=True)
+
+    async def select_new_owner(self, interaction: discord.Interaction) -> None:
+        """Handle new owner selection."""
+        await interaction.response.defer(ephemeral=True)
+        new_team_id = interaction.data['values'][0]
+
+        try:
+            new_team = self.supabase.table('teams').select('*').eq('id', new_team_id).limit(1).execute()
+            if new_team.data:
+                new_team_data = new_team.data[0]
+
+                # Confirmation
+                class ConfirmReassignView(discord.ui.View):
+                    def __init__(self) -> None:
+                        super().__init__(timeout=60)
+
+                    @discord.ui.button(label="Confirm Reassign", style=discord.ButtonStyle.success, emoji="✅")
+                    async def confirm(self, confirm_interaction: discord.Interaction, _: discord.ui.Button) -> None:
+                        await confirm_interaction.response.defer(ephemeral=True)
+                        try:
+                            result = self.repo.update_draft_pick_owner(pick_id, new_team_id)
+                            if result:
+                                logger.info(
+                                    "✅ Draft pick reassigned: R%d.%d (overall %d) from %s to %s by %s",
+                                    self._selected_pick.get('round', '?'),
+                                    self._selected_pick.get('position_in_round', '?'),
+                                    self._selected_pick.get('overall', '?'),
+                                    self._selected_pick.get('current_owner_team_id', '?')[:10],
+                                    new_team_data.get('code', '?'),
+                                    confirm_interaction.user.id,
+                                )
+                                await confirm_interaction.followup.send(
+                                    f"✅ Pick reassigned to **{new_team_data.get('name')}** (`{new_team_data.get('code')}`)",
+                                    ephemeral=True,
+                                )
+                                await self.parent_view.update_display()
+                            else:
+                                raise Exception("No data returned from update")
+                        except Exception as exc:  # pragma: no cover
+                            logger.error("Failed to reassign pick: %s", exc)
+                            await confirm_interaction.followup.send(
+                                "❌ Failed to reassign pick. Check server logs.",
+                                ephemeral=True,
+                            )
+
+                    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+                    async def cancel(self, cancel_interaction: discord.Interaction, _: discord.ui.Button) -> None:
+                        await cancel_interaction.response.defer(ephemeral=True)
+                        await cancel_interaction.followup.send("❌ Cancelled.", ephemeral=True)
+
+                confirm_view = ConfirmReassignView()
+                confirm_view.supabase = self.supabase
+                confirm_view.parent_view = self.parent_view
+                confirm_view.repo = self.repo
+                confirm_view._selected_pick = self._selected_pick
+                confirm_view.new_team_data = new_team_data
+
+                embed = discord.Embed(
+                    title="✅ Confirm Reassign",
+                    description=(
+                        f"**Pick**: R{self._selected_pick.get('round')}.{self._selected_pick.get('position_in_round')} "
+                        f"(Overall: {self._selected_pick.get('overall')})\n"
+                        f"**From**: {self._selected_pick.get('current_owner_team_id')[:10]}\n"
+                        f"**To**: {new_team_data.get('name')} (`{new_team_data.get('code')}`)\n\n"
+                        f"Confirm reassignment?"
+                    ),
+                    color=discord.Color.purple(),
+                )
+                await interaction.followup.send(embed=embed, view=confirm_view, ephemeral=True)
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to fetch new team: %s", exc)
+            await interaction.followup.send("❌ Failed to fetch team.", ephemeral=True)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Initialize on first interaction."""
+        if not self._initialized:
+            await self._initialize_seasons()
+        return True
+
+
+class ViewPicksView(discord.ui.View):
+    """View all picks for a season in order."""
+
+    def __init__(self, supabase: Any, parent_view: PicksActionsView) -> None:
+        super().__init__(timeout=300)
+        self.supabase = supabase
+        self.parent_view = parent_view
+        self.original_message: Optional[discord.Message] = None
+        self._initialized = False
+        self.repo = TransactionsRepository(supabase)
+
+    async def _initialize_seasons(self) -> None:
+        """Load seasons."""
+        if self._initialized:
+            return
+
+        try:
+            seasons = self.supabase.table('seasons').select('*').order('created_at', desc=True).execute()
+            if seasons.data:
+                season_select = discord.ui.Select(
+                    placeholder="Select season...",
+                    options=[
+                        discord.SelectOption(
+                            label=s.get('name', 'Unknown'),
+                            value=s.get('id', ''),
+                        )
+                        for s in seasons.data[:25]
+                    ],
+                    row=0,
+                )
+                season_select.callback = self.view_season_picks
+                self.add_item(season_select)
+                self._initialized = True
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to initialize season select for view picks: %s", exc)
+
+    async def view_season_picks(self, interaction: discord.Interaction) -> None:
+        """Display all picks for season."""
+        await interaction.response.defer(ephemeral=True)
+        season_id = interaction.data['values'][0]
+
+        try:
+            picks = self.repo.list_draft_picks(season_id)
+            if not picks:
+                await interaction.followup.send("❌ No draft picks found.", ephemeral=True)
+                return
+
+            # Get season name
+            season = self.supabase.table('seasons').select('*').eq('id', season_id).limit(1).execute()
+            season_name = season.data[0].get('name', 'Unknown') if season.data else 'Unknown'
+
+            # Create paginated embeds (20 picks per embed)
+            embeds = []
+            for i in range(0, len(picks), 20):
+                chunk = picks[i:i+20]
+                embed = discord.Embed(
+                    title=f"📋 {season_name} - Draft Order",
+                    description=f"Page {len(embeds) + 1} ({i + 1}-{min(i + 20, len(picks))} of {len(picks)})",
+                    color=discord.Color.purple(),
+                )
+
+                for pick in chunk:
+                    owner_id_short = str(pick.get('current_owner_team_id', '?'))[:10]
+                    embed.add_field(
+                        name=f"#{pick.get('overall', '?')} - R{pick.get('round', '?')}.{pick.get('position_in_round', '?')}",
+                        value=f"Owner: `{owner_id_short}`",
+                        inline=True,
+                    )
+
+                embeds.append(embed)
+
+            # Send first embed
+            if embeds:
+                await interaction.followup.send(embed=embeds[0], ephemeral=True)
+                # Send remaining embeds
+                for embed in embeds[1:]:
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to fetch picks: %s", exc)
+            await interaction.followup.send("❌ Failed to fetch picks.", ephemeral=True)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Initialize on first interaction."""
+        if not self._initialized:
+            await self._initialize_seasons()
+        return True
+
+
+class ViewPicksByTeamView(discord.ui.View):
+    """View picks owned by a specific team."""
+
+    def __init__(self, supabase: Any, parent_view: PicksActionsView) -> None:
+        super().__init__(timeout=300)
+        self.supabase = supabase
+        self.parent_view = parent_view
+        self.original_message: Optional[discord.Message] = None
+        self._initialized = False
+
+    async def _initialize_teams(self) -> None:
+        """Load teams."""
+        if self._initialized:
+            return
+
+        try:
+            teams = await queries.get_all_teams(self.supabase)
+            if teams:
+                team_select = discord.ui.Select(
+                    placeholder="Select team...",
+                    options=[
+                        discord.SelectOption(
+                            label=t.get('name', 'Unknown')[:100],
+                            value=t.get('id', ''),
+                            description=t.get('code', '?'),
+                        )
+                        for t in sorted(teams, key=lambda x: x.get('code', ''))
+                    ],
+                    row=0,
+                )
+                team_select.callback = self.view_team_picks
+                self.add_item(team_select)
+                self._initialized = True
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to initialize team select for view team picks: %s", exc)
+
+    async def view_team_picks(self, interaction: discord.Interaction) -> None:
+        """Display picks owned by team."""
+        await interaction.response.defer(ephemeral=True)
+        team_id = interaction.data['values'][0]
+
+        try:
+            picks_result = self.supabase.table('draft_picks').select('*').eq('current_owner_team_id', team_id).order('overall').execute()
+            picks = picks_result.data if picks_result.data else []
+
+            team = self.supabase.table('teams').select('*').eq('id', team_id).limit(1).execute()
+            if not team.data:
+                await interaction.followup.send("❌ Team not found.", ephemeral=True)
+                return
+
+            team_data = team.data[0]
+            embed = discord.Embed(
+                title=f"🗂️ {team_data.get('name', 'Unknown')} Draft Picks",
+                description=f"Code: `{team_data.get('code', '?')}`",
+                color=discord.Color.purple(),
+            )
+
+            if not picks:
+                embed.add_field(name="Picks", value="No picks currently owned.", inline=False)
+            else:
+                pick_lines = [
+                    f"#{p.get('overall', '?')} - R{p.get('round', '?')}.{p.get('position_in_round', '?')}"
+                    for p in picks
+                ]
+                embed.add_field(name=f"Picks ({len(picks)})", value="\n".join(pick_lines), inline=False)
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to fetch team picks: %s", exc)
+            await interaction.followup.send("❌ Failed to fetch picks.", ephemeral=True)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Initialize on first interaction."""
+        if not self._initialized:
+            await self._initialize_teams()
+        return True
