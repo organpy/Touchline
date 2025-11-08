@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -230,6 +231,84 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         )
 
         await interaction.response.send_modal(modal)
+
+    # ------------------------------------------------------------------
+    # Draft picks
+    # ------------------------------------------------------------------
+    @app_commands.command(name="picks", description="Show draft pick ownership for the active season")
+    @app_commands.describe(team_code="Optional team code to filter by current owner")
+    async def picks(self, interaction: discord.Interaction, team_code: Optional[str] = None):
+        await interaction.response.defer(ephemeral=True)
+
+        season = await queries.get_active_season(self.supabase)
+        if not season:
+            await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
+            return
+
+        picks = self.repo.list_draft_picks(season['id'])
+        if not picks:
+            await interaction.followup.send("ℹ️ No draft picks found for the active season.", ephemeral=True)
+            return
+
+        teams = await queries.get_all_teams(self.supabase, season['division_id'])
+        team_by_id = {team['id']: team for team in teams}
+        team_by_code = {team['code'].upper(): team for team in teams}
+
+        target_team = None
+        if team_code:
+            target_team = team_by_code.get(team_code.upper())
+            if not target_team:
+                await interaction.followup.send(
+                    f"❌ Unknown team code `{team_code}` for the active division.",
+                    ephemeral=True,
+                )
+                return
+
+        def team_label(team_id: Optional[str]) -> str:
+            if not team_id:
+                return "Unassigned"
+            team_row = team_by_id.get(team_id)
+            if not team_row:
+                return "Unknown Team"
+            return f"{team_row['name']} (`{team_row['code']}`)"
+
+        grouped = defaultdict(list)
+        for pick in picks:
+            if target_team and pick['current_owner_team_id'] != target_team['id']:
+                continue
+            grouped[pick['round']].append(pick)
+
+        if target_team and not grouped:
+            await interaction.followup.send(
+                f"ℹ️ {target_team['name']} does not currently own any picks.",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title="Draft Pick Ownership",
+            description=f"Season {season['name']} picks",
+            color=discord.Color.purple()
+        )
+        if target_team:
+            embed.set_footer(text=f"Filtered for {target_team['name']} ({target_team['code']})")
+
+        for rnd in sorted(grouped.keys()):
+            picks_in_round = sorted(grouped[rnd], key=lambda p: p['overall'])
+            lines = []
+            for pick in picks_in_round:
+                owner = team_label(pick['current_owner_team_id'])
+                original = team_label(pick['original_team_id'])
+                lines.append(f"Pick {pick['overall']:02d} → {owner}\n└︎ Original: {original}")
+            value = "\n".join(lines)
+            if not value:
+                continue
+            embed.add_field(name=f"Round {rnd}", value=value[:1024], inline=False)
+
+        if not embed.fields:
+            embed.description = "No picks to display after applying filters."
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ------------------------------------------------------------------
     # Configuration helpers
