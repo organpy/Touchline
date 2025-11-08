@@ -78,6 +78,57 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         self.repo = TransactionsRepository(self.supabase)
         self.config = get_config_manager()
 
+    async def cog_load(self) -> None:
+        """Recover pending offers on cog load (bot restart)."""
+        logger.info("🔄 Recovering pending signing offers from database...")
+        try:
+            result = self.supabase.table('pending_signings').select('*').execute()
+            pending_offers = result.data or []
+            
+            if not pending_offers:
+                logger.info("✅ No pending offers to recover")
+                return
+            
+            logger.info(f"📋 Found {len(pending_offers)} pending offer(s) to recover")
+            
+            for offer in pending_offers:
+                try:
+                    guild_id = offer.get('guild_id')
+                    channel_id = offer.get('message_channel_id')
+                    message_id = offer.get('message_id')
+                    player_id = offer.get('player_id')
+                    team_id = offer.get('team_id')
+                    
+                    if not all([guild_id, channel_id, message_id, player_id, team_id]):
+                        logger.warning(f"⚠️ Incomplete pending offer record: {offer['id']}")
+                        continue
+                    
+                    # Attempt to fetch the message
+                    try:
+                        guild = self.bot.get_guild(guild_id)
+                        if not guild:
+                            logger.warning(f"⚠️ Guild {guild_id} not found for offer {offer['id']}")
+                            continue
+                        
+                        channel = guild.get_channel(channel_id)
+                        if not channel:
+                            logger.warning(f"⚠️ Channel {channel_id} not found for offer {offer['id']}")
+                            continue
+                        
+                        message = await channel.fetch_message(message_id)
+                        logger.info(f"✅ Recovered pending offer message {message_id} in {channel.mention}")
+                    except discord.NotFound:
+                        logger.warning(f"⚠️ Message {message_id} no longer exists for offer {offer['id']}")
+                    except discord.Forbidden:
+                        logger.warning(f"⚠️ No permission to fetch message {message_id} for offer {offer['id']}")
+                    except discord.HTTPException as e:
+                        logger.error(f"❌ Failed to fetch message {message_id}: {e}")
+                        
+                except Exception as exc:  # pragma: no cover - network path
+                    logger.error(f"❌ Error recovering offer {offer.get('id')}: {exc}")
+        except Exception as exc:  # pragma: no cover - network path
+            logger.error(f"❌ Failed to recover pending offers: {exc}")
+
     # ------------------------------------------------------------------
     # Signings
     # ------------------------------------------------------------------
