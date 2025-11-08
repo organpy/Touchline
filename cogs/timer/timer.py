@@ -123,7 +123,10 @@ class TimerCog(commands.Cog):
         try:
             keys_to_remove = []
             
-            for (guild_id, user_id), session in self.active_timers.items():
+            # Create a copy of items to iterate over (prevents modification during iteration)
+            current_timers = list(self.active_timers.items())
+            
+            for (guild_id, user_id), session in current_timers:
                 # Advance timer
                 session.tick()
                 
