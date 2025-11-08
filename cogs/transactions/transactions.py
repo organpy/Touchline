@@ -14,7 +14,7 @@ from db import get_supabase, queries
 from db.transactions_repository import TransactionsRepository
 from utils.config_manager import get_config_manager
 
-from .views import PendingSigningView
+from .views import PendingSigningView, ReleaseConfirmationModal
 
 logger = logging.getLogger(__name__)
 
@@ -180,13 +180,56 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     # ------------------------------------------------------------------
     @app_commands.command(name="release", description="Release a player from your roster")
     async def release(self, interaction: discord.Interaction, player: discord.Member):
-        """Placeholder release command."""
-        await interaction.response.defer(ephemeral=True)
-        # TODO: Validate team ownership, mark roster row as ended, insert transaction record, refresh cache.
-        await interaction.followup.send(
-            "🗂️ Release workflow is not ready yet. Track progress in docs/transactions-todo.md.",
-            ephemeral=True,
+        """Launch modal confirmation to release a player from the roster."""
+        transactions_cfg = await self.config.get_transactions_config(interaction.guild_id)
+
+        team = await queries.get_team_by_owner(self.supabase, interaction.user.id)
+        if not team:
+            await interaction.response.send_message(
+                "❌ Unable to determine your team. Ensure your Discord ID is set as the team owner.",
+                ephemeral=True,
+            )
+            return
+
+        season = await queries.get_active_season(self.supabase)
+        if not season:
+            await interaction.response.send_message("⚠️ No active season configured.", ephemeral=True)
+            return
+        if team['division_id'] != season['division_id']:
+            await interaction.response.send_message(
+                "❌ Your team is not part of the active season's division.",
+                ephemeral=True,
+            )
+            return
+
+        player_record = await queries.get_player_by_discord_id(self.supabase, player.id)
+        if not player_record:
+            player_record = await queries.get_player_by_name(self.supabase, player.display_name)
+        if not player_record:
+            await interaction.response.send_message(
+                "❌ That player is not registered in the database.",
+                ephemeral=True,
+            )
+            return
+
+        roster_entry = self.repo.get_active_roster_entry(season['id'], player_record['id'])
+        if not roster_entry or roster_entry.get('team_id') != team['id']:
+            await interaction.response.send_message(
+                "❌ That player is not currently on your active roster.",
+                ephemeral=True,
+            )
+            return
+
+        modal = ReleaseConfirmationModal(
+            cog=self,
+            player_member=player,
+            player_record=player_record,
+            team=team,
+            season=season,
+            channel_id=transactions_cfg.get('channel_id')
         )
+
+        await interaction.response.send_modal(modal)
 
     # ------------------------------------------------------------------
     # Configuration helpers

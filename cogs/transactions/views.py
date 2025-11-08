@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-import discord
+import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, Optional
+
+import discord
 
 from cogs.score.roster_cache import RosterCache
 
 if TYPE_CHECKING:  # pragma: no cover - hints only
     from .transactions import TransactionsCog
+
+
+logger = logging.getLogger(__name__)
 
 
 class PendingSigningView(discord.ui.View):
@@ -188,3 +193,104 @@ class PendingSigningView(discord.ui.View):
         embed.add_field(name="Player", value=str(self.player))
         embed.add_field(name="Team", value=f"{self.team['name']} (`{self.team['code']}`)")
         return embed
+
+
+class ReleaseConfirmationModal(discord.ui.Modal):
+    """Modal to confirm releasing a player from the roster."""
+
+    def __init__(
+        self,
+        cog: "TransactionsCog",
+        player_member: discord.Member,
+        player_record: Dict[str, Any],
+        team: Dict[str, Any],
+        season: Dict[str, Any],
+        channel_id: Optional[int]
+    ):
+        super().__init__(title="Confirm Release")
+        self.cog = cog
+        self.player_member = player_member
+        self.player_record = player_record
+        self.team = team
+        self.season = season
+        self.channel_id = channel_id
+
+        self.reason: discord.ui.TextInput = discord.ui.TextInput(
+            label="Reason (optional)",
+            placeholder="Provide context for this release",
+            required=False,
+            max_length=200,
+            style=discord.TextStyle.paragraph
+        )
+        self.add_item(self.reason)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        roster_entry = self.cog.repo.get_active_roster_entry(self.season['id'], self.player_record['id'])
+        if not roster_entry or roster_entry.get('team_id') != self.team['id']:
+            await interaction.response.send_message(
+                "❌ That player is no longer active on your roster.",
+                ephemeral=True,
+            )
+            return
+
+        reason = (self.reason.value or "").strip()
+        transaction = self.cog.repo.insert_transaction({
+            'season_id': self.season['id'],
+            'type': 'release',
+            'player_id': self.player_record['id'],
+            'from_team_id': self.team['id'],
+            'to_team_id': None,
+            'executed_by': interaction.user.id,
+            'details': {
+                'released_at': datetime.utcnow().isoformat() + 'Z',
+                'initiated_by': interaction.user.id,
+                'guild_id': interaction.guild_id,
+                **({'reason': reason} if reason else {})
+            }
+        })
+        if not transaction:
+            await interaction.response.send_message(
+                "❌ Failed to record release transaction.",
+                ephemeral=True,
+            )
+            return
+
+        RosterCache().invalidate()
+
+        embed = discord.Embed(
+            title="Player Released",
+            description=f"{self.player_member.mention} has been released from **{self.team['name']}**.",
+            color=discord.Color.orange()
+        )
+        embed.add_field(name="Player", value=str(self.player_member))
+        embed.add_field(name="Team", value=f"{self.team['name']} (`{self.team['code']}`)")
+        embed.add_field(name="Released By", value=interaction.user.mention, inline=False)
+        if reason:
+            embed.add_field(name="Reason", value=reason, inline=False)
+        embed.timestamp = datetime.utcnow()
+
+        announcement_error = False
+        if self.channel_id:
+            channel = interaction.guild.get_channel(self.channel_id)
+            if isinstance(channel, discord.TextChannel):
+                try:
+                    await channel.send(embed=embed)
+                except discord.Forbidden:
+                    logger.warning(
+                        "Missing permissions to post release announcement in channel %s",
+                        channel.id
+                    )
+                    announcement_error = True
+                except discord.HTTPException as exc:
+                    logger.error("HTTP error posting release announcement: %s", exc)
+                    announcement_error = True
+            else:
+                announcement_error = True
+
+        message = "✅ Player released."
+        if announcement_error:
+            message = (
+                "✅ Player released, but I could not announce it in the configured channel."
+            )
+
+        await interaction.response.send_message(message, ephemeral=True)
