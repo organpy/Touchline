@@ -412,22 +412,90 @@ class ReassignPickView(LazyInitView):
         self.repo = repo
         self.original_message: Optional[discord.Message] = None
         self._selected_pick: Optional[Dict[str, Any]] = None
+        self._selected_league: Optional[Dict[str, Any]] = None
+        self._selected_season: Optional[Dict[str, Any]] = None
+        self._leagues: List[Dict[str, Any]] = []
+        self._team_map: Dict[str, Dict[str, Any]] = {}
 
     async def populate(self) -> None:
-        """Load available seasons with picks."""
+        """Load available leagues before narrowing to seasons."""
         try:
-            seasons = self.supabase.table('seasons').select('*').order('created_at', desc=True).execute()
+            leagues_response = (
+                self.supabase
+                .table('leagues')
+                .select('*')
+                .order('name', desc=False)
+                .limit(25)
+                .execute()
+            )
+            self._leagues = leagues_response.data or []
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to load seasons for reassign view: %s", exc)
-            seasons = None
+            logger.error("Failed to load leagues for reassign view: %s", exc)
+            self._leagues = []
 
-        if not seasons or not seasons.data:
+        if not self._leagues:
             empty_select = discord.ui.Select(
-                placeholder="No seasons available",
-                options=[discord.SelectOption(label="No seasons found", value="none")],
+                placeholder="No leagues available",
+                options=[discord.SelectOption(label="No leagues configured", value="none")],
                 disabled=True,
             )
             self.add_item(empty_select)
+            return
+
+        league_select = discord.ui.Select(
+            placeholder="Select league...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=league.get('name', 'Unknown')[:100],
+                    value=league.get('code', league.get('id', '')),
+                    description=f"Code: {league.get('code', '?').upper()}",
+                )
+                for league in self._leagues
+            ],
+            row=0,
+        )
+        league_select.callback = self.select_league
+        self.add_item(league_select)
+
+    async def select_league(self, interaction: discord.Interaction) -> None:
+        """Handle league selection prior to showing seasons."""
+        await interaction.response.defer(ephemeral=True)
+
+        league_code = interaction.data['values'][0]
+        self._selected_season = None
+        self._team_map = {}
+        self._selected_league = next(
+            (league for league in self._leagues if league.get('code') == league_code or league.get('id') == league_code),
+            None,
+        )
+
+        league_filter = None
+        if self._selected_league:
+            league_filter = self._selected_league.get('code') or self._selected_league.get('id')
+        if not league_filter:
+            league_filter = league_code
+
+        try:
+            seasons_response = (
+                self.supabase
+                .table('seasons')
+                .select('*')
+                .eq('league_type', league_filter)
+                .order('created_at', desc=True)
+                .execute()
+            )
+            seasons = seasons_response.data or []
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to load seasons for league %s: %s", league_filter, exc)
+            seasons = []
+
+        if not seasons:
+            await interaction.followup.send(
+                f"❌ No seasons found for league `{league_code.upper()}`.",
+                ephemeral=True,
+            )
             return
 
         season_select = discord.ui.Select(
@@ -436,48 +504,82 @@ class ReassignPickView(LazyInitView):
             max_values=1,
             options=[
                 discord.SelectOption(
-                    label=s.get('name', 'Unknown'),
-                    value=s.get('id', ''),
+                    label=season.get('name', 'Unknown')[:100],
+                    value=season.get('id', ''),
+                    description="✅ Active" if season.get('active') else "⏸️ Inactive",
                 )
-                for s in seasons.data[:25]
+                for season in seasons[:25]
             ],
-            row=0,
         )
         season_select.callback = self.select_season
-        self.add_item(season_select)
+        season_view = discord.ui.View()
+        season_view.add_item(season_select)
+
+        league_name = self._selected_league.get('name') if self._selected_league else league_code.upper()
+        active_flag = any(season.get('active') for season in seasons)
+        status = "✅ Active season available" if active_flag else "⏸️ No active season"
+        await interaction.followup.send(
+            f"**{league_name}** selected. {status}. Choose a season:",
+            view=season_view,
+            ephemeral=True,
+        )
 
     async def select_season(self, interaction: discord.Interaction) -> None:
-        """Handle season selection."""
+        """Handle season selection and present draft picks."""
+        if not self._selected_league:
+            await interaction.response.send_message("❌ Please select a league first.", ephemeral=True)
+            return
+
         await interaction.response.defer(ephemeral=True)
         season_id = interaction.data['values'][0]
 
         try:
+            season_response = self.supabase.table('seasons').select('*').eq('id', season_id).limit(1).execute()
+            if not season_response.data:
+                await interaction.followup.send("❌ Season not found.", ephemeral=True)
+                return
+
+            self._selected_season = season_response.data[0]
+            division_id = self._selected_season.get('division_id')
+            teams = await queries.get_all_teams(self.supabase, division_id)
+            self._team_map = {team.get('id'): team for team in (teams or [])}
+
             picks = self.repo.list_draft_picks(season_id)
             if not picks:
                 await interaction.followup.send("❌ No draft picks found for this season.", ephemeral=True)
                 return
 
-            # Build pick select (show round, position, overall)
+            def owner_label(pick: Dict[str, Any]) -> str:
+                team = self._team_map.get(pick.get('current_owner_team_id'))
+                if team:
+                    code = (team.get('code') or '?').upper()
+                    return f"Owner: {code}"
+                return f"Owner ID: {str(pick.get('current_owner_team_id'))[:10]}"
+
             pick_select = discord.ui.Select(
                 placeholder="Select pick to reassign...",
                 options=[
                     discord.SelectOption(
-                        label=f"R{p.get('round', '?')}.{p.get('position_in_round', '?')} "
-                               f"(Overall: {p.get('overall', '?')})",
+                        label=f"R{p.get('round', '?')}.{p.get('position_in_round', '?')} (Overall {p.get('overall', '?')})",
                         value=p.get('id', ''),
-                        description=f"Owner: {p.get('current_owner_team_id', '?')[:10]}",
+                        description=owner_label(p),
                     )
                     for p in picks[:25]
                 ],
                 row=0,
             )
             pick_select.callback = self.select_pick
-            view = discord.ui.View()
-            view.add_item(pick_select)
+            picks_view = discord.ui.View()
+            picks_view.add_item(pick_select)
 
-            await interaction.followup.send("Select a pick to reassign:", view=view, ephemeral=True)
+            season_name = self._selected_season.get('name', 'Unknown')
+            await interaction.followup.send(
+                f"Season **{season_name}** loaded. Choose a pick to reassign:",
+                view=picks_view,
+                ephemeral=True,
+            )
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to fetch picks: %s", exc)
+            logger.error("Failed to fetch picks for season %s: %s", season_id, exc)
             await interaction.followup.send("❌ Failed to fetch picks.", ephemeral=True)
 
     async def select_pick(self, interaction: discord.Interaction) -> None:
@@ -491,10 +593,17 @@ class ReassignPickView(LazyInitView):
                 self._selected_pick = pick_result.data[0]
 
                 # Show team select for new owner
-                teams = await queries.get_all_teams(self.supabase)
+                division_id = self._selected_season.get('division_id') if self._selected_season else None
+                if division_id:
+                    teams = await queries.get_all_teams(self.supabase, division_id)
+                else:
+                    teams = await queries.get_all_teams(self.supabase)
                 if not teams:
                     await interaction.followup.send("❌ No teams found.", ephemeral=True)
                     return
+
+                teams = sorted(teams, key=lambda x: x.get('code', '').upper())
+                self._team_map = {team.get('id'): team for team in teams}
 
                 team_select = discord.ui.Select(
                     placeholder="Select new owner team...",
@@ -504,7 +613,7 @@ class ReassignPickView(LazyInitView):
                             value=t.get('id', ''),
                             description=t.get('code', '?'),
                         )
-                        for t in sorted(teams, key=lambda x: x.get('code', ''))
+                        for t in teams[:25]
                     ],
                     row=0,
                 )
@@ -512,12 +621,15 @@ class ReassignPickView(LazyInitView):
                 view = discord.ui.View()
                 view.add_item(team_select)
 
+                owner = self._team_map.get(self._selected_pick.get('current_owner_team_id'))
+                owner_label = f"{owner.get('name')} (`{owner.get('code')}`)" if owner else self._selected_pick.get('current_owner_team_id', '?')
+
                 embed = discord.Embed(
                     title="Current Pick Details",
                     description=(
                         f"Round: {self._selected_pick.get('round')}.{self._selected_pick.get('position_in_round')}\n"
                         f"Overall: {self._selected_pick.get('overall')}\n"
-                        f"Current Owner: {self._selected_pick.get('current_owner_team_id')}\n\n"
+                        f"Current Owner: {owner_label}\n\n"
                         f"Select new owner:"
                     ),
                     color=discord.Color.purple(),
@@ -532,10 +644,20 @@ class ReassignPickView(LazyInitView):
         await interaction.response.defer(ephemeral=True)
         new_team_id = interaction.data['values'][0]
 
+        if not self._selected_pick:
+            await interaction.followup.send("❌ Please select a draft pick first.", ephemeral=True)
+            return
+
         try:
             new_team = self.supabase.table('teams').select('*').eq('id', new_team_id).limit(1).execute()
             if new_team.data:
                 new_team_data = new_team.data[0]
+                new_team_label = f"{new_team_data.get('name')} (`{new_team_data.get('code')}`)"
+                current_owner = self._team_map.get(self._selected_pick.get('current_owner_team_id'))
+                current_owner_label = (
+                    f"{current_owner.get('name')} (`{current_owner.get('code')}`)"
+                    if current_owner else str(self._selected_pick.get('current_owner_team_id'))[:10]
+                )
 
                 # Confirmation
                 class ConfirmReassignView(discord.ui.View):
@@ -553,10 +675,11 @@ class ReassignPickView(LazyInitView):
                                     self._selected_pick.get('round', '?'),
                                     self._selected_pick.get('position_in_round', '?'),
                                     self._selected_pick.get('overall', '?'),
-                                    self._selected_pick.get('current_owner_team_id', '?')[:10],
+                                    self.team_map.get(self._selected_pick.get('current_owner_team_id', '?'), {}).get('code', '?'),
                                     new_team_data.get('code', '?'),
                                     confirm_interaction.user.id,
                                 )
+                                self._selected_pick['current_owner_team_id'] = new_team_id
                                 await confirm_interaction.followup.send(
                                     f"✅ Pick reassigned to **{new_team_data.get('name')}** (`{new_team_data.get('code')}`)",
                                     ephemeral=True,
@@ -582,14 +705,15 @@ class ReassignPickView(LazyInitView):
                 confirm_view.repo = self.repo
                 confirm_view._selected_pick = self._selected_pick
                 confirm_view.new_team_data = new_team_data
+                confirm_view.team_map = self._team_map
 
                 embed = discord.Embed(
                     title="✅ Confirm Reassign",
                     description=(
                         f"**Pick**: R{self._selected_pick.get('round')}.{self._selected_pick.get('position_in_round')} "
                         f"(Overall: {self._selected_pick.get('overall')})\n"
-                        f"**From**: {self._selected_pick.get('current_owner_team_id')[:10]}\n"
-                        f"**To**: {new_team_data.get('name')} (`{new_team_data.get('code')}`)\n\n"
+                        f"**From**: {current_owner_label}\n"
+                        f"**To**: {new_team_label}\n\n"
                         f"Confirm reassignment?"
                     ),
                     color=discord.Color.purple(),
@@ -610,22 +734,90 @@ class ViewPicksView(LazyInitView):
         self.parent_view = parent_view
         self.original_message: Optional[discord.Message] = None
         self.repo = TransactionsRepository(supabase)
+        self._leagues: List[Dict[str, Any]] = []
+        self._selected_league: Optional[Dict[str, Any]] = None
+        self._selected_season: Optional[Dict[str, Any]] = None
+        self._team_map: Dict[str, Dict[str, Any]] = {}
 
     async def populate(self) -> None:
-        """Load seasons."""
+        """Load leagues first before narrowing to seasons."""
         try:
-            seasons = self.supabase.table('seasons').select('*').order('created_at', desc=True).execute()
+            leagues_response = (
+                self.supabase
+                .table('leagues')
+                .select('*')
+                .order('name', desc=False)
+                .limit(25)
+                .execute()
+            )
+            self._leagues = leagues_response.data or []
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to load seasons for view picks: %s", exc)
-            seasons = None
+            logger.error("Failed to load leagues for view picks: %s", exc)
+            self._leagues = []
 
-        if not seasons or not seasons.data:
+        if not self._leagues:
             empty_select = discord.ui.Select(
-                placeholder="No seasons available",
-                options=[discord.SelectOption(label="No seasons found", value="none")],
+                placeholder="No leagues available",
+                options=[discord.SelectOption(label="No leagues configured", value="none")],
                 disabled=True,
             )
             self.add_item(empty_select)
+            return
+
+        league_select = discord.ui.Select(
+            placeholder="Select league...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=league.get('name', 'Unknown')[:100],
+                    value=league.get('code', league.get('id', '')),
+                    description=f"Code: {league.get('code', '?').upper()}",
+                )
+                for league in self._leagues
+            ],
+            row=0,
+        )
+        league_select.callback = self.select_league
+        self.add_item(league_select)
+
+    async def select_league(self, interaction: discord.Interaction) -> None:
+        """Handle league selection and present seasons."""
+        await interaction.response.defer(ephemeral=True)
+
+        league_code = interaction.data['values'][0]
+        self._selected_league = next(
+            (league for league in self._leagues if league.get('code') == league_code or league.get('id') == league_code),
+            None,
+        )
+        self._selected_season = None
+        self._team_map = {}
+
+        league_filter = None
+        if self._selected_league:
+            league_filter = self._selected_league.get('code') or self._selected_league.get('id')
+        if not league_filter:
+            league_filter = league_code
+
+        try:
+            seasons_response = (
+                self.supabase
+                .table('seasons')
+                .select('*')
+                .eq('league_type', league_filter)
+                .order('created_at', desc=True)
+                .execute()
+            )
+            seasons = seasons_response.data or []
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to load seasons for league %s: %s", league_filter, exc)
+            seasons = []
+
+        if not seasons:
+            await interaction.followup.send(
+                f"❌ No seasons found for league `{league_code.upper()}`.",
+                ephemeral=True,
+            )
             return
 
         season_select = discord.ui.Select(
@@ -634,35 +826,64 @@ class ViewPicksView(LazyInitView):
             max_values=1,
             options=[
                 discord.SelectOption(
-                    label=s.get('name', 'Unknown'),
-                    value=s.get('id', ''),
+                    label=season.get('name', 'Unknown')[:100],
+                    value=season.get('id', ''),
+                    description="✅ Active" if season.get('active') else "⏸️ Inactive",
                 )
-                for s in seasons.data[:25]
+                for season in seasons[:25]
             ],
-            row=0,
         )
         season_select.callback = self.view_season_picks
-        self.add_item(season_select)
+        season_view = discord.ui.View()
+        season_view.add_item(season_select)
+
+        league_name = self._selected_league.get('name') if self._selected_league else league_code.upper()
+        active_flag = any(season.get('active') for season in seasons)
+        status = "✅ Active season available" if active_flag else "⏸️ No active season"
+        await interaction.followup.send(
+            f"**{league_name}** selected. {status}. Choose a season to view picks:",
+            view=season_view,
+            ephemeral=True,
+        )
 
     async def view_season_picks(self, interaction: discord.Interaction) -> None:
         """Display all picks for season."""
+        if not self._selected_league:
+            await interaction.response.send_message("❌ Please select a league first.", ephemeral=True)
+            return
+
         await interaction.response.defer(ephemeral=True)
         season_id = interaction.data['values'][0]
 
         try:
+            season_response = self.supabase.table('seasons').select('*').eq('id', season_id).limit(1).execute()
+            if not season_response.data:
+                await interaction.followup.send("❌ Season not found.", ephemeral=True)
+                return
+
+            self._selected_season = season_response.data[0]
+            division_id = self._selected_season.get('division_id')
+            teams = await queries.get_all_teams(self.supabase, division_id)
+            self._team_map = {team.get('id'): team for team in (teams or [])}
+
             picks = self.repo.list_draft_picks(season_id)
             if not picks:
                 await interaction.followup.send("❌ No draft picks found.", ephemeral=True)
                 return
 
-            # Get season name
-            season = self.supabase.table('seasons').select('*').eq('id', season_id).limit(1).execute()
-            season_name = season.data[0].get('name', 'Unknown') if season.data else 'Unknown'
+            season_name = self._selected_season.get('name', 'Unknown')
 
-            # Create paginated embeds (20 picks per embed)
+            def owner_value(pick: Dict[str, Any]) -> str:
+                team = self._team_map.get(pick.get('current_owner_team_id'))
+                if team:
+                    code = (team.get('code') or '?').upper()
+                    return f"Owner: `{code}`"
+                owner_id_short = str(pick.get('current_owner_team_id', '?'))[:10]
+                return f"Owner ID: `{owner_id_short}`"
+
             embeds = []
             for i in range(0, len(picks), 20):
-                chunk = picks[i:i+20]
+                chunk = picks[i:i + 20]
                 embed = discord.Embed(
                     title=f"📋 {season_name} - Draft Order",
                     description=f"Page {len(embeds) + 1} ({i + 1}-{min(i + 20, len(picks))} of {len(picks)})",
@@ -670,23 +891,20 @@ class ViewPicksView(LazyInitView):
                 )
 
                 for pick in chunk:
-                    owner_id_short = str(pick.get('current_owner_team_id', '?'))[:10]
                     embed.add_field(
                         name=f"#{pick.get('overall', '?')} - R{pick.get('round', '?')}.{pick.get('position_in_round', '?')}",
-                        value=f"Owner: `{owner_id_short}`",
+                        value=owner_value(pick),
                         inline=True,
                     )
 
                 embeds.append(embed)
 
-            # Send first embed
             if embeds:
                 await interaction.followup.send(embed=embeds[0], ephemeral=True)
-                # Send remaining embeds
                 for embed in embeds[1:]:
                     await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to fetch picks: %s", exc)
+            logger.error("Failed to fetch picks for season %s: %s", season_id, exc)
             await interaction.followup.send("❌ Failed to fetch picks.", ephemeral=True)
 
 class ViewPicksByTeamView(LazyInitView):
@@ -697,64 +915,215 @@ class ViewPicksByTeamView(LazyInitView):
         self.supabase = supabase
         self.parent_view = parent_view
         self.original_message: Optional[discord.Message] = None
+        self._leagues: List[Dict[str, Any]] = []
+        self._selected_league: Optional[Dict[str, Any]] = None
+        self._selected_season: Optional[Dict[str, Any]] = None
+        self._season_name: Optional[str] = None
+        self._teams: List[Dict[str, Any]] = []
+        self._team_map: Dict[str, Dict[str, Any]] = {}
 
     async def populate(self) -> None:
-        """Load teams."""
+        """Load leagues prior to season/team filtering."""
         try:
-            teams = await queries.get_all_teams(self.supabase)
+            leagues_response = (
+                self.supabase
+                .table('leagues')
+                .select('*')
+                .order('name', desc=False)
+                .limit(25)
+                .execute()
+            )
+            self._leagues = leagues_response.data or []
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to load teams for view team picks: %s", exc)
-            teams = None
+            logger.error("Failed to load leagues for view team picks: %s", exc)
+            self._leagues = []
 
-        if not teams:
+        if not self._leagues:
             empty_select = discord.ui.Select(
-                placeholder="No teams available",
-                options=[discord.SelectOption(label="No teams found", value="none")],
+                placeholder="No leagues available",
+                options=[discord.SelectOption(label="No leagues configured", value="none")],
                 disabled=True,
             )
             self.add_item(empty_select)
             return
 
-        team_select = discord.ui.Select(
-            placeholder="Select team...",
+        league_select = discord.ui.Select(
+            placeholder="Select league...",
             min_values=1,
             max_values=1,
             options=[
                 discord.SelectOption(
-                    label=t.get('name', 'Unknown')[:100],
-                    value=t.get('id', ''),
-                    description=t.get('code', '?'),
+                    label=league.get('name', 'Unknown')[:100],
+                    value=league.get('code', league.get('id', '')),
+                    description=f"Code: {league.get('code', '?').upper()}",
                 )
-                for t in sorted(teams, key=lambda x: x.get('code', ''))[:25]
+                for league in self._leagues
             ],
             row=0,
         )
-        team_select.callback = self.view_team_picks
-        self.add_item(team_select)
+        league_select.callback = self.select_league
+        self.add_item(league_select)
+
+    async def select_league(self, interaction: discord.Interaction) -> None:
+        """Handle league selection and present seasons."""
+        await interaction.response.defer(ephemeral=True)
+
+        league_code = interaction.data['values'][0]
+        self._selected_league = next(
+            (league for league in self._leagues if league.get('code') == league_code or league.get('id') == league_code),
+            None,
+        )
+        self._selected_season = None
+        self._season_name = None
+        self._teams = []
+        self._team_map = {}
+
+        league_filter = None
+        if self._selected_league:
+            league_filter = self._selected_league.get('code') or self._selected_league.get('id')
+        if not league_filter:
+            league_filter = league_code
+
+        try:
+            seasons_response = (
+                self.supabase
+                .table('seasons')
+                .select('*')
+                .eq('league_type', league_filter)
+                .order('created_at', desc=True)
+                .execute()
+            )
+            seasons = seasons_response.data or []
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to load seasons for league %s: %s", league_filter, exc)
+            seasons = []
+
+        if not seasons:
+            await interaction.followup.send(
+                f"❌ No seasons found for league `{league_code.upper()}`.",
+                ephemeral=True,
+            )
+            return
+
+        season_select = discord.ui.Select(
+            placeholder="Select season...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=season.get('name', 'Unknown')[:100],
+                    value=season.get('id', ''),
+                    description="✅ Active" if season.get('active') else "⏸️ Inactive",
+                )
+                for season in seasons[:25]
+            ],
+        )
+        season_select.callback = self.select_season
+        season_view = discord.ui.View()
+        season_view.add_item(season_select)
+
+        league_name = self._selected_league.get('name') if self._selected_league else league_code.upper()
+        active_flag = any(season.get('active') for season in seasons)
+        status = "✅ Active season available" if active_flag else "⏸️ No active season"
+        await interaction.followup.send(
+            f"**{league_name}** selected. {status}. Choose a season to filter teams:",
+            view=season_view,
+            ephemeral=True,
+        )
+
+    async def select_season(self, interaction: discord.Interaction) -> None:
+        """Handle season selection and present teams."""
+        if not self._selected_league:
+            await interaction.response.send_message("❌ Please select a league first.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        season_id = interaction.data['values'][0]
+
+        try:
+            season_response = self.supabase.table('seasons').select('*').eq('id', season_id).limit(1).execute()
+            if not season_response.data:
+                await interaction.followup.send("❌ Season not found.", ephemeral=True)
+                return
+
+            self._selected_season = season_response.data[0]
+            self._season_name = self._selected_season.get('name', 'Unknown')
+            division_id = self._selected_season.get('division_id')
+
+            teams = await queries.get_all_teams(self.supabase, division_id)
+            if not teams:
+                await interaction.followup.send("❌ No teams found for this season.", ephemeral=True)
+                return
+
+            self._teams = sorted(teams, key=lambda t: (t.get('code') or '').upper())
+            self._team_map = {team.get('id'): team for team in self._teams}
+
+            team_select = discord.ui.Select(
+                placeholder="Select team...",
+                min_values=1,
+                max_values=1,
+                options=[
+                    discord.SelectOption(
+                        label=team.get('name', 'Unknown')[:100],
+                        value=team.get('id', ''),
+                        description=team.get('code', '?'),
+                    )
+                    for team in self._teams[:25]
+                ],
+            )
+            team_select.callback = self.view_team_picks
+            team_view = discord.ui.View()
+            team_view.add_item(team_select)
+
+            await interaction.followup.send(
+                f"Season **{self._season_name}** loaded. Choose a team to view picks:",
+                view=team_view,
+                ephemeral=True,
+            )
+        except Exception as exc:  # pragma: no cover
+            logger.error("Failed to load teams for season %s: %s", season_id, exc)
+            await interaction.followup.send("❌ Failed to load teams.", ephemeral=True)
 
     async def view_team_picks(self, interaction: discord.Interaction) -> None:
         """Display picks owned by team."""
+        if not self._selected_season:
+            await interaction.response.send_message("❌ Please select a season first.", ephemeral=True)
+            return
+
         await interaction.response.defer(ephemeral=True)
         team_id = interaction.data['values'][0]
 
         try:
-            picks_result = self.supabase.table('draft_picks').select('*').eq('current_owner_team_id', team_id).order('overall').execute()
+            picks_result = (
+                self.supabase
+                .table('draft_picks')
+                .select('*')
+                .eq('season_id', self._selected_season.get('id'))
+                .eq('current_owner_team_id', team_id)
+                .order('overall')
+                .execute()
+            )
             picks = picks_result.data if picks_result.data else []
 
-            team = self.supabase.table('teams').select('*').eq('id', team_id).limit(1).execute()
-            if not team.data:
-                await interaction.followup.send("❌ Team not found.", ephemeral=True)
-                return
+            team_data = self._team_map.get(team_id)
+            if not team_data:
+                team_response = self.supabase.table('teams').select('*').eq('id', team_id).limit(1).execute()
+                if not team_response.data:
+                    await interaction.followup.send("❌ Team not found.", ephemeral=True)
+                    return
+                team_data = team_response.data[0]
 
-            team_data = team.data[0]
             embed = discord.Embed(
                 title=f"🗂️ {team_data.get('name', 'Unknown')} Draft Picks",
-                description=f"Code: `{team_data.get('code', '?')}`",
+                description=(
+                    f"Code: `{team_data.get('code', '?')}`\n"
+                    f"Season: **{self._season_name or self._selected_season.get('name', 'Unknown')}**"
+                ),
                 color=discord.Color.purple(),
             )
 
             if not picks:
-                embed.add_field(name="Picks", value="No picks currently owned.", inline=False)
+                embed.add_field(name="Picks", value="No picks currently owned in this season.", inline=False)
             else:
                 pick_lines = [
                     f"#{p.get('overall', '?')} - R{p.get('round', '?')}.{p.get('position_in_round', '?')}"
@@ -764,6 +1133,6 @@ class ViewPicksByTeamView(LazyInitView):
 
             await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to fetch team picks: %s", exc)
+            logger.error("Failed to fetch team picks for team %s: %s", team_id, exc)
             await interaction.followup.send("❌ Failed to fetch picks.", ephemeral=True)
 
