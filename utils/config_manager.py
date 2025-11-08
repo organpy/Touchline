@@ -175,6 +175,46 @@ class ConfigManager:
             'auto_end': True
         })
 
+    async def update_transactions_config(
+        self,
+        guild_id: int,
+        **kwargs: Any
+    ):
+        """Update transactions configuration keys for a guild."""
+        if not kwargs:
+            return
+
+        config = await self.get_guild_config(guild_id)
+        tx_config = dict(config.get('transactions', {}) or {})
+
+        for key, value in kwargs.items():
+            if value is None:
+                tx_config.pop(key, None)
+            else:
+                tx_config[key] = value
+
+        config.set('transactions', tx_config)
+        await config.save()
+        logger.info(
+            "💼 Updated transactions config for guild %s: %s",
+            guild_id,
+            ', '.join(f"{k}={v}" for k, v in kwargs.items())
+        )
+
+    async def get_transactions_config(self, guild_id: int) -> Dict[str, Any]:
+        """Return transactions config with defaults applied."""
+        defaults = {
+            'channel_id': None,
+            'default_expiry_minutes': 60,
+            'require_league_approval': False
+        }
+
+        config = await self.get_guild_config(guild_id)
+        stored = config.get('transactions', {}) or {}
+        merged = defaults.copy()
+        merged.update(stored)
+        return merged
+
     async def set_role_requirement(
         self,
         guild_id: int,

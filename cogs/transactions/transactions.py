@@ -62,9 +62,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     @app_commands.command(name="config", description="View transaction configuration for this guild")
     async def view_config(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        guild_config = await self.config.get_guild_config(interaction.guild_id)
-        config_dict = guild_config.to_dict()
-        transactions_cfg = config_dict.get('transactions', {}) if config_dict else {}
+        transactions_cfg = await self.config.get_transactions_config(interaction.guild_id)
 
         embed = discord.Embed(title="⚙️ Transactions Configuration", color=discord.Color.blurple())
         if not transactions_cfg:
@@ -74,6 +72,39 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                 embed.add_field(name=key, value=str(value), inline=False)
 
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="config-set-channel", description="Set the channel used for transaction offers")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def config_set_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        await interaction.response.defer(ephemeral=True)
+
+        await self.config.set_channel(interaction.guild_id, 'transactions', channel)
+        await self.config.update_transactions_config(interaction.guild_id, channel_id=channel.id)
+
+        await interaction.followup.send(
+            f"✅ Transactions channel set to {channel.mention}",
+            ephemeral=True,
+        )
+
+    @app_commands.command(name="config-set-expiry", description="Set default expiry (minutes) for signing offers")
+    @app_commands.describe(minutes="Offer expiry in minutes (1-1440)")
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def config_set_expiry(self, interaction: discord.Interaction, minutes: int):
+        await interaction.response.defer(ephemeral=True)
+
+        if minutes < 1 or minutes > 1440:
+            await interaction.followup.send("❌ Expiry must be between 1 and 1440 minutes.", ephemeral=True)
+            return
+
+        await self.config.update_transactions_config(
+            interaction.guild_id,
+            default_expiry_minutes=minutes
+        )
+
+        await interaction.followup.send(
+            f"⏱️ Default signing expiry set to {minutes} minute(s).",
+            ephemeral=True,
+        )
 
 
 async def setup(bot: commands.Bot):
