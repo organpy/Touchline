@@ -231,7 +231,39 @@ class ConfigurationView(discord.ui.View):
             self.set_buttons_state(False)
             await self.update_display()
 
-    @discord.ui.button(label="Save Configuration", emoji="💾", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="Transaction Settings", emoji="⚙️", style=discord.ButtonStyle.primary, row=2)
+    async def transaction_settings(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        if self.is_busy:
+            await interaction.response.send_message(
+                "⏳ Please wait for the current operation to complete.",
+                ephemeral=True,
+            )
+            return
+
+        self.is_busy = True
+        self.set_buttons_state(True)
+        await self.update_display()
+
+        try:
+            tx_config = self.config_data.get("transactions", {}) or {}
+            view = TransactionConfigView(tx_config)
+            embed = discord.Embed(
+                title="⚙️ Transaction Settings",
+                description="Configure signing offer defaults and behavior.",
+                color=discord.Color.gold(),
+            )
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            await view.wait()
+
+            if view.changes_made:
+                self.config_data["transactions"] = view.tx_config
+                self.mark_changes()
+        finally:
+            self.is_busy = False
+            self.set_buttons_state(False)
+            await self.update_display()
+
+    @discord.ui.button(label="Save Configuration", emoji="💾", style=discord.ButtonStyle.success, row=2)
     async def save_config(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         if self.is_busy:
             await interaction.response.send_message(
@@ -496,6 +528,107 @@ class ResultChannelView(discord.ui.View):
 
         await interaction.response.edit_message(embed=embed, view=self)
         self.stop()
+
+
+class TransactionConfigView(discord.ui.View):
+    """Configure transaction-specific settings (expiry, approvals, etc.)."""
+
+    def __init__(self, tx_config: Dict[str, Any]) -> None:
+        super().__init__(timeout=120)
+        self.tx_config = tx_config.copy()
+        self.changes_made = False
+
+    def create_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="⚙️ Transaction Settings",
+            description="Manage signing offer defaults and behavior.",
+            color=discord.Color.gold(),
+        )
+        expiry_minutes = self.tx_config.get("default_expiry_minutes", 60)
+        embed.add_field(
+            name="⏱️ Default Offer Expiry",
+            value=f"{expiry_minutes} minute(s)",
+            inline=True,
+        )
+        require_approval = self.tx_config.get("require_league_approval", False)
+        approval_text = "✅ Yes" if require_approval else "❌ No"
+        embed.add_field(
+            name="🔐 Require League Approval",
+            value=approval_text,
+            inline=True,
+        )
+        if self.changes_made:
+            embed.add_field(name="📝 Status", value="⚠️ Changes pending", inline=False)
+        return embed
+
+    async def update_embed(self, interaction: discord.Interaction) -> None:
+        try:
+            await interaction.edit_original_response(embed=self.create_embed(), view=self)
+        except Exception as exc:  # pragma: no cover - network path
+            logger.error("Failed to refresh transaction settings embed: %s", exc)
+
+    @discord.ui.button(label="Set Expiry (minutes)", emoji="⏱️", style=discord.ButtonStyle.primary)
+    async def set_expiry(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.send_modal(ExpiryModal(self))
+
+    @discord.ui.button(label="Toggle Approval Requirement", emoji="🔐", style=discord.ButtonStyle.primary)
+    async def toggle_approval(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        current = self.tx_config.get("require_league_approval", False)
+        self.tx_config["require_league_approval"] = not current
+        self.changes_made = True
+        new_value = "enabled" if not current else "disabled"
+        await interaction.response.defer()
+        await self.update_embed(interaction)
+
+    @discord.ui.button(label="Done", emoji="✅", style=discord.ButtonStyle.success)
+    async def done(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        embed = discord.Embed(
+            title="✅ Transaction Settings Updated",
+            description="Changes will be applied when you save the main configuration.",
+            color=discord.Color.green(),
+        )
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(embed=embed, view=self)
+        self.stop()
+
+
+class ExpiryModal(discord.ui.Modal, title="Set Default Offer Expiry"):
+    """Modal for setting transaction offer expiry."""
+
+    expiry_input = discord.ui.TextInput(
+        label="Expiry (minutes)",
+        placeholder="60",
+        default="60",
+        min_length=1,
+        max_length=4,
+    )
+
+    def __init__(self, view: TransactionConfigView) -> None:
+        super().__init__()
+        self.view = view
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            minutes = int(self.expiry_input.value)
+            if minutes < 1 or minutes > 1440:
+                await interaction.response.send_message(
+                    "❌ Expiry must be between 1 and 1440 minutes.",
+                    ephemeral=True,
+                )
+                return
+
+            self.view.tx_config["default_expiry_minutes"] = minutes
+            self.view.changes_made = True
+
+            await interaction.response.defer()
+            await self.view.update_embed(interaction)
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Please enter a valid number.",
+                ephemeral=True,
+            )
+
 
 
 class ConfirmResetView(discord.ui.View):

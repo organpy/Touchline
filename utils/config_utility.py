@@ -43,7 +43,10 @@ class ConfigUtility:
             # Namespaced config groups (timer/stats/transactions etc.)
             "timer": {},
             "stats": {},
-            "transactions": {},
+            "transactions": {
+                "default_expiry_minutes": 60,
+                "require_league_approval": False,
+            },
         }
 
         merged = deepcopy(defaults)
@@ -254,5 +257,16 @@ class ConfigUtility:
         blacklist_role_id = config_data.get("blacklist_role_id")
         blacklist_role_text = f"<@&{blacklist_role_id}>" if blacklist_role_id else "Not Set"
         embed.add_field(name="🚫 Blacklist Role", value=blacklist_role_text, inline=True)
+
+        # Transaction settings summary
+        tx_config = config_data.get("transactions", {}) or {}
+        expiry_minutes = tx_config.get("default_expiry_minutes", 60)
+        require_approval = tx_config.get("require_league_approval", False)
+        approval_text = "✅ Yes" if require_approval else "❌ No"
+        embed.add_field(
+            name="💳 Transaction Settings",
+            value=f"Expiry: {expiry_minutes}m | Approval: {approval_text}",
+            inline=False,
+        )
 
         return embed
