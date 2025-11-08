@@ -78,6 +78,13 @@ class TradeApprovalView(discord.ui.View):
 
         await interaction.response.defer(ephemeral=True)
 
+        logger.info(
+            "🤝 Team %s approving trade proposal %s against %s",
+            self.counterparty_team['code'],
+            self.trade_proposal['id'],
+            self.initiating_team['code']
+        )
+
         # Execute the trade
         success = await self._execute_trade(interaction.user.id)
         if not success:
@@ -98,6 +105,13 @@ class TradeApprovalView(discord.ui.View):
             return
 
         await interaction.response.defer(ephemeral=True)
+
+        logger.info(
+            "❌ Team %s declined trade proposal %s from %s",
+            self.counterparty_team['code'],
+            self.trade_proposal['id'],
+            self.initiating_team['code']
+        )
 
         self.cog.repo.update_trade_status(self.trade_proposal['id'], 'declined')
 

@@ -17,6 +17,7 @@ from utils.config_manager import get_config_manager
 
 from .views import PendingSigningView, ReleaseConfirmationModal
 from .trade_views import TradeAssetModal
+from .history import fetch_filtered_transactions, build_history_embed
 
 logger = logging.getLogger(__name__)
 
@@ -371,6 +372,77 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         )
 
         await interaction.response.send_modal(modal)
+
+    # ------------------------------------------------------------------
+    # Transaction history
+    # ------------------------------------------------------------------
+    @app_commands.command(name="history", description="View transaction history with optional filters")
+    @app_commands.describe(
+        team_code="Optional team code to filter by (e.g., 'pandas')",
+        player_name="Optional player name to filter by",
+        txn_type="Optional transaction type: sign, release, trade",
+        days="Look back this many days (default 30)"
+    )
+    async def history(
+        self,
+        interaction: discord.Interaction,
+        team_code: Optional[str] = None,
+        player_name: Optional[str] = None,
+        txn_type: Optional[str] = None,
+        days: int = 30
+    ):
+        """Display transaction history with optional filters."""
+        await interaction.response.defer(ephemeral=True)
+
+        if days < 1 or days > 365:
+            await interaction.followup.send("❌ Days must be between 1 and 365.", ephemeral=True)
+            return
+
+        if txn_type and txn_type.lower() not in ('sign', 'release', 'trade'):
+            await interaction.followup.send(
+                "❌ Transaction type must be one of: sign, release, trade.",
+                ephemeral=True,
+            )
+            return
+
+        season = await queries.get_active_season(self.supabase)
+        if not season:
+            await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
+            return
+
+        transactions = await fetch_filtered_transactions(
+            repo=self.repo,
+            supabase=self.supabase,
+            season_id=season['id'],
+            team_code=team_code,
+            player_name=player_name,
+            txn_type=txn_type.lower() if txn_type else None,
+            days=days
+        )
+
+        if not transactions:
+            await interaction.followup.send("ℹ️ No transactions match the filters.", ephemeral=True)
+            return
+
+        # Load teams and players for display
+        teams = await queries.get_all_teams(self.supabase, season['division_id'])
+        team_by_id = {team['id']: team for team in teams}
+
+        players = self.supabase.table('players').select('id, display_name').execute().data or []
+        player_by_id = {p['id']: p for p in players}
+
+        embed = build_history_embed(transactions, team_by_id, player_by_id)
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+        logger.info(
+            "📋 Displayed %d transactions (filters: team=%s, player=%s, type=%s, days=%d)",
+            len(transactions),
+            team_code or "none",
+            player_name or "none",
+            txn_type or "none",
+            days
+        )
 
     # ------------------------------------------------------------------
     # Configuration helpers

@@ -87,6 +87,13 @@ class PendingSigningView(discord.ui.View):
 
         await interaction.response.defer(ephemeral=True)
 
+        logger.info(
+            "🔍 Player %s accepting signing offer for %s (pending_id=%s)",
+            interaction.user.id,
+            self.team['code'],
+            self.pending_signing['id']
+        )
+
         # Ensure offer not expired
         expires_at = self.pending_signing.get('expires_at')
         if expires_at:
@@ -94,10 +101,11 @@ class PendingSigningView(discord.ui.View):
                 expiry_dt = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
                 current = datetime.now(expiry_dt.tzinfo)
                 if expiry_dt < current:
+                    logger.warning("⏰ Signing offer %s expired", self.pending_signing['id'])
                     await interaction.followup.send("⚠️ This offer has already expired.", ephemeral=True)
                     return
             except ValueError:
-                pass
+                logger.error("⚠️ Could not parse expiry date: %s", expires_at)
 
         # Prevent duplicate roster entries
         roster_entry = self.cog.repo.get_active_roster_entry(
@@ -105,6 +113,11 @@ class PendingSigningView(discord.ui.View):
             self.pending_signing['player_id']
         )
         if roster_entry and roster_entry.get('team_id') == self.pending_signing['team_id']:
+            logger.info(
+                "ℹ️ Player %s already on roster for %s, marking signing as accepted",
+                self.pending_signing['player_id'],
+                self.team['code']
+            )
             await interaction.followup.send(
                 "ℹ️ You are already listed on this roster. No action taken.",
                 ephemeral=True,
@@ -113,6 +126,12 @@ class PendingSigningView(discord.ui.View):
             await self._finalize(self._already_signed_embed())
             return
         if roster_entry and roster_entry.get('team_id') != self.pending_signing['team_id']:
+            logger.warning(
+                "❌ Player %s cannot join %s, already on %s",
+                self.pending_signing['player_id'],
+                self.team['code'],
+                roster_entry.get('team_id')
+            )
             await interaction.followup.send(
                 "❌ You are currently rostered on another team. Please request a release first.",
                 ephemeral=True,
@@ -136,13 +155,23 @@ class PendingSigningView(discord.ui.View):
             }
         })
         if not transaction:
+            logger.error("❌ Failed to insert transaction for signing %s", self.pending_signing['id'])
             await interaction.followup.send("❌ Failed to record transaction. Please contact staff.", ephemeral=True)
             return
+
+        logger.info(
+            "✅ Transaction recorded: player %s signed to %s (signing_id=%s, txn_id=%s)",
+            self.pending_signing['player_id'],
+            self.team['code'],
+            self.pending_signing['id'],
+            transaction['id']
+        )
 
         self.cog.repo.update_pending_signing_status(self.pending_signing['id'], 'accepted')
         self.cog.repo.cancel_other_pending_signings(self.pending_signing['player_id'], keep_id=self.pending_signing['id'])
 
         # Refresh roster cache so new signing appears immediately
+        logger.info("🔄 Invalidating roster cache for signing acceptance")
         RosterCache().invalidate()
 
         embed = discord.Embed(
@@ -164,6 +193,11 @@ class PendingSigningView(discord.ui.View):
             return
 
         await interaction.response.defer(ephemeral=True)
+        logger.info(
+            "🗂️ Player %s declining signing offer for %s",
+            interaction.user.id,
+            self.team['code']
+        )
         self.cog.repo.update_pending_signing_status(self.pending_signing['id'], 'declined')
 
         embed = self._decline_embed(interaction.user)
@@ -227,6 +261,11 @@ class ReleaseConfirmationModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction) -> None:
         roster_entry = self.cog.repo.get_active_roster_entry(self.season['id'], self.player_record['id'])
         if not roster_entry or roster_entry.get('team_id') != self.team['id']:
+            logger.warning(
+                "❌ Release attempt failed: player %s not on roster for %s",
+                self.player_record['id'],
+                self.team['code']
+            )
             await interaction.response.send_message(
                 "❌ That player is no longer active on your roster.",
                 ephemeral=True,
@@ -234,6 +273,12 @@ class ReleaseConfirmationModal(discord.ui.Modal):
             return
 
         reason = (self.reason.value or "").strip()
+        logger.info(
+            "📝 Processing release: player %s from %s (reason: %s)",
+            self.player_record['id'],
+            self.team['code'],
+            reason or "none"
+        )
         transaction = self.cog.repo.insert_transaction({
             'season_id': self.season['id'],
             'type': 'release',
@@ -249,11 +294,19 @@ class ReleaseConfirmationModal(discord.ui.Modal):
             }
         })
         if not transaction:
+            logger.error("❌ Failed to insert transaction for release of %s", self.player_record['id'])
             await interaction.response.send_message(
                 "❌ Failed to record release transaction.",
                 ephemeral=True,
             )
             return
+
+        logger.info(
+            "✅ Transaction recorded: player %s released from %s (txn_id=%s)",
+            self.player_record['id'],
+            self.team['code'],
+            transaction['id']
+        )
 
         RosterCache().invalidate()
 
@@ -268,6 +321,8 @@ class ReleaseConfirmationModal(discord.ui.Modal):
         if reason:
             embed.add_field(name="Reason", value=reason, inline=False)
         embed.timestamp = datetime.utcnow()
+
+        logger.info("🔄 Invalidating roster cache for release")
 
         announcement_error = False
         if self.channel_id:
