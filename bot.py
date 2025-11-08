@@ -52,6 +52,13 @@ class NBLBot(commands.Bot):
         if BOT_OWNER_ID:
             self.owner_id = int(BOT_OWNER_ID)
 
+        try:
+            self.supabase = get_supabase()
+            logger.info("✅ Supabase client initialized")
+        except Exception as exc:
+            logger.error("❌ Failed to initialize Supabase client", exc_info=True)
+            raise exc
+
     def discover_cogs(self, cogs_directory: str = "cogs") -> list:
         """
         Automatically discover all cogs in the cogs directory and subdirectories.
@@ -83,16 +90,14 @@ class NBLBot(commands.Bot):
         """Setup hook: discover and load all cogs"""
         logger.info("🔄 Initializing ConfigManager...")
         try:
-            supabase = get_supabase()
-            init_config_manager(supabase)
+            init_config_manager(self.supabase)
             logger.info("✅ ConfigManager initialized")
         except Exception as e:
             logger.error(f"❌ Failed to initialize ConfigManager: {e}", exc_info=True)
         
         logger.info("🔄 Initializing TeamPlayerCache...")
         try:
-            supabase = get_supabase()
-            TeamPlayerCache.set_supabase(supabase)
+            TeamPlayerCache.set_supabase(self.supabase)
             await TeamPlayerCache.refresh()
             logger.info("✅ TeamPlayerCache initialized")
         except Exception as e:
