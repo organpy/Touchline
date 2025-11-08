@@ -16,6 +16,7 @@ from db.transactions_repository import TransactionsRepository
 from utils.config_manager import get_config_manager
 
 from .views import PendingSigningView, ReleaseConfirmationModal
+from .trade_views import TradeAssetModal
 
 logger = logging.getLogger(__name__)
 
@@ -309,6 +310,67 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             embed.description = "No picks to display after applying filters."
 
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # ------------------------------------------------------------------
+    # Trades
+    # ------------------------------------------------------------------
+    @app_commands.command(name="trade", description="Propose a multi-asset trade with another team")
+    @app_commands.describe(counterparty_team="Team code (e.g., 'pandas') to trade with")
+    async def trade(self, interaction: discord.Interaction, counterparty_team: str):
+        """Initiate a trade proposal with multi-asset selection modal."""
+        await interaction.response.defer(ephemeral=True)
+
+        # Identify initiator's team
+        team = await queries.get_team_by_owner(self.supabase, interaction.user.id)
+        if not team:
+            await interaction.followup.send(
+                "❌ Unable to determine your team. Ensure your Discord ID is set as the team owner.",
+                ephemeral=True,
+            )
+            return
+
+        # Get active season
+        season = await queries.get_active_season(self.supabase)
+        if not season:
+            await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
+            return
+        if team['division_id'] != season['division_id']:
+            await interaction.followup.send(
+                "❌ Your team is not part of the active season's division.",
+                ephemeral=True,
+            )
+            return
+
+        # Resolve counterparty team
+        counterparty = await queries.get_team_by_code(self.supabase, counterparty_team)
+        if not counterparty:
+            await interaction.followup.send(
+                f"❌ Unknown team code `{counterparty_team}`.",
+                ephemeral=True,
+            )
+            return
+        if counterparty['division_id'] != team['division_id']:
+            await interaction.followup.send(
+                "❌ That team is not in your division.",
+                ephemeral=True,
+            )
+            return
+        if counterparty['id'] == team['id']:
+            await interaction.followup.send(
+                "❌ You cannot trade with your own team.",
+                ephemeral=True,
+            )
+            return
+
+        modal = TradeAssetModal(
+            cog=self,
+            initiating_team=team,
+            counterparty_team=counterparty,
+            season=season,
+            supabase=self.supabase
+        )
+
+        await interaction.response.send_modal(modal)
 
     # ------------------------------------------------------------------
     # Configuration helpers

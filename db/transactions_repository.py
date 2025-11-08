@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -134,6 +135,43 @@ class TransactionsRepository:
         except Exception as exc:
             logger.error("Failed to fetch roster entry for player %s season %s: %s", player_id, season_id, exc)
             return None
+
+    def transfer_player_between_teams(
+        self,
+        season_id: str,
+        player_id: str,
+        from_team_id: str,
+        to_team_id: str
+    ) -> bool:
+        """Mark player as left from one team and join another in same season."""
+        try:
+            now = datetime.utcnow().isoformat() + 'Z'
+
+            # Mark old roster entry as left
+            self.supabase.table('rosters').update(
+                {'left_at': now}
+            ).eq('season_id', season_id).eq('player_id', player_id).eq(
+                'team_id', from_team_id
+            ).is_('left_at', 'null').execute()
+
+            # Insert new roster entry
+            self.supabase.table('rosters').insert({
+                'season_id': season_id,
+                'team_id': to_team_id,
+                'player_id': player_id,
+                'joined_at': now
+            }).execute()
+
+            return True
+        except Exception as exc:
+            logger.error(
+                "Failed to transfer player %s from %s to %s: %s",
+                player_id,
+                from_team_id,
+                to_team_id,
+                exc
+            )
+            return False
 
     # ------------------------------------------------------------------
     # Transactions log
