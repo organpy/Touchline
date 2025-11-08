@@ -57,7 +57,11 @@ class NBLBot(commands.Bot):
         Returns list of module paths ready for load_extension().
         """
         cog_extensions = []
-        excluded_files = {'__init__.py', 'base.py', 'utils.py', 'models.py', 'views.py', 'roster_cache.py'}
+        excluded_files = {
+            '__init__.py', 'base.py', 'utils.py', 'models.py', 'views.py', 'roster_cache.py',
+            # Transaction helper modules (not standalone cogs)
+            'history.py', 'trade_approval.py', 'trade_views.py', 'admin_seed_picks.py'
+        }
 
         for root, dirs, files in os.walk(cogs_directory):
             # Skip __pycache__ directories
