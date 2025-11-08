@@ -23,9 +23,20 @@ async def _player_name_autocomplete(
 ) -> List[app_commands.Choice[str]]:
     """Return player name suggestions from the TeamPlayerCache."""
     cache = TeamPlayerCache()
-    players = cache.get_all_players()
-    current_lower = current.lower()
+    namespace = getattr(interaction, 'namespace', None)
+    team_input = getattr(namespace, 'team', None) if namespace else None
 
+    if team_input:
+        # Filter players by team
+        team = cache.get_team_by_code(team_input.strip().upper())
+        if team:
+            players = cache.get_team_players(team['id'])
+        else:
+            players = []
+    else:
+        players = cache.get_all_players()
+
+    current_lower = current.lower()
     suggestions = []
     for player in players:
         display = player.get('display_name') or player.get('name')
@@ -47,28 +58,27 @@ async def _league_autocomplete(
     """Autocomplete for league names/codes (module-level coroutine required by discord)."""
     supabase = get_supabase()
     try:
+        # Query distinct league_type from divisions since leagues table doesn't exist
         response = (
             supabase
-            .table('leagues')
-            .select('code, name')
-            .order('name', desc=False)
-            .limit(25)
+            .table('divisions')
+            .select('league_type')
+            .order('league_type', desc=False)
             .execute()
         )
-        leagues = response.data or []
+        divisions = response.data or []
+        league_codes = list(set(d.get('league_type') for d in divisions if d.get('league_type')))
     except Exception as exc:  # pragma: no cover - network failure path
-        logger.error("Failed to fetch leagues for autocomplete: %s", exc)
-        leagues = []
+        logger.error("Failed to fetch league types for autocomplete: %s", exc)
+        league_codes = []
 
     current_lower = current.lower()
     suggestions = []
-    for league in leagues:
-        code = (league.get('code') or '').upper()
-        name = league.get('name') or code
-        label = f"{name} ({code})" if name and code and name.upper() != code else name or code
+    for code in league_codes:
+        label = code.upper()
         if current_lower and current_lower not in label.lower():
             continue
-        suggestions.append(app_commands.Choice(name=label[:100], value=code or name))
+        suggestions.append(app_commands.Choice(name=label, value=code))
         if len(suggestions) >= 25:
             break
     return suggestions
@@ -106,6 +116,28 @@ async def _season_autocomplete(
     return suggestions
 
 
+async def _team_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> List[app_commands.Choice[str]]:
+    """Autocomplete for team names/codes (module-level coroutine required by discord)."""
+    cache = TeamPlayerCache()
+    teams = cache.get_all_teams()
+    current_lower = current.lower()
+
+    suggestions = []
+    for team in teams:
+        code = (team.get('code') or '').upper()
+        name = team.get('name') or code
+        label = f"{name} ({code})" if name and code and name.upper() != code else name or code
+        if current_lower and current_lower not in label.lower() and current_lower not in code.lower():
+            continue
+        suggestions.append(app_commands.Choice(name=label[:100], value=code or name))
+        if len(suggestions) >= 25:
+            break
+    return suggestions
+
+
 class StatsCog(commands.Cog):
     """Discord slash commands for player and league statistics."""
 
@@ -130,40 +162,11 @@ class StatsCog(commands.Cog):
         if normalized in self._league_cache:
             return self._league_cache[normalized]
 
-        # Try exact code match first
-        try:
-            response = (
-                self.supabase
-                .table('leagues')
-                .select('*')
-                .eq('code', normalized)
-                .limit(1)
-                .execute()
-            )
-            record = (response.data or [None])[0]
-            if not record:
-                response = (
-                    self.supabase
-                    .table('leagues')
-                    .select('*')
-                    .ilike('name', f"%{identifier}%")
-                    .limit(1)
-                    .execute()
-                )
-                record = (response.data or [None])[0]
-        except Exception as exc:  # pragma: no cover - network failure path
-            logger.error("Failed to fetch league metadata for %s: %s", identifier, exc)
-            record = None
-
-        if record:
-            code = (record.get('code') or identifier).upper()
-            self._league_cache[code] = record
-            return record
-
-        # Cache a fallback entry so we do not keep querying
-        fallback = {'code': normalized, 'name': identifier}
-        self._league_cache[normalized] = fallback
-        return fallback
+        # Since leagues table doesn't exist, create metadata from identifier
+        # Assume league_type in divisions/seasons is the code
+        league_meta = {'code': normalized, 'name': identifier}
+        self._league_cache[normalized] = league_meta
+        return league_meta
 
     async def _find_season(
         self,
@@ -279,14 +282,16 @@ class StatsCog(commands.Cog):
     @app_commands.command(name="average", description="Show per-game averages for a player in a season")
     @app_commands.describe(
         player_name="Player display name",
+        team="Team code or name (optional filter for player autocomplete)",
         league="League code or name (defaults to active season league)",
         season="Season name (e.g., S10). Defaults to active season",
     )
-    @app_commands.autocomplete(player_name=_player_name_autocomplete, league=_league_autocomplete, season=_season_autocomplete)
+    @app_commands.autocomplete(player_name=_player_name_autocomplete, team=_team_autocomplete, league=_league_autocomplete, season=_season_autocomplete)
     async def average(
         self,
         interaction: discord.Interaction,
         player_name: str,
+        team: Optional[str] = None,
         league: Optional[str] = None,
         season: Optional[str] = None,
     ) -> None:
@@ -338,14 +343,16 @@ class StatsCog(commands.Cog):
     @app_commands.command(name="total-stats", description="Show total season numbers for a player")
     @app_commands.describe(
         player_name="Player display name",
+        team="Team code or name (optional filter for player autocomplete)",
         league="League code or name (defaults to active season league)",
         season="Season name (e.g., S10). Defaults to active season",
     )
-    @app_commands.autocomplete(player_name=_player_name_autocomplete, league=_league_autocomplete, season=_season_autocomplete)
+    @app_commands.autocomplete(player_name=_player_name_autocomplete, team=_team_autocomplete, league=_league_autocomplete, season=_season_autocomplete)
     async def total_stats(
         self,
         interaction: discord.Interaction,
         player_name: str,
+        team: Optional[str] = None,
         league: Optional[str] = None,
         season: Optional[str] = None,
     ) -> None:
@@ -398,14 +405,16 @@ class StatsCog(commands.Cog):
     @app_commands.describe(
         league="League code or name (defaults to active season league)",
         season="Season name (e.g., S10). Defaults to active season",
+        team="Team name/code filter (optional, shows teams containing this text)",
         limit="Number of teams to display (default 10)",
     )
-    @app_commands.autocomplete(league=_league_autocomplete, season=_season_autocomplete)
+    @app_commands.autocomplete(league=_league_autocomplete, season=_season_autocomplete, team=_team_autocomplete)
     async def standings(
         self,
         interaction: discord.Interaction,
         league: Optional[str] = None,
         season: Optional[str] = None,
+        team: Optional[str] = None,
         limit: app_commands.Range[int, 3, 25] = 10,
     ) -> None:
         await interaction.response.defer(thinking=True)
@@ -426,6 +435,17 @@ class StatsCog(commands.Cog):
         if not standings_rows:
             await interaction.followup.send("ℹ️ No standings data available for the selected season.")
             return
+
+        # Filter by team if provided
+        if team:
+            team_lower = team.lower().strip()
+            standings_rows = [
+                row for row in standings_rows
+                if team_lower in (row.get('name') or '').lower() or team_lower in (row.get('code') or '').lower()
+            ]
+            if not standings_rows:
+                await interaction.followup.send(f"ℹ️ No teams found matching '{team}' in the selected season.")
+                return
 
         standings_sorted = sorted(
             standings_rows,
@@ -462,9 +482,120 @@ class StatsCog(commands.Cog):
             )
             embed.add_field(name=f"{index}. {team_name}", value=standings_line, inline=False)
 
-        embed.set_footer(text="Standings ordered by competition points and point differential")
+        await interaction.followup.send(embed=embed)
+
+
+    @app_commands.command(name="team-stats", description="Show total season stats for a team")
+    @app_commands.describe(
+        team="Team code or name",
+        league="League code or name (defaults to active season league)",
+        season="Season name (e.g., S10). Defaults to active season",
+    )
+    @app_commands.autocomplete(team=_team_autocomplete, league=_league_autocomplete, season=_season_autocomplete)
+    async def team_stats(
+        self,
+        interaction: discord.Interaction,
+        team: str,
+        league: Optional[str] = None,
+        season: Optional[str] = None,
+    ) -> None:
+        await interaction.response.defer(thinking=True)
+
+        context = await self._find_season(league, season)
+        season_row, league_meta = context
+        if not season_row:
+            await interaction.followup.send("❌ Could not locate a season matching your request.")
+            return
+
+        cache = TeamPlayerCache()
+        team_data = cache.get_team_by_code(team.strip().upper())
+        if not team_data:
+            await interaction.followup.send(f"❌ Team `{team}` was not found.")
+            return
+
+        # Fetch active rosters for the season to get actual team members
+        try:
+            rosters_response = (
+                self.supabase
+                .table('rosters')
+                .select('player_id, players(id, display_name)')
+                .eq('team_id', team_data['id'])
+                .eq('season_id', season_row['id'])
+                .is_('left_at', None)  # Only active players
+                .execute()
+            )
+            rosters = rosters_response.data or []
+        except Exception as exc:
+            logger.error("Failed to fetch rosters for team %s season %s: %s", team_data['id'], season_row['id'], exc)
+            rosters = []
+
+        if not rosters:
+            await interaction.followup.send(
+                f"ℹ️ No active players found for **{team_data.get('name', team)}** in season `{season_row.get('name')}`.")
+            return
+
+        # Get stats for all players
+        total_stats = {
+            'games_played': 0,
+            'total_points': 0,
+            'total_assists': 0,
+            'total_blocks': 0,
+            'total_goals': 0,
+            'total_saves': 0,
+            'total_own_goals': 0,
+            'total_pp_plays': 0,
+            'total_pp_used': 0
+        }
+
+        player_count = 0
+        for roster in rosters:
+            player_id = roster.get('player_id')
+            if not player_id:
+                continue
+
+            try:
+                stats = await queries.get_player_stats_for_season(self.supabase, player_id, season_row['id'])
+                if stats:
+                    player_count += 1
+                    totals = calculate_season_totals(stats)
+                    for key in total_stats:
+                        total_stats[key] += totals[key]
+            except Exception as exc:
+                logger.error("Failed to fetch stats for player %s: %s", player_id, exc)
+                continue
+
+        if player_count == 0:
+            await interaction.followup.send(
+                f"ℹ️ No recorded stats for players on **{team_data.get('name', team)}** in season `{season_row.get('name')}`.")
+            return
+
+        league_display = self._format_league_display(league_meta)
+
+        embed = discord.Embed(
+            title=f"Team Season Totals — {team_data.get('name', team)}",
+            color=discord.Color.green(),
+        )
+        embed.add_field(name="League", value=league_display, inline=True)
+        embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
+        embed.add_field(name="Players", value=str(player_count), inline=True)
+
+        totals_lines = [
+            f"**Games Played**: {total_stats['games_played']}",
+            f"**Points**: {total_stats['total_points']}",
+            f"**Assists**: {total_stats['total_assists']}",
+            f"**Blocks**: {total_stats['total_blocks']}",
+            f"**Goals**: {total_stats['total_goals']}",
+            f"**Saves**: {total_stats['total_saves']}",
+            f"**Own Goals**: {total_stats['total_own_goals']}",
+            f"**Powerup Plays**: {total_stats['total_pp_plays']} (used: {total_stats['total_pp_used']})",
+        ]
+        embed.add_field(name="Team Totals", value="\n".join(totals_lines), inline=False)
+        embed.timestamp = datetime.utcnow()
+        embed.set_footer(text="Stats aggregated from all team players' recorded match data")
+
         await interaction.followup.send(embed=embed)
 
 
 async def setup(bot: commands.Bot) -> None:
+    """Load the StatsCog into the bot."""
     await bot.add_cog(StatsCog(bot))

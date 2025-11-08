@@ -166,7 +166,7 @@ async def get_player_stats_for_season(supabase, player_id: str, season_id: str) 
     """Get all player stats for a season"""
     try:
         response = supabase.table('player_stats').select(
-            '*, matches(id, week, played_at, team1_score, team2_score)'
+            '*, matches(id, played_at, team1_score, team2_score)'
         ).eq('player_id', player_id).eq('matches.season_id', season_id).execute()
         return response.data if response.data else []
     except Exception as e:
