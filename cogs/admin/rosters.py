@@ -11,6 +11,7 @@ from discord import app_commands
 
 from db import queries
 from db.transactions_repository import TransactionsRepository
+from cogs.admin.common import LazyInitView
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -62,6 +63,7 @@ class RosterActionsView(discord.ui.View):
     @discord.ui.button(label="Force Sign", emoji="✍️", style=discord.ButtonStyle.primary, row=0)
     async def force_sign(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = ForceSignView(self.supabase, self, self.repo)
+        await view.prepare()
         embed = discord.Embed(
             title="✍️ Force Sign Player",
             description="Select season, team, and player to force sign.",
@@ -73,6 +75,7 @@ class RosterActionsView(discord.ui.View):
     @discord.ui.button(label="Force Release", emoji="🚪", style=discord.ButtonStyle.primary, row=0)
     async def force_release(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = ForceReleaseView(self.supabase, self, self.repo)
+        await view.prepare()
         embed = discord.Embed(
             title="🚪 Force Release Player",
             description="Select player to release from their current team.",
@@ -84,6 +87,7 @@ class RosterActionsView(discord.ui.View):
     @discord.ui.button(label="Force Transfer", emoji="🔄", style=discord.ButtonStyle.primary, row=0)
     async def force_transfer(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = ForceTransferView(self.supabase, self, self.repo)
+        await view.prepare()
         embed = discord.Embed(
             title="🔄 Force Transfer Player",
             description="Select player and destination team.",
@@ -102,6 +106,7 @@ class RosterActionsView(discord.ui.View):
     @discord.ui.button(label="View Roster", emoji="📋", style=discord.ButtonStyle.secondary, row=1)
     async def view_roster(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = ViewRosterView(self.supabase, self)
+        await view.prepare()
         embed = discord.Embed(
             title="📋 View Team Roster",
             description="Select team to view active roster.",
@@ -117,7 +122,7 @@ class RosterActionsView(discord.ui.View):
         self.stop()
 
 
-class ForceSignView(discord.ui.View):
+class ForceSignView(LazyInitView):
     """Multi-step view: Season → Team → Player → Confirm."""
 
     def __init__(self, supabase: Any, parent_view: RosterActionsView, repo: TransactionsRepository) -> None:
@@ -126,36 +131,43 @@ class ForceSignView(discord.ui.View):
         self.parent_view = parent_view
         self.repo = repo
         self.original_message: Optional[discord.Message] = None
-        self._initialized = False
         self._selected_season: Optional[Dict[str, Any]] = None
         self._selected_team: Optional[Dict[str, Any]] = None
         self._selected_player: Optional[Dict[str, Any]] = None
 
-    async def _initialize_seasons(self) -> None:
+    async def populate(self) -> None:
         """Load available seasons."""
-        if self._initialized:
-            return
-
         try:
             seasons = self.supabase.table('seasons').select('*').order('created_at', desc=True).execute()
-            if seasons.data:
-                season_select = discord.ui.Select(
-                    placeholder="Select season...",
-                    options=[
-                        discord.SelectOption(
-                            label=s.get('name', 'Unknown'),
-                            value=s.get('id', ''),
-                            description="✅ Active" if s.get('active') else "⏸️ Inactive",
-                        )
-                        for s in seasons.data[:25]
-                    ],
-                    row=0,
-                )
-                season_select.callback = self.select_season
-                self.add_item(season_select)
-                self._initialized = True
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to initialize season select for force sign: %s", exc)
+            logger.error("Failed to load seasons for force sign: %s", exc)
+            seasons = None
+
+        if not seasons or not seasons.data:
+            empty_select = discord.ui.Select(
+                placeholder="No seasons available",
+                options=[discord.SelectOption(label="No seasons configured", value="none")],
+                disabled=True,
+            )
+            self.add_item(empty_select)
+            return
+
+        season_select = discord.ui.Select(
+            placeholder="Select season...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=s.get('name', 'Unknown'),
+                    value=s.get('id', ''),
+                    description="✅ Active" if s.get('active') else "⏸️ Inactive",
+                )
+                for s in seasons.data[:25]
+            ],
+            row=0,
+        )
+        season_select.callback = self.select_season
+        self.add_item(season_select)
 
     async def select_season(self, interaction: discord.Interaction) -> None:
         """Handle season selection."""
@@ -339,14 +351,9 @@ class ForceSignView(discord.ui.View):
             logger.error("Failed to fetch player: %s", exc)
             await interaction.followup.send("❌ Failed to fetch player.", ephemeral=True)
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Initialize on first interaction."""
-        if not self._initialized:
-            await self._initialize_seasons()
-        return True
 
 
-class ForceReleaseView(discord.ui.View):
+class ForceReleaseView(LazyInitView):
     """Select active player and release."""
 
     def __init__(self, supabase: Any, parent_view: RosterActionsView, repo: TransactionsRepository) -> None:
@@ -355,38 +362,44 @@ class ForceReleaseView(discord.ui.View):
         self.parent_view = parent_view
         self.repo = repo
         self.original_message: Optional[discord.Message] = None
-        self._initialized = False
 
-    async def _initialize_players(self) -> None:
+    async def populate(self) -> None:
         """Load active roster players."""
-        if self._initialized:
-            return
-
         try:
             active_rosters = self.supabase.table('rosters').select(
                 'id, player_id, team_id, season_id, joined_at, '
                 'players(id, display_name), '
                 'teams(code, name)'
             ).is_('left_at', 'null').order('joined_at', desc=True).limit(100).execute()
-
-            if active_rosters.data:
-                player_select = discord.ui.Select(
-                    placeholder="Select player to release...",
-                    options=[
-                        discord.SelectOption(
-                            label=f"{r['players'].get('display_name', 'Unknown')} - {r['teams'].get('code', '?')}",
-                            value=r.get('id', ''),
-                            description=r.get('team_id', ''),
-                        )
-                        for r in active_rosters.data[:25]
-                    ],
-                    row=0,
-                )
-                player_select.callback = self.select_player_to_release
-                self.add_item(player_select)
-                self._initialized = True
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to initialize player select for release: %s", exc)
+            logger.error("Failed to load roster entries for release: %s", exc)
+            active_rosters = None
+
+        if not active_rosters or not active_rosters.data:
+            empty_select = discord.ui.Select(
+                placeholder="No active roster entries",
+                options=[discord.SelectOption(label="No players found", value="none")],
+                disabled=True,
+            )
+            self.add_item(empty_select)
+            return
+
+        player_select = discord.ui.Select(
+            placeholder="Select player to release...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=f"{r['players'].get('display_name', 'Unknown')} - {r['teams'].get('code', '?')}",
+                    value=r.get('id', ''),
+                    description=r.get('team_id', ''),
+                )
+                for r in active_rosters.data[:25]
+            ],
+            row=0,
+        )
+        player_select.callback = self.select_player_to_release
+        self.add_item(player_select)
 
     async def select_player_to_release(self, interaction: discord.Interaction) -> None:
         """Handle player selection for release."""
@@ -467,14 +480,9 @@ class ForceReleaseView(discord.ui.View):
             logger.error("Failed to fetch roster entry: %s", exc)
             await interaction.followup.send("❌ Failed to fetch roster entry.", ephemeral=True)
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Initialize on first interaction."""
-        if not self._initialized:
-            await self._initialize_players()
-        return True
 
 
-class ForceTransferView(discord.ui.View):
+class ForceTransferView(LazyInitView):
     """Transfer player between teams."""
 
     def __init__(self, supabase: Any, parent_view: RosterActionsView, repo: TransactionsRepository) -> None:
@@ -483,36 +491,42 @@ class ForceTransferView(discord.ui.View):
         self.parent_view = parent_view
         self.repo = repo
         self.original_message: Optional[discord.Message] = None
-        self._initialized = False
         self._selected_roster: Optional[Dict[str, Any]] = None
 
-    async def _initialize_players(self) -> None:
+    async def populate(self) -> None:
         """Load active roster players."""
-        if self._initialized:
-            return
-
         try:
             active_rosters = self.supabase.table('rosters').select(
                 'id, player_id, team_id, season_id, players(display_name), teams(code, name)'
             ).is_('left_at', 'null').order('joined_at', desc=True).limit(100).execute()
-
-            if active_rosters.data:
-                player_select = discord.ui.Select(
-                    placeholder="Select player to transfer...",
-                    options=[
-                        discord.SelectOption(
-                            label=f"{r['players'].get('display_name', 'Unknown')} - {r['teams'].get('code', '?')}",
-                            value=r.get('id', ''),
-                        )
-                        for r in active_rosters.data[:25]
-                    ],
-                    row=0,
-                )
-                player_select.callback = self.select_player_to_transfer
-                self.add_item(player_select)
-                self._initialized = True
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to initialize player select for transfer: %s", exc)
+            logger.error("Failed to load roster entries for transfer: %s", exc)
+            active_rosters = None
+
+        if not active_rosters or not active_rosters.data:
+            empty_select = discord.ui.Select(
+                placeholder="No active roster entries",
+                options=[discord.SelectOption(label="No players found", value="none")],
+                disabled=True,
+            )
+            self.add_item(empty_select)
+            return
+
+        player_select = discord.ui.Select(
+            placeholder="Select player to transfer...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=f"{r['players'].get('display_name', 'Unknown')} - {r['teams'].get('code', '?')}",
+                    value=r.get('id', ''),
+                )
+                for r in active_rosters.data[:25]
+            ],
+            row=0,
+        )
+        player_select.callback = self.select_player_to_transfer
+        self.add_item(player_select)
 
     async def select_player_to_transfer(self, interaction: discord.Interaction) -> None:
         """Handle player selection for transfer."""
@@ -543,13 +557,15 @@ class ForceTransferView(discord.ui.View):
 
                 team_select = discord.ui.Select(
                     placeholder="Select destination team...",
+                    min_values=1,
+                    max_values=1,
                     options=[
                         discord.SelectOption(
                             label=t.get('name', 'Unknown')[:100],
                             value=t.get('id', ''),
                             description=t.get('code', '?'),
                         )
-                        for t in sorted(available_teams, key=lambda x: x.get('code', ''))
+                        for t in sorted(available_teams, key=lambda x: x.get('code', ''))[:25]
                     ],
                     row=0,
                 )
@@ -654,14 +670,9 @@ class ForceTransferView(discord.ui.View):
             logger.error("Failed to fetch destination team: %s", exc)
             await interaction.followup.send("❌ Failed to fetch team.", ephemeral=True)
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Initialize on first interaction."""
-        if not self._initialized:
-            await self._initialize_players()
-        return True
 
 
-class ViewRosterView(discord.ui.View):
+class ViewRosterView(LazyInitView):
     """View active roster for a team."""
 
     def __init__(self, supabase: Any, parent_view: RosterActionsView) -> None:
@@ -669,33 +680,40 @@ class ViewRosterView(discord.ui.View):
         self.supabase = supabase
         self.parent_view = parent_view
         self.original_message: Optional[discord.Message] = None
-        self._initialized = False
 
-    async def _initialize_teams(self) -> None:
+    async def populate(self) -> None:
         """Load teams."""
-        if self._initialized:
-            return
-
         try:
             teams = await queries.get_all_teams(self.supabase)
-            if teams:
-                team_select = discord.ui.Select(
-                    placeholder="Select team to view roster...",
-                    options=[
-                        discord.SelectOption(
-                            label=t.get('name', 'Unknown')[:100],
-                            value=t.get('id', ''),
-                            description=t.get('code', '?'),
-                        )
-                        for t in sorted(teams, key=lambda x: x.get('code', ''))
-                    ],
-                    row=0,
-                )
-                team_select.callback = self.view_team_roster
-                self.add_item(team_select)
-                self._initialized = True
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to initialize team select for roster view: %s", exc)
+            logger.error("Failed to load teams for roster view: %s", exc)
+            teams = None
+
+        if not teams:
+            empty_select = discord.ui.Select(
+                placeholder="No teams available",
+                options=[discord.SelectOption(label="No teams found", value="none")],
+                disabled=True,
+            )
+            self.add_item(empty_select)
+            return
+
+        team_select = discord.ui.Select(
+            placeholder="Select team to view roster...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=t.get('name', 'Unknown')[:100],
+                    value=t.get('id', ''),
+                    description=t.get('code', '?'),
+                )
+                for t in sorted(teams, key=lambda x: x.get('code', ''))[:25]
+            ],
+            row=0,
+        )
+        team_select.callback = self.view_team_roster
+        self.add_item(team_select)
 
     async def view_team_roster(self, interaction: discord.Interaction) -> None:
         """Show roster for team."""
@@ -746,8 +764,3 @@ class ViewRosterView(discord.ui.View):
             logger.error("Failed to fetch roster: %s", exc)
             await interaction.followup.send("❌ Failed to fetch roster.", ephemeral=True)
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Initialize on first interaction."""
-        if not self._initialized:
-            await self._initialize_teams()
-        return True

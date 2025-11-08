@@ -10,6 +10,7 @@ from discord import app_commands
 
 from db import queries
 from db.transactions_repository import TransactionsRepository
+from cogs.admin.common import LazyInitView
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -60,6 +61,7 @@ class PicksActionsView(discord.ui.View):
     @discord.ui.button(label="Seed Picks", emoji="🌱", style=discord.ButtonStyle.primary, row=0)
     async def seed_picks(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = SeedPicksView(self.supabase, self, self.repo)
+        await view.prepare()
         embed = discord.Embed(
             title="🌱 Seed Draft Picks",
             description="Generate draft picks for a season. Select season and number of teams.",
@@ -71,6 +73,7 @@ class PicksActionsView(discord.ui.View):
     @discord.ui.button(label="Reassign Pick", emoji="🔄", style=discord.ButtonStyle.primary, row=0)
     async def reassign_pick(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = ReassignPickView(self.supabase, self, self.repo)
+        await view.prepare()
         embed = discord.Embed(
             title="🔄 Reassign Draft Pick",
             description="Select pick and new owner.",
@@ -82,6 +85,7 @@ class PicksActionsView(discord.ui.View):
     @discord.ui.button(label="View Picks", emoji="📋", style=discord.ButtonStyle.secondary, row=0)
     async def view_picks(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = ViewPicksView(self.supabase, self)
+        await view.prepare()
         embed = discord.Embed(
             title="📋 View All Picks",
             description="Select season to view draft order.",
@@ -93,6 +97,7 @@ class PicksActionsView(discord.ui.View):
     @discord.ui.button(label="View by Team", emoji="🗂️", style=discord.ButtonStyle.secondary, row=0)
     async def view_by_team(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = ViewPicksByTeamView(self.supabase, self)
+        await view.prepare()
         embed = discord.Embed(
             title="🗂️ View Team Picks",
             description="Select team to view their draft picks.",
@@ -108,7 +113,7 @@ class PicksActionsView(discord.ui.View):
         self.stop()
 
 
-class SeedPicksView(discord.ui.View):
+class SeedPicksView(LazyInitView):
     """Seed draft picks: Season → Num Teams → Confirm."""
 
     def __init__(self, supabase: Any, parent_view: PicksActionsView, repo: TransactionsRepository) -> None:
@@ -117,34 +122,41 @@ class SeedPicksView(discord.ui.View):
         self.parent_view = parent_view
         self.repo = repo
         self.original_message: Optional[discord.Message] = None
-        self._initialized = False
         self._selected_season: Optional[Dict[str, Any]] = None
 
-    async def _initialize_seasons(self) -> None:
+    async def populate(self) -> None:
         """Load available seasons."""
-        if self._initialized:
-            return
-
         try:
             seasons = self.supabase.table('seasons').select('*').order('created_at', desc=True).execute()
-            if seasons.data:
-                season_select = discord.ui.Select(
-                    placeholder="Select season to seed picks...",
-                    options=[
-                        discord.SelectOption(
-                            label=s.get('name', 'Unknown'),
-                            value=s.get('id', ''),
-                            description="✅ Active" if s.get('active') else "⏸️ Inactive",
-                        )
-                        for s in seasons.data[:25]
-                    ],
-                    row=0,
-                )
-                season_select.callback = self.select_season
-                self.add_item(season_select)
-                self._initialized = True
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to initialize season select for seed picks: %s", exc)
+            logger.error("Failed to load seasons for seed picks: %s", exc)
+            seasons = None
+
+        if not seasons or not seasons.data:
+            empty_select = discord.ui.Select(
+                placeholder="No seasons available",
+                options=[discord.SelectOption(label="No seasons configured", value="none")],
+                disabled=True,
+            )
+            self.add_item(empty_select)
+            return
+
+        season_select = discord.ui.Select(
+            placeholder="Select season to seed picks...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=s.get('name', 'Unknown'),
+                    value=s.get('id', ''),
+                    description="✅ Active" if s.get('active') else "⏸️ Inactive",
+                )
+                for s in seasons.data[:25]
+            ],
+            row=0,
+        )
+        season_select.callback = self.select_season
+        self.add_item(season_select)
 
     async def select_season(self, interaction: discord.Interaction) -> None:
         """Handle season selection."""
@@ -172,11 +184,6 @@ class SeedPicksView(discord.ui.View):
             logger.error("Failed to fetch season: %s", exc)
             await interaction.followup.send("❌ Failed to fetch season.", ephemeral=True)
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Initialize on first interaction."""
-        if not self._initialized:
-            await self._initialize_seasons()
-        return True
 
 
 class NumTeamsModal(discord.ui.Modal, title="Number of Teams for Seeding"):
@@ -309,7 +316,7 @@ class NumTeamsModal(discord.ui.Modal, title="Number of Teams for Seeding"):
             await interaction.followup.send("❌ Failed to seed picks. Check server logs.", ephemeral=True)
 
 
-class ReassignPickView(discord.ui.View):
+class ReassignPickView(LazyInitView):
     """Reassign pick ownership."""
 
     def __init__(self, supabase: Any, parent_view: PicksActionsView, repo: TransactionsRepository) -> None:
@@ -318,33 +325,40 @@ class ReassignPickView(discord.ui.View):
         self.parent_view = parent_view
         self.repo = repo
         self.original_message: Optional[discord.Message] = None
-        self._initialized = False
         self._selected_pick: Optional[Dict[str, Any]] = None
 
-    async def _initialize_seasons(self) -> None:
+    async def populate(self) -> None:
         """Load available seasons with picks."""
-        if self._initialized:
-            return
-
         try:
             seasons = self.supabase.table('seasons').select('*').order('created_at', desc=True).execute()
-            if seasons.data:
-                season_select = discord.ui.Select(
-                    placeholder="Select season...",
-                    options=[
-                        discord.SelectOption(
-                            label=s.get('name', 'Unknown'),
-                            value=s.get('id', ''),
-                        )
-                        for s in seasons.data[:25]
-                    ],
-                    row=0,
-                )
-                season_select.callback = self.select_season
-                self.add_item(season_select)
-                self._initialized = True
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to initialize season select for reassign: %s", exc)
+            logger.error("Failed to load seasons for reassign view: %s", exc)
+            seasons = None
+
+        if not seasons or not seasons.data:
+            empty_select = discord.ui.Select(
+                placeholder="No seasons available",
+                options=[discord.SelectOption(label="No seasons found", value="none")],
+                disabled=True,
+            )
+            self.add_item(empty_select)
+            return
+
+        season_select = discord.ui.Select(
+            placeholder="Select season...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=s.get('name', 'Unknown'),
+                    value=s.get('id', ''),
+                )
+                for s in seasons.data[:25]
+            ],
+            row=0,
+        )
+        season_select.callback = self.select_season
+        self.add_item(season_select)
 
     async def select_season(self, interaction: discord.Interaction) -> None:
         """Handle season selection."""
@@ -499,14 +513,9 @@ class ReassignPickView(discord.ui.View):
             logger.error("Failed to fetch new team: %s", exc)
             await interaction.followup.send("❌ Failed to fetch team.", ephemeral=True)
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Initialize on first interaction."""
-        if not self._initialized:
-            await self._initialize_seasons()
-        return True
 
 
-class ViewPicksView(discord.ui.View):
+class ViewPicksView(LazyInitView):
     """View all picks for a season in order."""
 
     def __init__(self, supabase: Any, parent_view: PicksActionsView) -> None:
@@ -514,33 +523,40 @@ class ViewPicksView(discord.ui.View):
         self.supabase = supabase
         self.parent_view = parent_view
         self.original_message: Optional[discord.Message] = None
-        self._initialized = False
         self.repo = TransactionsRepository(supabase)
 
-    async def _initialize_seasons(self) -> None:
+    async def populate(self) -> None:
         """Load seasons."""
-        if self._initialized:
-            return
-
         try:
             seasons = self.supabase.table('seasons').select('*').order('created_at', desc=True).execute()
-            if seasons.data:
-                season_select = discord.ui.Select(
-                    placeholder="Select season...",
-                    options=[
-                        discord.SelectOption(
-                            label=s.get('name', 'Unknown'),
-                            value=s.get('id', ''),
-                        )
-                        for s in seasons.data[:25]
-                    ],
-                    row=0,
-                )
-                season_select.callback = self.view_season_picks
-                self.add_item(season_select)
-                self._initialized = True
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to initialize season select for view picks: %s", exc)
+            logger.error("Failed to load seasons for view picks: %s", exc)
+            seasons = None
+
+        if not seasons or not seasons.data:
+            empty_select = discord.ui.Select(
+                placeholder="No seasons available",
+                options=[discord.SelectOption(label="No seasons found", value="none")],
+                disabled=True,
+            )
+            self.add_item(empty_select)
+            return
+
+        season_select = discord.ui.Select(
+            placeholder="Select season...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=s.get('name', 'Unknown'),
+                    value=s.get('id', ''),
+                )
+                for s in seasons.data[:25]
+            ],
+            row=0,
+        )
+        season_select.callback = self.view_season_picks
+        self.add_item(season_select)
 
     async def view_season_picks(self, interaction: discord.Interaction) -> None:
         """Display all picks for season."""
@@ -587,14 +603,7 @@ class ViewPicksView(discord.ui.View):
             logger.error("Failed to fetch picks: %s", exc)
             await interaction.followup.send("❌ Failed to fetch picks.", ephemeral=True)
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Initialize on first interaction."""
-        if not self._initialized:
-            await self._initialize_seasons()
-        return True
-
-
-class ViewPicksByTeamView(discord.ui.View):
+class ViewPicksByTeamView(LazyInitView):
     """View picks owned by a specific team."""
 
     def __init__(self, supabase: Any, parent_view: PicksActionsView) -> None:
@@ -602,33 +611,40 @@ class ViewPicksByTeamView(discord.ui.View):
         self.supabase = supabase
         self.parent_view = parent_view
         self.original_message: Optional[discord.Message] = None
-        self._initialized = False
 
-    async def _initialize_teams(self) -> None:
+    async def populate(self) -> None:
         """Load teams."""
-        if self._initialized:
-            return
-
         try:
             teams = await queries.get_all_teams(self.supabase)
-            if teams:
-                team_select = discord.ui.Select(
-                    placeholder="Select team...",
-                    options=[
-                        discord.SelectOption(
-                            label=t.get('name', 'Unknown')[:100],
-                            value=t.get('id', ''),
-                            description=t.get('code', '?'),
-                        )
-                        for t in sorted(teams, key=lambda x: x.get('code', ''))
-                    ],
-                    row=0,
-                )
-                team_select.callback = self.view_team_picks
-                self.add_item(team_select)
-                self._initialized = True
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to initialize team select for view team picks: %s", exc)
+            logger.error("Failed to load teams for view team picks: %s", exc)
+            teams = None
+
+        if not teams:
+            empty_select = discord.ui.Select(
+                placeholder="No teams available",
+                options=[discord.SelectOption(label="No teams found", value="none")],
+                disabled=True,
+            )
+            self.add_item(empty_select)
+            return
+
+        team_select = discord.ui.Select(
+            placeholder="Select team...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=t.get('name', 'Unknown')[:100],
+                    value=t.get('id', ''),
+                    description=t.get('code', '?'),
+                )
+                for t in sorted(teams, key=lambda x: x.get('code', ''))[:25]
+            ],
+            row=0,
+        )
+        team_select.callback = self.view_team_picks
+        self.add_item(team_select)
 
     async def view_team_picks(self, interaction: discord.Interaction) -> None:
         """Display picks owned by team."""
@@ -665,8 +681,3 @@ class ViewPicksByTeamView(discord.ui.View):
             logger.error("Failed to fetch team picks: %s", exc)
             await interaction.followup.send("❌ Failed to fetch picks.", ephemeral=True)
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Initialize on first interaction."""
-        if not self._initialized:
-            await self._initialize_teams()
-        return True

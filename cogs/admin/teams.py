@@ -9,6 +9,7 @@ import discord
 from discord import app_commands
 
 from db import queries
+from cogs.admin.common import LazyInitView
 from utils.team_player_cache import TeamPlayerCache
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -65,6 +66,7 @@ class TeamActionsView(discord.ui.View):
     @discord.ui.button(label="Set Owner", emoji="👑", style=discord.ButtonStyle.primary, row=0)
     async def set_owner(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = SetTeamOwnerView(self.supabase, self)
+        await view.prepare()
         embed = discord.Embed(
             title="👑 Set Team Owner",
             description="Select a team, then select its new owner.",
@@ -76,6 +78,7 @@ class TeamActionsView(discord.ui.View):
     @discord.ui.button(label="Edit Details", emoji="🏷️", style=discord.ButtonStyle.primary, row=0)
     async def edit_details(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = EditTeamDetailsView(self.supabase, self)
+        await view.prepare()
         embed = discord.Embed(
             title="🏷️ Edit Team Details",
             description="Select a team to edit.",
@@ -87,6 +90,7 @@ class TeamActionsView(discord.ui.View):
     @discord.ui.button(label="Delete Team", emoji="🗑️", style=discord.ButtonStyle.danger, row=0)
     async def delete_team(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = DeleteTeamView(self.supabase, self)
+        await view.prepare()
         embed = discord.Embed(
             title="🗑️ Delete Team",
             description="Select a team to delete (⚠️ **Cannot be undone**).",
@@ -200,7 +204,7 @@ class AddTeamModal(discord.ui.Modal, title="Add New Team"):
             )
 
 
-class SetTeamOwnerView(discord.ui.View):
+class SetTeamOwnerView(LazyInitView):
     """View for selecting team and owner."""
 
     def __init__(self, supabase: Any, parent_view: TeamActionsView) -> None:
@@ -209,34 +213,40 @@ class SetTeamOwnerView(discord.ui.View):
         self.parent_view = parent_view
         self.original_message: Optional[discord.Message] = None
         self.selected_team: Optional[Dict[str, Any]] = None
-        self._initialized = False
 
-    async def _initialize_selects(self) -> None:
+    async def populate(self) -> None:
         """Initialize select dropdowns on first use."""
-        if self._initialized:
-            return
-
         try:
             teams = await queries.get_all_teams(self.supabase)
-            if teams:
-                # Create team select dropdown
-                team_select = discord.ui.Select(
-                    placeholder="Select a team...",
-                    options=[
-                        discord.SelectOption(
-                            label=t.get('name', 'Unknown')[:100],
-                            value=t.get('code', '?'),
-                            description=f"Owner: {t.get('owner_discord_id', 'Unassigned')}",
-                        )
-                        for t in sorted(teams, key=lambda x: x.get('code', ''))
-                    ],
-                    row=0,
-                )
-                team_select.callback = self.select_team_callback
-                self.add_item(team_select)
-                self._initialized = True
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to initialize team select: %s", exc)
+            logger.error("Failed to fetch teams for owner selection: %s", exc)
+            return
+
+        if not teams:
+            team_select = discord.ui.Select(
+                placeholder="No teams available",
+                options=[discord.SelectOption(label="No teams found", value="none", description="Create a team first")],
+                disabled=True,
+            )
+            self.add_item(team_select)
+            return
+
+        team_select = discord.ui.Select(
+            placeholder="Select a team...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=t.get('name', 'Unknown')[:100],
+                    value=t.get('code', '?'),
+                    description=f"Owner: {t.get('owner_discord_id', 'Unassigned')}",
+                )
+                for t in sorted(teams, key=lambda x: x.get('code', ''))[:25]
+            ],
+            row=0,
+        )
+        team_select.callback = self.select_team_callback
+        self.add_item(team_select)
 
     async def select_team_callback(self, interaction: discord.Interaction) -> None:
         """Handle team selection."""
@@ -301,23 +311,9 @@ class SetTeamOwnerView(discord.ui.View):
                 ephemeral=True,
             )
 
-    @discord.ui.select(
-        cls=discord.ui.Select,
-        placeholder="Select a team...",
-        row=0,
-    )
-    async def select_team(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
-        """Legacy select handler - now handled by callback."""
-        await self.select_team_callback(interaction)
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Initialize selects on first interaction."""
-        if not self._initialized:
-            await self._initialize_selects()
-        return True
 
 
-class EditTeamDetailsView(discord.ui.View):
+class EditTeamDetailsView(LazyInitView):
     """View for editing team details."""
 
     def __init__(self, supabase: Any, parent_view: TeamActionsView) -> None:
@@ -325,32 +321,38 @@ class EditTeamDetailsView(discord.ui.View):
         self.supabase = supabase
         self.parent_view = parent_view
         self.original_message: Optional[discord.Message] = None
-        self._initialized = False
 
-    async def _initialize_selects(self) -> None:
-        """Initialize select dropdowns on first use."""
-        if self._initialized:
-            return
-
+    async def populate(self) -> None:
         try:
             teams = await queries.get_all_teams(self.supabase)
-            if teams:
-                team_select = discord.ui.Select(
-                    placeholder="Select a team to edit...",
-                    options=[
-                        discord.SelectOption(
-                            label=t.get('name', 'Unknown')[:100],
-                            value=t.get('code', '?'),
-                        )
-                        for t in sorted(teams, key=lambda x: x.get('code', ''))
-                    ],
-                    row=0,
-                )
-                team_select.callback = self.select_team_callback
-                self.add_item(team_select)
-                self._initialized = True
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to initialize team select for editing: %s", exc)
+            logger.error("Failed to fetch teams for editing: %s", exc)
+            return
+
+        if not teams:
+            empty_select = discord.ui.Select(
+                placeholder="No teams available",
+                options=[discord.SelectOption(label="No teams found", value="none")],
+                disabled=True,
+            )
+            self.add_item(empty_select)
+            return
+
+        team_select = discord.ui.Select(
+            placeholder="Select a team to edit...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=t.get('name', 'Unknown')[:100],
+                    value=t.get('code', '?'),
+                )
+                for t in sorted(teams, key=lambda x: x.get('code', ''))[:25]
+            ],
+            row=0,
+        )
+        team_select.callback = self.select_team_callback
+        self.add_item(team_select)
 
     async def select_team_callback(self, interaction: discord.Interaction) -> None:
         """Handle team selection for editing."""
@@ -364,20 +366,6 @@ class EditTeamDetailsView(discord.ui.View):
         modal = EditTeamModal(self.supabase, self.parent_view, team)
         await interaction.response.send_modal(modal)
 
-    @discord.ui.select(
-        cls=discord.ui.Select,
-        placeholder="Select a team to edit...",
-        row=0,
-    )
-    async def select_team(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
-        """Legacy select handler."""
-        await self.select_team_callback(interaction)
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Initialize selects on first interaction."""
-        if not self._initialized:
-            await self._initialize_selects()
-        return True
 
 
 class EditTeamModal(discord.ui.Modal, title="Edit Team Details"):
@@ -430,7 +418,7 @@ class EditTeamModal(discord.ui.Modal, title="Edit Team Details"):
             )
 
 
-class DeleteTeamView(discord.ui.View):
+class DeleteTeamView(LazyInitView):
     """View for deleting teams with confirmation."""
 
     def __init__(self, supabase: Any, parent_view: TeamActionsView) -> None:
@@ -438,33 +426,39 @@ class DeleteTeamView(discord.ui.View):
         self.supabase = supabase
         self.parent_view = parent_view
         self.original_message: Optional[discord.Message] = None
-        self._initialized = False
 
-    async def _initialize_selects(self) -> None:
-        """Initialize select dropdowns on first use."""
-        if self._initialized:
-            return
-
+    async def populate(self) -> None:
         try:
             teams = await queries.get_all_teams(self.supabase)
-            if teams:
-                team_select = discord.ui.Select(
-                    placeholder="Select a team to DELETE...",
-                    options=[
-                        discord.SelectOption(
-                            label=t.get('name', 'Unknown')[:100],
-                            value=t.get('code', '?'),
-                            description="⚠️ DELETION IS PERMANENT",
-                        )
-                        for t in sorted(teams, key=lambda x: x.get('code', ''))
-                    ],
-                    row=0,
-                )
-                team_select.callback = self.select_team_callback
-                self.add_item(team_select)
-                self._initialized = True
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to initialize team select for deletion: %s", exc)
+            logger.error("Failed to fetch teams for deletion: %s", exc)
+            return
+
+        if not teams:
+            empty_select = discord.ui.Select(
+                placeholder="No teams available",
+                options=[discord.SelectOption(label="No teams found", value="none")],
+                disabled=True,
+            )
+            self.add_item(empty_select)
+            return
+
+        team_select = discord.ui.Select(
+            placeholder="Select a team to DELETE...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=t.get('name', 'Unknown')[:100],
+                    value=t.get('code', '?'),
+                    description="⚠️ DELETION IS PERMANENT",
+                )
+                for t in sorted(teams, key=lambda x: x.get('code', ''))[:25]
+            ],
+            row=0,
+        )
+        team_select.callback = self.select_team_callback
+        self.add_item(team_select)
 
     async def select_team_callback(self, interaction: discord.Interaction) -> None:
         """Handle team selection for deletion."""
@@ -521,17 +515,3 @@ class DeleteTeamView(discord.ui.View):
 
         await interaction.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
 
-    @discord.ui.select(
-        cls=discord.ui.Select,
-        placeholder="Select a team to DELETE...",
-        row=0,
-    )
-    async def select_team(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
-        """Legacy select handler."""
-        await self.select_team_callback(interaction)
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Initialize selects on first interaction."""
-        if not self._initialized:
-            await self._initialize_selects()
-        return True

@@ -18,6 +18,17 @@ logger = logging.getLogger(__name__)
 class AdminDashboardView(discord.ui.View):
     """Main admin transactions dashboard with section buttons."""
 
+    SECTION_DESCRIPTIONS = [
+        ("🏢 Team Management", "Add, edit, delete teams and set owners"),
+        ("👤 Player Management", "Register players, link Discord, manage positions"),
+        ("🏀 Roster Management", "Force sign/release/transfer players"),
+        ("🏆 Draft Pick Management", "Seed picks, reassign ownership"),
+        ("📝 Transaction Overrides", "Void, edit, or resend transaction announcements"),
+        ("📅 Season Management", "Create, activate, deactivate seasons"),
+        ("⏰ Pending Offers Management", "Manage signing offers, expire early"),
+        ("📊 Audit & Reporting", "View activity logs, flagged actions, export data"),
+    ]
+
     def __init__(self, bot: Any, guild_id: int, config_data: Dict[str, Any]) -> None:
         super().__init__(timeout=300)
         self.bot = bot
@@ -44,18 +55,7 @@ class AdminDashboardView(discord.ui.View):
             color=discord.Color.red(),
         )
 
-        sections = [
-            ("🏢 Team Management", "Add, edit, delete teams and set owners"),
-            ("👤 Player Management", "Register players, link Discord, manage positions"),
-            ("🏀 Roster Management", "Force sign/release/transfer players"),
-            ("🏆 Draft Pick Management", "Seed picks, reassign ownership"),
-            ("📝 Transaction Overrides", "Void, edit, or resend transaction announcements"),
-            ("📅 Season Management", "Create, activate, deactivate seasons"),
-            ("⏰ Pending Offers Management", "Manage signing offers, expire early"),
-            ("📊 Audit & Reporting", "View activity logs, flagged actions, export data"),
-        ]
-
-        for title, desc in sections:
+        for title, desc in self.SECTION_DESCRIPTIONS:
             embed.add_field(name=title, value=desc, inline=False)
 
         embed.set_footer(text="Click a button below to manage that section.")
@@ -73,8 +73,6 @@ class AdminDashboardView(discord.ui.View):
     @discord.ui.button(label="Team Management", emoji="🏢", style=discord.ButtonStyle.primary, row=0)
     async def teams(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open team management interface."""
-        from cogs.admin.teams import TeamActionsView
-        
         view = TeamActionsView(self.bot, interaction.guild.id, self.bot.supabase)
         embed = view.create_embed()
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
@@ -93,8 +91,6 @@ class AdminDashboardView(discord.ui.View):
     @discord.ui.button(label="Roster Management", emoji="🏀", style=discord.ButtonStyle.primary, row=0)
     async def rosters(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open roster management interface."""
-        from cogs.admin.rosters import RosterActionsView
-        
         view = RosterActionsView(self.bot, interaction.guild.id, self.bot.supabase)
         embed = view.create_embed()
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
@@ -106,8 +102,6 @@ class AdminDashboardView(discord.ui.View):
     @discord.ui.button(label="Draft Picks", emoji="🏆", style=discord.ButtonStyle.primary, row=0)
     async def picks(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open draft picks management interface."""
-        from cogs.admin.picks import PicksActionsView
-        
         view = PicksActionsView(self.bot, interaction.guild.id, self.bot.supabase)
         embed = view.create_embed()
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
