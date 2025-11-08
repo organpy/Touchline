@@ -11,7 +11,6 @@ from discord import app_commands
 from discord.ext import commands
 
 from db import get_supabase, queries
-from utils.stat_calculations import calculate_season_averages, calculate_season_totals
 from utils.team_player_cache import TeamPlayerCache
 
 logger = logging.getLogger(__name__)
@@ -145,6 +144,7 @@ class StatsCog(commands.Cog):
         self.bot = bot
         self.supabase = get_supabase()
         self._league_cache: Dict[str, Dict[str, Any]] = {}
+        self._division_cache: Dict[str, Dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # Helpers
@@ -245,6 +245,44 @@ class StatsCog(commands.Cog):
             'name': division.get('name') or league_code,
         }
 
+    async def _resolve_league_for_team(self, team: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Look up the league metadata for a specific team via its division."""
+        if not team:
+            return None
+
+        division_id = team.get('division_id')
+        if not division_id:
+            return None
+
+        division = self._division_cache.get(division_id)
+        if division is None:
+            try:
+                response = (
+                    self.supabase
+                    .table('divisions')
+                    .select('id, league_type, name')
+                    .eq('id', division_id)
+                    .limit(1)
+                    .execute()
+                )
+                division = (response.data or [None])[0]
+                if division:
+                    self._division_cache[division_id] = division
+            except Exception as exc:  # pragma: no cover - network failure path
+                logger.error(
+                    "Failed to resolve division %s for team %s: %s",
+                    division_id,
+                    team.get('id'),
+                    exc,
+                )
+                division = None
+
+        if not division:
+            return None
+
+        league_code = division.get('league_type') or division.get('name')
+        return await self._fetch_league_metadata(league_code)
+
     async def _resolve_player(self, player_name: str) -> Optional[Dict[str, Any]]:
         """Find a player by display name using cache + Supabase fallback."""
         if not player_name:
@@ -308,13 +346,26 @@ class StatsCog(commands.Cog):
             await interaction.followup.send(f"❌ Player `{player_name}` was not found.")
             return
 
-        stats = await queries.get_player_stats_for_season(self.supabase, player['id'], season_row['id'])
-        if not stats:
+        try:
+            averages = await queries.get_player_averages(
+                self.supabase,
+                player['id'],
+                season_row['id'],
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to fetch player averages for player %s season %s: %s",
+                player['id'],
+                season_row['id'],
+                exc,
+            )
+            averages = None
+
+        if not averages:
             await interaction.followup.send(
                 f"ℹ️ No recorded stats for **{player.get('display_name', player_name)}** in season `{season_row.get('name')}`.")
             return
 
-        averages = calculate_season_averages(stats)
         league_display = self._format_league_display(league_meta)
 
         embed = discord.Embed(
@@ -323,16 +374,17 @@ class StatsCog(commands.Cog):
         )
         embed.add_field(name="League", value=league_display, inline=True)
         embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
-        embed.add_field(name="Games Played", value=str(averages['games_played']), inline=True)
+        embed.add_field(name="Team", value=averages.get('team_name', 'Free Agent'), inline=True)
+        embed.add_field(name="Games Played", value=str(averages.get('games_played', 0)), inline=True)
 
         production_lines = [
-            f"**PPG**: {averages['ppg']}",
-            f"**APG**: {averages['apg']}",
-            f"**BPG**: {averages['bpg']}",
-            f"**GPG**: {averages['gpg']}",
-            f"**SPG**: {averages['spg']}",
-            f"**OGPG**: {averages['opg']}",
-            f"**PP Efficiency**: {averages['pp_efficiency']}%",
+            f"**PPG**: {averages.get('ppg', 0)}",
+            f"**APG**: {averages.get('apg', 0)}",
+            f"**BPG**: {averages.get('bpg', 0)}",
+            f"**GPG**: {averages.get('gpg', 0)}",
+            f"**SPG**: {averages.get('spg', 0)}",
+            f"**OGPG**: {averages.get('ogpg', 0)}",
+            f"**PP Efficiency**: {averages.get('pp_efficiency', 0)}%",
         ]
         embed.add_field(name="Per Game", value="\n".join(production_lines), inline=False)
         embed.timestamp = datetime.utcnow()
@@ -369,13 +421,26 @@ class StatsCog(commands.Cog):
             await interaction.followup.send(f"❌ Player `{player_name}` was not found.")
             return
 
-        stats = await queries.get_player_stats_for_season(self.supabase, player['id'], season_row['id'])
-        if not stats:
+        try:
+            totals = await queries.get_player_totals(
+                self.supabase,
+                player['id'],
+                season_row['id'],
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to fetch player totals for player %s season %s: %s",
+                player['id'],
+                season_row['id'],
+                exc,
+            )
+            totals = None
+
+        if not totals:
             await interaction.followup.send(
                 f"ℹ️ No recorded stats for **{player.get('display_name', player_name)}** in season `{season_row.get('name')}`.")
             return
 
-        totals = calculate_season_totals(stats)
         league_display = self._format_league_display(league_meta)
 
         embed = discord.Embed(
@@ -384,16 +449,17 @@ class StatsCog(commands.Cog):
         )
         embed.add_field(name="League", value=league_display, inline=True)
         embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
-        embed.add_field(name="Games Played", value=str(totals['games_played']), inline=True)
+        embed.add_field(name="Team", value=totals.get('team_name', 'Free Agent'), inline=True)
+        embed.add_field(name="Games Played", value=str(totals.get('games_played', 0)), inline=True)
 
         totals_lines = [
-            f"**Points**: {totals['total_points']}",
-            f"**Assists**: {totals['total_assists']}",
-            f"**Blocks**: {totals['total_blocks']}",
-            f"**Goals**: {totals['total_goals']}",
-            f"**Saves**: {totals['total_saves']}",
-            f"**Own Goals**: {totals['total_own_goals']}",
-            f"**Powerup Plays**: {totals['total_pp_plays']} (used: {totals['total_pp_used']})",
+            f"**Points**: {totals.get('total_points', 0)}",
+            f"**Assists**: {totals.get('total_assists', 0)}",
+            f"**Blocks**: {totals.get('total_blocks', 0)}",
+            f"**Goals**: {totals.get('total_goals', 0)}",
+            f"**Saves**: {totals.get('total_saves', 0)}",
+            f"**Own Goals**: {totals.get('total_own_goals', 0)}",
+            f"**Powerup Plays**: {totals.get('total_pp_plays', 0)} (used: {totals.get('total_pp_used', 0)})",
         ]
         embed.add_field(name="Totals", value="\n".join(totals_lines), inline=False)
         embed.timestamp = datetime.utcnow()
@@ -513,82 +579,53 @@ class StatsCog(commands.Cog):
             await interaction.followup.send(f"❌ Team `{team}` was not found.")
             return
 
-        # Fetch active rosters for the season to get actual team members
         try:
-            rosters_response = (
-                self.supabase
-                .table('rosters')
-                .select('player_id, players(id, display_name)')
-                .eq('team_id', team_data['id'])
-                .eq('season_id', season_row['id'])
-                .is_('left_at', None)  # Only active players
-                .execute()
+            totals = await queries.get_team_totals(
+                self.supabase,
+                team_data['id'],
+                season_row['id'],
             )
-            rosters = rosters_response.data or []
         except Exception as exc:
-            logger.error("Failed to fetch rosters for team %s season %s: %s", team_data['id'], season_row['id'], exc)
-            rosters = []
+            logger.error(
+                "Failed to fetch team totals for team %s season %s: %s",
+                team_data['id'],
+                season_row['id'],
+                exc,
+            )
+            totals = None
 
-        if not rosters:
+        if not totals:
             await interaction.followup.send(
-                f"ℹ️ No active players found for **{team_data.get('name', team)}** in season `{season_row.get('name')}`.")
+                f"ℹ️ No recorded stats for **{team_data.get('name', team)}** in season `{season_row.get('name')}`.")
             return
 
-        # Get stats for all players
-        total_stats = {
-            'games_played': 0,
-            'total_points': 0,
-            'total_assists': 0,
-            'total_blocks': 0,
-            'total_goals': 0,
-            'total_saves': 0,
-            'total_own_goals': 0,
-            'total_pp_plays': 0,
-            'total_pp_used': 0
-        }
-
-        player_count = 0
-        for roster in rosters:
-            player_id = roster.get('player_id')
-            if not player_id:
-                continue
-
-            try:
-                stats = await queries.get_player_stats_for_season(self.supabase, player_id, season_row['id'])
-                if stats:
-                    player_count += 1
-                    totals = calculate_season_totals(stats)
-                    for key in total_stats:
-                        total_stats[key] += totals[key]
-            except Exception as exc:
-                logger.error("Failed to fetch stats for player %s: %s", player_id, exc)
-                continue
-
-        if player_count == 0:
-            await interaction.followup.send(
-                f"ℹ️ No recorded stats for players on **{team_data.get('name', team)}** in season `{season_row.get('name')}`.")
-            return
-
-        league_display = self._format_league_display(league_meta)
+        season_league_display = self._format_league_display(league_meta)
+        team_league_meta = await self._resolve_league_for_team(team_data)
+        team_league_display = self._format_league_display(team_league_meta)
 
         embed = discord.Embed(
             title=f"Team Season Totals — {team_data.get('name', team)}",
             color=discord.Color.green(),
         )
-        embed.add_field(name="League", value=league_display, inline=True)
+        embed.add_field(name="Team League", value=team_league_display, inline=True)
         embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
-        embed.add_field(name="Players", value=str(player_count), inline=True)
+        embed.add_field(name="Season League", value=season_league_display, inline=True)
+        embed.add_field(name="Players", value=str(totals.get('player_count', 0)), inline=True)
+        embed.add_field(name="Games Played", value=str(totals.get('games_played', 0)), inline=True)
 
         totals_lines = [
-            f"**Games Played**: {total_stats['games_played']}",
-            f"**Points**: {total_stats['total_points']}",
-            f"**Assists**: {total_stats['total_assists']}",
-            f"**Blocks**: {total_stats['total_blocks']}",
-            f"**Goals**: {total_stats['total_goals']}",
-            f"**Saves**: {total_stats['total_saves']}",
-            f"**Own Goals**: {total_stats['total_own_goals']}",
-            f"**Powerup Plays**: {total_stats['total_pp_plays']} (used: {total_stats['total_pp_used']})",
+            f"**Points**: {totals.get('total_points', 0)}",
+            f"**Assists**: {totals.get('total_assists', 0)}",
+            f"**Blocks**: {totals.get('total_blocks', 0)}",
+            f"**Goals**: {totals.get('total_goals', 0)}",
+            f"**Saves**: {totals.get('total_saves', 0)}",
+            f"**Own Goals**: {totals.get('total_own_goals', 0)}",
+            f"**Powerup Plays**: {totals.get('total_pp_plays', 0)} (used: {totals.get('total_pp_used', 0)})",
         ]
+        embed.add_field(name="Season Totals", value="\n".join(totals_lines), inline=False)
+        embed.timestamp = datetime.utcnow()
+        embed.set_footer(text="Aggregated across all recorded matches")
+
         await interaction.followup.send(embed=embed)
 
 
@@ -631,14 +668,17 @@ class StatsCog(commands.Cog):
                 f"ℹ️ No recorded stats for **{team_data.get('name', team)}** in season `{season_row.get('name')}`.")
             return
 
-        league_display = self._format_league_display(league_meta)
+        season_league_display = self._format_league_display(league_meta)
+        team_league_meta = await self._resolve_league_for_team(team_data)
+        team_league_display = self._format_league_display(team_league_meta)
 
         embed = discord.Embed(
             title=f"Team Per-Game Averages — {team_data.get('name', team)}",
             color=discord.Color.blurple(),
         )
-        embed.add_field(name="League", value=league_display, inline=True)
+        embed.add_field(name="Team League", value=team_league_display, inline=True)
         embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
+        embed.add_field(name="Season League", value=season_league_display, inline=True)
         embed.add_field(name="Games Played", value=str(averages.get('games_played', 0)), inline=True)
 
         averages_lines = [

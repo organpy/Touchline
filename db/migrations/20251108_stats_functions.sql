@@ -4,6 +4,15 @@
 
 BEGIN;
 
+DROP FUNCTION IF EXISTS get_player_averages(UUID, UUID);
+DROP FUNCTION IF EXISTS get_player_totals(UUID, UUID);
+DROP FUNCTION IF EXISTS get_team_totals(UUID, UUID);
+DROP FUNCTION IF EXISTS get_team_averages(UUID, UUID);
+DROP FUNCTION IF EXISTS get_leaderboard(TEXT, UUID, INT);
+DROP FUNCTION IF EXISTS get_player_history(UUID, UUID, INT);
+DROP FUNCTION IF EXISTS compare_players(UUID, UUID, UUID);
+DROP FUNCTION IF EXISTS get_season_summary(UUID);
+
 -- =====================================================================
 -- 1. Player per-game averages for a season
 -- =====================================================================
@@ -65,13 +74,13 @@ SELECT
     END AS pp_efficiency
 FROM player_stats_agg psa
 LEFT JOIN LATERAL (
-    SELECT t.name AS team_name
-    FROM rosters r
-    JOIN teams t ON t.id = r.team_id
-    WHERE r.player_id = psa.player_id
-      AND r.season_id = p_season_id
-      AND r.left_at IS NULL
-    LIMIT 1
+        SELECT t.name AS team_name
+        FROM rosters r
+        JOIN teams t ON t.id = r.team_id
+        WHERE r.player_id = psa.player_id
+            AND r.season_id = p_season_id
+        ORDER BY r.joined_at DESC NULLS LAST
+        LIMIT 1
 ) ct ON TRUE;
 $$ ;
 
@@ -139,7 +148,7 @@ LEFT JOIN LATERAL (
         JOIN teams t ON t.id = r.team_id
         WHERE r.player_id = psa.player_id
             AND r.season_id = p_season_id
-            AND r.left_at IS NULL
+        ORDER BY r.joined_at DESC NULLS LAST
         LIMIT 1
 ) ct ON TRUE;
 $$ ;
@@ -155,6 +164,7 @@ RETURNS TABLE(
     team_id UUID,
     team_name TEXT,
     player_count INT,
+    games_played INT,
     total_points INT,
     total_assists INT,
     total_goals INT,
@@ -167,22 +177,48 @@ RETURNS TABLE(
 LANGUAGE SQL
 STABLE
 AS $$
+WITH team_stat_rows AS (
+    SELECT
+        ps.player_id,
+        ps.match_id,
+        ps.points,
+        ps.assists,
+        ps.goals,
+        ps.saves,
+        ps.own_goals,
+        ps.blocks,
+        ps.powerup_plays,
+        ps.powerups_used
+    FROM player_stats ps
+    JOIN matches m ON m.id = ps.match_id
+    JOIN LATERAL (
+        SELECT r.team_id
+        FROM rosters r
+        WHERE r.player_id = ps.player_id
+          AND r.season_id = p_season_id
+          AND r.team_id = p_team_id
+          AND (r.joined_at IS NULL OR m.played_at IS NULL OR m.played_at >= r.joined_at)
+          AND (r.left_at IS NULL OR m.played_at IS NULL OR m.played_at < r.left_at)
+        ORDER BY r.joined_at DESC NULLS LAST
+        LIMIT 1
+    ) roster ON TRUE
+    WHERE m.season_id = p_season_id
+)
 SELECT
     t.id,
     t.name,
-    COUNT(DISTINCT ps.player_id)::INT,
-    COALESCE(SUM(ps.points), 0)::INT,
-    COALESCE(SUM(ps.assists), 0)::INT,
-    COALESCE(SUM(ps.goals), 0)::INT,
-    COALESCE(SUM(ps.saves), 0)::INT,
-    COALESCE(SUM(ps.own_goals), 0)::INT,
-    COALESCE(SUM(ps.blocks), 0)::INT,
-    COALESCE(SUM(ps.powerup_plays), 0)::INT,
-    COALESCE(SUM(ps.powerups_used), 0)::INT
+    COUNT(DISTINCT ts.player_id)::INT AS player_count,
+    COUNT(DISTINCT ts.match_id)::INT AS games_played,
+    COALESCE(SUM(ts.points), 0)::INT AS total_points,
+    COALESCE(SUM(ts.assists), 0)::INT AS total_assists,
+    COALESCE(SUM(ts.goals), 0)::INT AS total_goals,
+    COALESCE(SUM(ts.saves), 0)::INT AS total_saves,
+    COALESCE(SUM(ts.own_goals), 0)::INT AS total_own_goals,
+    COALESCE(SUM(ts.blocks), 0)::INT AS total_blocks,
+    COALESCE(SUM(ts.powerup_plays), 0)::INT AS total_pp_plays,
+    COALESCE(SUM(ts.powerups_used), 0)::INT AS total_pp_used
 FROM teams t
-JOIN player_stats ps ON ps.match_id IN (
-    SELECT id FROM matches WHERE (team1_id = t.id OR team2_id = t.id) AND season_id = p_season_id
-)
+LEFT JOIN team_stat_rows ts ON TRUE
 WHERE t.id = p_team_id
 GROUP BY t.id, t.name;
 $$ ;
@@ -209,27 +245,63 @@ RETURNS TABLE(
 LANGUAGE SQL
 STABLE
 AS $$
+WITH team_stat_rows AS (
+    SELECT
+        ps.match_id,
+        ps.points,
+        ps.assists,
+        ps.goals,
+        ps.saves,
+        ps.own_goals,
+        ps.blocks,
+        ps.powerup_plays,
+        ps.powerups_used
+    FROM player_stats ps
+    JOIN matches m ON m.id = ps.match_id
+    JOIN LATERAL (
+        SELECT r.team_id
+        FROM rosters r
+        WHERE r.player_id = ps.player_id
+          AND r.season_id = p_season_id
+          AND r.team_id = p_team_id
+          AND (r.joined_at IS NULL OR m.played_at IS NULL OR m.played_at >= r.joined_at)
+          AND (r.left_at IS NULL OR m.played_at IS NULL OR m.played_at < r.left_at)
+        ORDER BY r.joined_at DESC NULLS LAST
+        LIMIT 1
+    ) roster ON TRUE
+    WHERE m.season_id = p_season_id
+),
+aggregated AS (
+    SELECT
+        COUNT(DISTINCT match_id)::INT AS games_played,
+        COALESCE(SUM(points), 0)::NUMERIC AS total_points,
+        COALESCE(SUM(assists), 0)::NUMERIC AS total_assists,
+        COALESCE(SUM(goals), 0)::NUMERIC AS total_goals,
+        COALESCE(SUM(saves), 0)::NUMERIC AS total_saves,
+        COALESCE(SUM(own_goals), 0)::NUMERIC AS total_own_goals,
+        COALESCE(SUM(blocks), 0)::NUMERIC AS total_blocks,
+        COALESCE(SUM(powerup_plays), 0)::NUMERIC AS total_pp_plays,
+        COALESCE(SUM(powerups_used), 0)::NUMERIC AS total_pp_used
+    FROM team_stat_rows
+)
 SELECT
     t.id,
     t.name,
-    COUNT(DISTINCT ps.match_id)::INT AS games_played,
-    ROUND(AVG(ps.points)::NUMERIC, 2) AS ppg,
-    ROUND(AVG(ps.assists)::NUMERIC, 2) AS apg,
-    ROUND(AVG(ps.goals)::NUMERIC, 2) AS gpg,
-    ROUND(AVG(ps.saves)::NUMERIC, 2) AS spg,
-    ROUND(AVG(ps.own_goals)::NUMERIC, 2) AS ogpg,
-    ROUND(AVG(ps.blocks)::NUMERIC, 2) AS bpg,
-    CASE 
-        WHEN SUM(ps.powerups_used) > 0 
-        THEN ROUND((SUM(ps.powerup_plays)::NUMERIC / SUM(ps.powerups_used)::NUMERIC) * 100, 2)
+    aggregated.games_played,
+    CASE WHEN aggregated.games_played > 0 THEN ROUND(aggregated.total_points / aggregated.games_played, 2) ELSE 0 END AS ppg,
+    CASE WHEN aggregated.games_played > 0 THEN ROUND(aggregated.total_assists / aggregated.games_played, 2) ELSE 0 END AS apg,
+    CASE WHEN aggregated.games_played > 0 THEN ROUND(aggregated.total_goals / aggregated.games_played, 2) ELSE 0 END AS gpg,
+    CASE WHEN aggregated.games_played > 0 THEN ROUND(aggregated.total_saves / aggregated.games_played, 2) ELSE 0 END AS spg,
+    CASE WHEN aggregated.games_played > 0 THEN ROUND(aggregated.total_own_goals / aggregated.games_played, 2) ELSE 0 END AS ogpg,
+    CASE WHEN aggregated.games_played > 0 THEN ROUND(aggregated.total_blocks / aggregated.games_played, 2) ELSE 0 END AS bpg,
+    CASE
+        WHEN aggregated.total_pp_used > 0
+        THEN ROUND((aggregated.total_pp_plays / aggregated.total_pp_used) * 100, 2)
         ELSE 0
     END AS pp_efficiency
 FROM teams t
-JOIN player_stats ps ON ps.match_id IN (
-    SELECT id FROM matches WHERE (team1_id = t.id OR team2_id = t.id) AND season_id = p_season_id
-)
-WHERE t.id = p_team_id
-GROUP BY t.id, t.name;
+CROSS JOIN aggregated
+WHERE t.id = p_team_id;
 $$ ;
 
 -- =====================================================================
@@ -267,15 +339,15 @@ WITH season_player_stats AS (
     FROM player_stats ps
     JOIN players p ON p.id = ps.player_id
     JOIN matches m ON m.id = ps.match_id
-    LEFT JOIN LATERAL (
-        SELECT t.name AS team_name
-        FROM rosters r
-        JOIN teams t ON t.id = r.team_id
-        WHERE r.player_id = p.id
-          AND r.season_id = p_season_id
-          AND r.left_at IS NULL
-        LIMIT 1
-    ) ct ON TRUE
+        LEFT JOIN LATERAL (
+                SELECT t.name AS team_name
+                FROM rosters r
+                JOIN teams t ON t.id = r.team_id
+                WHERE r.player_id = p.id
+                    AND r.season_id = p_season_id
+                ORDER BY r.joined_at DESC NULLS LAST
+                LIMIT 1
+        ) ct ON TRUE
     WHERE m.season_id = p_season_id
     GROUP BY p.id, p.display_name, ct.team_name
 )
@@ -350,15 +422,20 @@ SELECT
 FROM player_stats ps
 JOIN players p ON p.id = ps.player_id
 JOIN matches m ON m.id = ps.match_id
-LEFT JOIN teams t ON t.id IN (m.team1_id, m.team2_id) AND 
-    (
-        (m.team1_id = (SELECT team_id FROM rosters WHERE player_id = p.id AND season_id = p_season_id AND left_at IS NULL LIMIT 1))
-        OR
-        (m.team2_id = (SELECT team_id FROM rosters WHERE player_id = p.id AND season_id = p_season_id AND left_at IS NULL LIMIT 1))
-    )
+LEFT JOIN LATERAL (
+    SELECT r.team_id
+    FROM rosters r
+    WHERE r.player_id = p.id
+      AND r.season_id = p_season_id
+      AND (r.joined_at IS NULL OR m.played_at IS NULL OR m.played_at >= r.joined_at)
+      AND (r.left_at IS NULL OR m.played_at IS NULL OR m.played_at < r.left_at)
+    ORDER BY r.joined_at DESC NULLS LAST
+    LIMIT 1
+) roster ON TRUE
 LEFT JOIN teams opp ON opp.id = CASE
-    WHEN m.team1_id = t.id THEN m.team2_id
-    ELSE m.team1_id
+    WHEN roster.team_id = m.team1_id THEN m.team2_id
+    WHEN roster.team_id = m.team2_id THEN m.team1_id
+    ELSE NULL
 END
 WHERE p.id = p_player_id
   AND m.season_id = p_season_id
@@ -447,16 +524,55 @@ RETURNS TABLE(
 LANGUAGE SQL
 STABLE
 AS $$
+WITH season_stat_rows AS (
+    SELECT
+        ps.player_id,
+        ps.points,
+        ps.assists,
+        ps.goals,
+        ps.saves,
+        ps.own_goals,
+        ps.blocks,
+        ps.powerup_plays,
+        ps.powerups_used,
+        roster.team_id
+    FROM player_stats ps
+    JOIN matches m ON m.id = ps.match_id
+    LEFT JOIN LATERAL (
+        SELECT r.team_id
+        FROM rosters r
+        WHERE r.player_id = ps.player_id
+          AND r.season_id = p_season_id
+          AND (r.joined_at IS NULL OR m.played_at IS NULL OR m.played_at >= r.joined_at)
+          AND (r.left_at IS NULL OR m.played_at IS NULL OR m.played_at < r.left_at)
+        ORDER BY r.joined_at DESC NULLS LAST
+        LIMIT 1
+    ) roster ON TRUE
+    WHERE m.season_id = p_season_id
+),
+team_totals AS (
+    SELECT
+        team_id,
+        COALESCE(SUM(points), 0)::INT AS total_points
+    FROM season_stat_rows
+    WHERE team_id IS NOT NULL
+    GROUP BY team_id
+),
+ordered_teams AS (
+    SELECT
+        t.id,
+        t.name,
+        tt.total_points,
+        ROW_NUMBER() OVER (ORDER BY tt.total_points DESC) AS rn
+    FROM team_totals tt
+    JOIN teams t ON t.id = tt.team_id
+)
 SELECT
     (SELECT COUNT(*) FROM matches WHERE season_id = p_season_id)::INT,
-    (SELECT COUNT(DISTINCT team_id) FROM (
-        SELECT DISTINCT team1_id AS team_id FROM matches WHERE season_id = p_season_id
-        UNION ALL
-        SELECT DISTINCT team2_id FROM matches WHERE season_id = p_season_id
-    ) t)::INT,
+    (SELECT COUNT(*) FROM ordered_teams)::INT,
     (SELECT COUNT(DISTINCT player_id) FROM player_stats ps JOIN matches m ON m.id = ps.match_id WHERE m.season_id = p_season_id)::INT,
     (SELECT ROUND(AVG(points)::NUMERIC, 2) FROM player_stats ps JOIN matches m ON m.id = ps.match_id WHERE m.season_id = p_season_id),
-    (SELECT p.display_name FROM players p
+    (SELECT COALESCE(p.display_name, 'N/A') FROM players p
      JOIN player_stats ps ON ps.player_id = p.id
      JOIN matches m ON m.id = ps.match_id
      WHERE m.season_id = p_season_id
@@ -469,23 +585,8 @@ SELECT
      WHERE m.season_id = p_season_id
      GROUP BY p.id, p.display_name
      ORDER BY SUM(ps.points) DESC LIMIT 1),
-    (SELECT t.name FROM teams t
-     JOIN (
-        SELECT DISTINCT team1_id AS team_id FROM matches WHERE season_id = p_season_id
-        UNION ALL
-        SELECT DISTINCT team2_id FROM matches WHERE season_id = p_season_id
-     ) mt ON mt.team_id = t.id
-     JOIN player_stats ps ON ps.match_id IN (
-        SELECT id FROM matches WHERE (team1_id = t.id OR team2_id = t.id) AND season_id = p_season_id
-     )
-     GROUP BY t.id, t.name
-     ORDER BY SUM(ps.points) DESC LIMIT 1),
-    (SELECT COALESCE(SUM(ps.points), 0)::INT FROM teams t
-     JOIN player_stats ps ON ps.match_id IN (
-        SELECT id FROM matches WHERE (team1_id = t.id OR team2_id = t.id) AND season_id = p_season_id
-     )
-     GROUP BY t.id, t.name
-     ORDER BY SUM(ps.points) DESC LIMIT 1);
+    (SELECT COALESCE(name, 'N/A') FROM ordered_teams WHERE rn = 1),
+    (SELECT COALESCE(total_points, 0) FROM ordered_teams WHERE rn = 1);
 $$ ;
 
 COMMIT;
