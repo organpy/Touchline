@@ -589,13 +589,368 @@ class StatsCog(commands.Cog):
             f"**Own Goals**: {total_stats['total_own_goals']}",
             f"**Powerup Plays**: {total_stats['total_pp_plays']} (used: {total_stats['total_pp_used']})",
         ]
-        embed.add_field(name="Team Totals", value="\n".join(totals_lines), inline=False)
-        embed.timestamp = datetime.utcnow()
-        embed.set_footer(text="Stats aggregated from all team players' recorded match data")
+        await interaction.followup.send(embed=embed)
 
+
+    @app_commands.command(name="team-average", description="Show per-game averages for a team in a season")
+    @app_commands.describe(
+        team="Team code or name",
+        league="League code or name (defaults to active season league)",
+        season="Season name (e.g., S10). Defaults to active season",
+    )
+    @app_commands.autocomplete(team=_team_autocomplete, league=_league_autocomplete, season=_season_autocomplete)
+    async def team_average(
+        self,
+        interaction: discord.Interaction,
+        team: str,
+        league: Optional[str] = None,
+        season: Optional[str] = None,
+    ) -> None:
+        await interaction.response.defer(thinking=True)
+
+        context = await self._find_season(league, season)
+        season_row, league_meta = context
+        if not season_row:
+            await interaction.followup.send("❌ Could not locate a season matching your request.")
+            return
+
+        cache = TeamPlayerCache()
+        team_data = cache.get_team_by_code(team.strip().upper())
+        if not team_data:
+            await interaction.followup.send(f"❌ Team `{team}` was not found.")
+            return
+
+        try:
+            averages = await queries.get_team_averages(self.supabase, team_data['id'], season_row['id'])
+        except Exception as exc:
+            logger.error("Failed to fetch team averages for team %s season %s: %s", team_data['id'], season_row['id'], exc)
+            averages = None
+
+        if not averages:
+            await interaction.followup.send(
+                f"ℹ️ No recorded stats for **{team_data.get('name', team)}** in season `{season_row.get('name')}`.")
+            return
+
+        league_display = self._format_league_display(league_meta)
+
+        embed = discord.Embed(
+            title=f"Team Per-Game Averages — {team_data.get('name', team)}",
+            color=discord.Color.blurple(),
+        )
+        embed.add_field(name="League", value=league_display, inline=True)
+        embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
+        embed.add_field(name="Games Played", value=str(averages.get('games_played', 0)), inline=True)
+
+        averages_lines = [
+            f"**PPG**: {averages.get('ppg', 0)}",
+            f"**APG**: {averages.get('apg', 0)}",
+            f"**GPG**: {averages.get('gpg', 0)}",
+            f"**SPG**: {averages.get('spg', 0)}",
+            f"**BPG**: {averages.get('bpg', 0)}",
+            f"**OGPG**: {averages.get('ogpg', 0)}",
+            f"**PP Efficiency**: {averages.get('pp_efficiency', 0)}%",
+        ]
+        embed.add_field(name="Per-Game Averages", value="\n".join(averages_lines), inline=False)
+        embed.timestamp = datetime.utcnow()
+        embed.set_footer(text="Team averages aggregated across all player matches")
+
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="leaderboard", description="Show top players for a stat in a season")
+    @app_commands.describe(
+        metric="Stat to rank by (points, assists, goals, saves, blocks, pp_plays)",
+        league="League code or name (defaults to active season league)",
+        season="Season name (e.g., S10). Defaults to active season",
+        limit="Number of players to show (default 10)",
+    )
+    @app_commands.autocomplete(league=_league_autocomplete, season=_season_autocomplete)
+    async def leaderboard(
+        self,
+        interaction: discord.Interaction,
+        metric: str,
+        league: Optional[str] = None,
+        season: Optional[str] = None,
+        limit: app_commands.Range[int, 3, 25] = 10,
+    ) -> None:
+        await interaction.response.defer(thinking=True)
+
+        # Validate metric
+        valid_metrics = ['points', 'assists', 'goals', 'saves', 'blocks', 'own_goals', 'pp_plays']
+        if metric.lower() not in valid_metrics:
+            await interaction.followup.send(
+                f"❌ Invalid metric. Choose from: {', '.join(valid_metrics)}")
+            return
+
+        context = await self._find_season(league, season)
+        season_row, league_meta = context
+        if not season_row:
+            await interaction.followup.send("❌ Could not locate a season matching your request.")
+            return
+
+        try:
+            leaders = await queries.get_leaderboard(
+                self.supabase,
+                metric.lower(),
+                season_row['id'],
+                limit
+            )
+        except Exception as exc:
+            logger.error("Failed to fetch leaderboard for metric %s season %s: %s", metric, season_row['id'], exc)
+            leaders = []
+
+        if not leaders:
+            await interaction.followup.send(f"ℹ️ No leaderboard data available for metric `{metric}` in season `{season_row.get('name')}`.")
+            return
+
+        league_display = self._format_league_display(league_meta)
+
+        metric_display = metric.replace('_', ' ').title()
+        embed = discord.Embed(
+            title=f"Leaderboard — {metric_display}",
+            color=discord.Color.gold(),
+        )
+        embed.add_field(name="League", value=league_display, inline=True)
+        embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
+        embed.timestamp = datetime.utcnow()
+
+        for leader in leaders[:limit]:
+            rank = leader.get('rank', '?')
+            player = leader.get('player_name', 'Unknown')
+            team = leader.get('team_name', 'Free Agent')
+            value = leader.get('value', 0)
+            games = leader.get('games_played', 0)
+            embed.add_field(
+                name=f"#{rank} — {player}",
+                value=f"{team} | {value} ({games} GP)",
+                inline=False
+            )
+
+        embed.set_footer(text="Rankings based on season totals")
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="player-history", description="Show game-by-game stats for a player")
+    @app_commands.describe(
+        player_name="Player display name",
+        team="Team code or name (optional filter)",
+        league="League code or name (defaults to active season league)",
+        season="Season name (e.g., S10). Defaults to active season",
+        limit="Number of recent games to show (default 10)",
+    )
+    @app_commands.autocomplete(player_name=_player_name_autocomplete, team=_team_autocomplete, league=_league_autocomplete, season=_season_autocomplete)
+    async def player_history(
+        self,
+        interaction: discord.Interaction,
+        player_name: str,
+        team: Optional[str] = None,
+        league: Optional[str] = None,
+        season: Optional[str] = None,
+        limit: app_commands.Range[int, 3, 25] = 10,
+    ) -> None:
+        await interaction.response.defer(thinking=True)
+
+        context = await self._find_season(league, season)
+        season_row, league_meta = context
+        if not season_row:
+            await interaction.followup.send("❌ Could not locate a season matching your request.")
+            return
+
+        player = await self._resolve_player(player_name)
+        if not player:
+            await interaction.followup.send(f"❌ Player `{player_name}` was not found.")
+            return
+
+        try:
+            history = await queries.get_player_history(
+                self.supabase,
+                player['id'],
+                season_row['id'],
+                limit
+            )
+        except Exception as exc:
+            logger.error("Failed to fetch player history for player %s season %s: %s", player['id'], season_row['id'], exc)
+            history = []
+
+        if not history:
+            await interaction.followup.send(
+                f"ℹ️ No recorded match history for **{player.get('display_name', player_name)}** in season `{season_row.get('name')}`.")
+            return
+
+        league_display = self._format_league_display(league_meta)
+
+        embed = discord.Embed(
+            title=f"Match History — {player.get('display_name', player_name)}",
+            color=discord.Color.teal(),
+        )
+        embed.add_field(name="League", value=league_display, inline=True)
+        embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
+        embed.timestamp = datetime.utcnow()
+
+        for match in history[:limit]:
+            match_date = match.get('match_date')
+            date_str = match_date.strftime('%m/%d') if match_date else 'Unknown'
+            opponent = match.get('opponent_name', 'Unknown')
+            points = match.get('points', 0)
+            assists = match.get('assists', 0)
+            goals = match.get('goals', 0)
+            saves = match.get('saves', 0)
+            blocks = match.get('blocks', 0)
+            pp_plays = match.get('pp_plays', 0)
+            pp_used = match.get('pp_used', 0)
+
+            line = (
+                f"**{date_str}** vs {opponent}\n"
+                f"{points}P | {assists}A | {goals}G | {saves}S | {blocks}B | PP {pp_plays}/{pp_used}"
+            )
+            embed.add_field(name="\u200b", value=line, inline=False)
+
+        embed.set_footer(text="Most recent matches shown first")
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="compare", description="Compare two players' stats for a season")
+    @app_commands.describe(
+        player_a="First player display name",
+        player_b="Second player display name",
+        league="League code or name (defaults to active season league)",
+        season="Season name (e.g., S10). Defaults to active season",
+    )
+    @app_commands.autocomplete(player_a=_player_name_autocomplete, player_b=_player_name_autocomplete, league=_league_autocomplete, season=_season_autocomplete)
+    async def compare(
+        self,
+        interaction: discord.Interaction,
+        player_a: str,
+        player_b: str,
+        league: Optional[str] = None,
+        season: Optional[str] = None,
+    ) -> None:
+        await interaction.response.defer(thinking=True)
+
+        context = await self._find_season(league, season)
+        season_row, league_meta = context
+        if not season_row:
+            await interaction.followup.send("❌ Could not locate a season matching your request.")
+            return
+
+        player_a_data = await self._resolve_player(player_a)
+        if not player_a_data:
+            await interaction.followup.send(f"❌ Player `{player_a}` was not found.")
+            return
+
+        player_b_data = await self._resolve_player(player_b)
+        if not player_b_data:
+            await interaction.followup.send(f"❌ Player `{player_b}` was not found.")
+            return
+
+        try:
+            comparison = await queries.compare_players(
+                self.supabase,
+                player_a_data['id'],
+                player_b_data['id'],
+                season_row['id']
+            )
+        except Exception as exc:
+            logger.error("Failed to compare players %s vs %s season %s: %s", player_a_data['id'], player_b_data['id'], season_row['id'], exc)
+            comparison = []
+
+        if not comparison:
+            await interaction.followup.send("ℹ️ Could not fetch comparison data for the selected players.")
+            return
+
+        league_display = self._format_league_display(league_meta)
+
+        embed = discord.Embed(
+            title=f"{player_a_data.get('display_name', player_a)} vs {player_b_data.get('display_name', player_b)}",
+            color=discord.Color.purple(),
+        )
+        embed.add_field(name="League", value=league_display, inline=True)
+        embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
+        embed.timestamp = datetime.utcnow()
+
+        for row in comparison:
+            metric = row.get('metric', 'Unknown')
+            val_a = row.get('player_a_value', 0)
+            val_b = row.get('player_b_value', 0)
+            diff = row.get('diff', 0)
+            winner = "🔴" if diff < 0 else "🟢" if diff > 0 else "⚪"
+            embed.add_field(
+                name=metric,
+                value=f"{player_a_data.get('display_name', player_a)}: {val_a}\n{player_b_data.get('display_name', player_b)}: {val_b}\n{winner} Diff: {diff:+}",
+                inline=False
+            )
+
+        embed.set_footer(text="Green indicates advantage for Player A, Red for Player B")
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="season-summary", description="Show season overview and top performers")
+    @app_commands.describe(
+        league="League code or name (defaults to active season league)",
+        season="Season name (e.g., S10). Defaults to active season",
+    )
+    @app_commands.autocomplete(league=_league_autocomplete, season=_season_autocomplete)
+    async def season_summary(
+        self,
+        interaction: discord.Interaction,
+        league: Optional[str] = None,
+        season: Optional[str] = None,
+    ) -> None:
+        await interaction.response.defer(thinking=True)
+
+        context = await self._find_season(league, season)
+        season_row, league_meta = context
+        if not season_row:
+            await interaction.followup.send("❌ Could not locate a season matching your request.")
+            return
+
+        try:
+            summary = await queries.get_season_summary(self.supabase, season_row['id'])
+        except Exception as exc:
+            logger.error("Failed to fetch season summary for season %s: %s", season_row['id'], exc)
+            summary = None
+
+        if not summary:
+            await interaction.followup.send("ℹ️ No summary data available for the selected season.")
+            return
+
+        league_display = self._format_league_display(league_meta)
+
+        embed = discord.Embed(
+            title=f"Season Overview — {season_row.get('name', 'Unknown Season')}",
+            color=discord.Color.orange(),
+        )
+        embed.add_field(name="League", value=league_display, inline=True)
+        embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
+        embed.timestamp = datetime.utcnow()
+
+        embed.add_field(
+            name="Season Statistics",
+            value=(
+                f"**Matches**: {summary.get('total_matches', 0)}\n"
+                f"**Teams**: {summary.get('total_teams', 0)}\n"
+                f"**Players**: {summary.get('total_players', 0)}\n"
+                f"**Avg Points/Match**: {summary.get('avg_points_per_match', 0)}"
+            ),
+            inline=False
+        )
+
+        top_scorer = summary.get('top_scorer_name', 'N/A')
+        top_scorer_points = summary.get('top_scorer_points', 0)
+        embed.add_field(
+            name="Top Scorer",
+            value=f"**{top_scorer}** with {top_scorer_points} points",
+            inline=False
+        )
+
+        top_team = summary.get('top_team_name', 'N/A')
+        top_team_points = summary.get('top_team_points', 0)
+        embed.add_field(
+            name="Top Scoring Team",
+            value=f"**{top_team}** with {top_team_points} total points",
+            inline=False
+        )
+
+        embed.set_footer(text="Summary based on all recorded match data")
         await interaction.followup.send(embed=embed)
 
 
 async def setup(bot: commands.Bot) -> None:
-    """Load the StatsCog into the bot."""
+    """Load the stats cog into the bot."""
     await bot.add_cog(StatsCog(bot))

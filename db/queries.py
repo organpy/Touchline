@@ -172,3 +172,113 @@ async def get_player_stats_for_season(supabase, player_id: str, season_id: str) 
     except Exception as e:
         logger.error(f"Error fetching player stats: {e}")
         return []
+
+
+# =====================================================================
+# Stats Functions (wrapping SQL functions from db/migrations/20251108_stats_functions.sql)
+# =====================================================================
+
+async def get_player_averages(supabase, player_id: str, season_id: str) -> Optional[Dict[str, Any]]:
+    """Get player per-game averages for a season"""
+    try:
+        response = supabase.rpc('get_player_averages', {
+            'p_player_id': player_id,
+            'p_season_id': season_id
+        }).execute()
+        return response.data[0] if response.data else None
+    except Exception as e:
+        logger.error(f"Error fetching player averages: {e}")
+        return None
+
+
+async def get_player_totals(supabase, player_id: str, season_id: str) -> Optional[Dict[str, Any]]:
+    """Get player season totals"""
+    try:
+        response = supabase.rpc('get_player_totals', {
+            'p_player_id': player_id,
+            'p_season_id': season_id
+        }).execute()
+        return response.data[0] if response.data else None
+    except Exception as e:
+        logger.error(f"Error fetching player totals: {e}")
+        return None
+
+
+async def get_team_totals(supabase, team_id: str, season_id: str) -> Optional[Dict[str, Any]]:
+    """Get team season totals"""
+    try:
+        response = supabase.rpc('get_team_totals', {
+            'p_team_id': team_id,
+            'p_season_id': season_id
+        }).execute()
+        return response.data[0] if response.data else None
+    except Exception as e:
+        logger.error(f"Error fetching team totals: {e}")
+        return None
+
+
+async def get_team_averages(supabase, team_id: str, season_id: str) -> Optional[Dict[str, Any]]:
+    """Get team per-game averages"""
+    try:
+        response = supabase.rpc('get_team_averages', {
+            'p_team_id': team_id,
+            'p_season_id': season_id
+        }).execute()
+        return response.data[0] if response.data else None
+    except Exception as e:
+        logger.error(f"Error fetching team averages: {e}")
+        return None
+
+
+async def get_leaderboard(supabase, metric: str, season_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """Get leaderboard for a specific metric"""
+    try:
+        response = supabase.rpc('get_leaderboard', {
+            'p_metric': metric,
+            'p_season_id': season_id,
+            'p_limit': limit
+        }).execute()
+        return response.data if response.data else []
+    except Exception as e:
+        logger.error(f"Error fetching leaderboard: {e}")
+        return []
+
+
+async def get_player_history(supabase, player_id: str, season_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """Get player game-by-game history for a season"""
+    try:
+        response = supabase.rpc('get_player_history', {
+            'p_player_id': player_id,
+            'p_season_id': season_id,
+            'p_limit': limit
+        }).execute()
+        return response.data if response.data else []
+    except Exception as e:
+        logger.error(f"Error fetching player history: {e}")
+        return []
+
+
+async def compare_players(supabase, player_a_id: str, player_b_id: str, season_id: str) -> List[Dict[str, Any]]:
+    """Compare two players across a season"""
+    try:
+        response = supabase.rpc('compare_players', {
+            'p_player_a_id': player_a_id,
+            'p_player_b_id': player_b_id,
+            'p_season_id': season_id
+        }).execute()
+        return response.data if response.data else []
+    except Exception as e:
+        logger.error(f"Error comparing players: {e}")
+        return []
+
+
+async def get_season_summary(supabase, season_id: str) -> Optional[Dict[str, Any]]:
+    """Get season summary statistics"""
+    try:
+        response = supabase.rpc('get_season_summary', {
+            'p_season_id': season_id
+        }).execute()
+        return response.data[0] if response.data else None
+    except Exception as e:
+        logger.error(f"Error fetching season summary: {e}")
+        return None
