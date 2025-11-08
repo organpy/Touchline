@@ -57,7 +57,7 @@ class TeamPlayerCache:
             # Load active rosters (team -> players mapping)
             rosters_response = cls._supabase.table('rosters').select(
                 '*, players(id, display_name, discord_id), teams(id, code)'
-            ).eq('left_at', None).execute()
+            ).is_('left_at', None).execute()
             
             cls._team_players = {}
             for roster in (rosters_response.data or []):

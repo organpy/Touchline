@@ -143,6 +143,26 @@ class ConfigurationView(discord.ui.View):
             "Choose the channel where match reports will be sent.",
         )
 
+    @discord.ui.button(label="Results Channel", emoji="📊", style=discord.ButtonStyle.primary, row=0)
+    async def results_channel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._handle_channel_selection(
+            interaction,
+            "Results Channel",
+            "resultsChannelId",
+            "📊 Select Results Channel",
+            "Choose the channel where results will be posted.",
+        )
+
+    @discord.ui.button(label="Transactions Channel", emoji="💳", style=discord.ButtonStyle.primary, row=1)
+    async def transactions_channel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._handle_channel_selection(
+            interaction,
+            "Transactions Channel",
+            "transactionsChannelId",
+            "💳 Select Transactions Channel",
+            "Choose the channel for transaction notifications (signs, releases, trades).",
+        )
+
     async def _handle_channel_selection(
         self,
         interaction: discord.Interaction,
@@ -279,6 +299,7 @@ class ConfigurationView(discord.ui.View):
                 "server_configured": False,
                 "guild_name": self.config_data.get("guild_name", ""),
                 "transactionsChannelId": "",
+                "resultsChannelId": "",
                 "result_channels": {
                     "division_2": None,
                     "division_1": None,

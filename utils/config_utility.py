@@ -32,6 +32,7 @@ class ConfigUtility:
             "server_configured": False,
             "guild_name": "",
             "transactionsChannelId": "",
+            "resultsChannelId": "",
             "admin_role_id": "",
             "adminCommandsChannelId": "",
             "scoresChannelId": "",
@@ -231,6 +232,10 @@ class ConfigUtility:
         scores_channel = config_data.get("scoresChannelId")
         scores_channel_text = f"<#{scores_channel}>" if scores_channel else "Not Set"
         embed.add_field(name="🎯 Scores Channel", value=scores_channel_text, inline=True)
+
+        results_channel = config_data.get("resultsChannelId")
+        results_channel_text = f"<#{results_channel}>" if results_channel else "Not Set"
+        embed.add_field(name="📊 Results Channel", value=results_channel_text, inline=True)
 
         result_channels = config_data.get("result_channels", {}) or {}
         div1_channel = result_channels.get("division_1")
