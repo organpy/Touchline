@@ -73,11 +73,12 @@ class AdminDashboardView(discord.ui.View):
     @discord.ui.button(label="Team Management", emoji="🏢", style=discord.ButtonStyle.primary, row=0)
     async def teams(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open team management interface."""
+        await interaction.response.defer(ephemeral=True)
         view = TeamActionsView(self.bot, interaction.guild.id, self.bot.supabase)
         embed = view.create_embed()
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         try:
-            view.original_message = await interaction.original_response()
+            view.original_message = message
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for team management: %s", exc)
 
@@ -91,22 +92,24 @@ class AdminDashboardView(discord.ui.View):
     @discord.ui.button(label="Roster Management", emoji="🏀", style=discord.ButtonStyle.primary, row=0)
     async def rosters(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open roster management interface."""
+        await interaction.response.defer(ephemeral=True)
         view = RosterActionsView(self.bot, interaction.guild.id, self.bot.supabase)
         embed = view.create_embed()
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         try:
-            view.original_message = await interaction.original_response()
+            view.original_message = message
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for roster management: %s", exc)
 
     @discord.ui.button(label="Draft Picks", emoji="🏆", style=discord.ButtonStyle.primary, row=0)
     async def picks(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open draft picks management interface."""
+        await interaction.response.defer(ephemeral=True)
         view = PicksActionsView(self.bot, interaction.guild.id, self.bot.supabase)
         embed = view.create_embed()
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         try:
-            view.original_message = await interaction.original_response()
+            view.original_message = message
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for draft picks management: %s", exc)
 

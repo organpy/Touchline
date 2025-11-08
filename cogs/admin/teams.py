@@ -189,6 +189,7 @@ class AddTeamModal(discord.ui.Modal, title="Add New Team"):
 
             if result.data:
                 logger.info("✅ Team created: %s (%s) by %s", team_name, team_code, interaction.user.id)
+                await TeamPlayerCache.refresh(self.supabase)
                 await interaction.followup.send(
                     f"✅ Team **{team_name}** (`{team_code}`) created successfully!",
                     ephemeral=True,
@@ -281,6 +282,7 @@ class SetTeamOwnerView(LazyInitView):
                             new_owner_id,
                             owner_interaction.user.id,
                         )
+                        await TeamPlayerCache.refresh(self.supabase)
                         await owner_interaction.followup.send(
                             f"✅ Team **{self.selected_team.get('name')}** owner set to <@{new_owner_id}>",
                             ephemeral=True,
@@ -403,6 +405,7 @@ class EditTeamModal(discord.ui.Modal, title="Edit Team Details"):
                     new_name,
                     interaction.user.id,
                 )
+                await TeamPlayerCache.refresh(self.supabase)
                 await interaction.followup.send(
                     f"✅ Team name updated to **{new_name}**",
                     ephemeral=True,
@@ -486,6 +489,7 @@ class DeleteTeamView(LazyInitView):
                         self.team_data.get('code', '?'),
                         confirm_interaction.user.id,
                     )
+                    await TeamPlayerCache.refresh(self.supabase)
                     await confirm_interaction.followup.send(
                         f"✅ Team **{self.team_data.get('name')}** deleted.",
                         ephemeral=True,
