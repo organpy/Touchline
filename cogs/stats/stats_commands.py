@@ -93,9 +93,20 @@ async def _season_autocomplete(
     league_input = getattr(namespace, 'league', None) if namespace else None
 
     try:
-        query = supabase.table('seasons').select('name, league_type').order('created_at', desc=True).limit(50)
+        query = supabase.table('seasons').select('name, division_id').order('created_at', desc=True).limit(50)
         if league_input:
-            query = query.ilike('league_type', str(league_input))
+            league_code = str(league_input).strip().upper()
+            division_resp = (
+                supabase
+                .table('divisions')
+                .select('id')
+                .ilike('league_type', league_code)
+                .limit(1)
+                .execute()
+            )
+            division_row = (division_resp.data or [None])[0]
+            if division_row and division_row.get('id'):
+                query = query.eq('division_id', division_row['id'])
         response = query.execute()
         seasons = response.data or []
     except Exception as exc:  # pragma: no cover - network failure path
@@ -145,6 +156,7 @@ class StatsCog(commands.Cog):
         self.supabase = get_supabase()
         self._league_cache: Dict[str, Dict[str, Any]] = {}
         self._division_cache: Dict[str, Dict[str, Any]] = {}
+        self._division_by_league_code: Dict[str, Dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # Helpers
@@ -176,15 +188,16 @@ class StatsCog(commands.Cog):
         """Locate a season row and its league metadata."""
         league_meta = await self._fetch_league_metadata(league_input)
         league_code = (league_meta or {}).get('code') if league_meta else None
+        division_row: Optional[Dict[str, Any]] = None
+        if league_code:
+            division_row = await self._fetch_division_by_league_code(league_code)
 
         def _build_query(active_only: bool = False):
             query = self.supabase.table('seasons').select('*')
             if season_input:
                 query = query.ilike('name', f"%{season_input}%")
-            if league_code:
-                query = query.ilike('league_type', league_code)
-            elif league_input:
-                query = query.ilike('league_type', league_input)
+            if division_row and division_row.get('id'):
+                query = query.eq('division_id', division_row['id'])
             if active_only:
                 query = query.eq('active', True)
             return query.order('created_at', desc=True).limit(1)
@@ -206,6 +219,8 @@ class StatsCog(commands.Cog):
 
         if not league_meta:
             league_meta = await self._resolve_league_for_season(season_row)
+        elif not division_row and season_row.get('division_id'):
+            await self._fetch_division_by_id(season_row['division_id'])
         return season_row, league_meta
 
     async def _resolve_league_for_season(self, season: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -218,19 +233,7 @@ class StatsCog(commands.Cog):
         if not division_id:
             return None
 
-        try:
-            response = (
-                self.supabase
-                .table('divisions')
-                .select('league_type, name')
-                .eq('id', division_id)
-                .limit(1)
-                .execute()
-            )
-            division = (response.data or [None])[0]
-        except Exception as exc:  # pragma: no cover - network failure path
-            logger.error("Failed to resolve division %s for season %s: %s", division_id, season.get('id'), exc)
-            division = None
+        division = await self._fetch_division_by_id(division_id)
 
         if not division:
             return None
@@ -245,38 +248,79 @@ class StatsCog(commands.Cog):
             'name': division.get('name') or league_code,
         }
 
+    async def _fetch_division_by_id(self, division_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not division_id:
+            return None
+
+        cached = self._division_cache.get(division_id)
+        if cached:
+            return cached
+
+        try:
+            response = (
+                self.supabase
+                .table('divisions')
+                .select('id, league_type, name')
+                .eq('id', division_id)
+                .limit(1)
+                .execute()
+            )
+            division = (response.data or [None])[0]
+            if division:
+                self._division_cache[division_id] = division
+                league_code = (division.get('league_type') or '').upper()
+                if league_code:
+                    self._division_by_league_code[league_code] = division
+            return division
+        except Exception as exc:  # pragma: no cover - network failure path
+            logger.error("Failed to fetch division %s: %s", division_id, exc)
+            return None
+
+    async def _fetch_division_by_league_code(self, league_code: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not league_code:
+            return None
+
+        normalized = league_code.strip().upper()
+        if not normalized:
+            return None
+
+        cached = self._division_by_league_code.get(normalized)
+        if cached:
+            return cached
+
+        try:
+            response = (
+                self.supabase
+                .table('divisions')
+                .select('id, league_type, name')
+                .ilike('league_type', normalized)
+                .limit(1)
+                .execute()
+            )
+            division = (response.data or [None])[0]
+            if division:
+                division_id = division.get('id')
+                if division_id:
+                    self._division_cache[division_id] = division
+                code = (division.get('league_type') or '').upper()
+                if code:
+                    self._division_by_league_code[code] = division
+            return division
+        except Exception as exc:  # pragma: no cover - network failure path
+            logger.error("Failed to resolve division for league %s: %s", league_code, exc)
+            return None
+
     async def _resolve_league_for_team(self, team: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         """Look up the league metadata for a specific team via its division."""
         if not team:
             return None
 
+        league_hint = team.get('league_type')
+        if league_hint:
+            return await self._fetch_league_metadata(league_hint)
+
         division_id = team.get('division_id')
-        if not division_id:
-            return None
-
-        division = self._division_cache.get(division_id)
-        if division is None:
-            try:
-                response = (
-                    self.supabase
-                    .table('divisions')
-                    .select('id, league_type, name')
-                    .eq('id', division_id)
-                    .limit(1)
-                    .execute()
-                )
-                division = (response.data or [None])[0]
-                if division:
-                    self._division_cache[division_id] = division
-            except Exception as exc:  # pragma: no cover - network failure path
-                logger.error(
-                    "Failed to resolve division %s for team %s: %s",
-                    division_id,
-                    team.get('id'),
-                    exc,
-                )
-                division = None
-
+        division = await self._fetch_division_by_id(division_id)
         if not division:
             return None
 

@@ -43,10 +43,44 @@ class TeamPlayerCache:
         try:
             logger.info("🔄 Refreshing TeamPlayerCache...")
             
-            # Load teams
+            # Load supporting metadata
+            divisions_response = cls._supabase.table('divisions').select('id, league_type, name').execute()
+            division_map = {d['id']: d for d in (divisions_response.data or [])}
+
+            active_seasons_response = (
+                cls._supabase
+                .table('seasons')
+                .select('id, name, division_id')
+                .eq('active', True)
+                .execute()
+            )
+            active_season_map = {s['division_id']: s for s in (active_seasons_response.data or []) if s.get('division_id')}
+
+            # Load teams and enrich with league/season metadata
             teams_response = cls._supabase.table('teams').select('*').execute()
-            cls._teams = {t['id']: t for t in (teams_response.data or [])}
-            cls._teams_by_code = {t['code'].upper(): t for t in (teams_response.data or [])}
+            cls._teams = {}
+            cls._teams_by_code = {}
+            for raw_team in (teams_response.data or []):
+                team = dict(raw_team)
+                division_id = team.get('division_id')
+                division = division_map.get(division_id)
+                if division:
+                    team['division'] = division
+                    team['league_type'] = division.get('league_type')
+                    team['league_name'] = division.get('name')
+
+                active_season = active_season_map.get(division_id)
+                if active_season:
+                    team['active_season_id'] = active_season.get('id')
+                    team['active_season_name'] = active_season.get('name')
+
+                team_id = team.get('id')
+                if team_id:
+                    cls._teams[team_id] = team
+
+                code = team.get('code')
+                if code:
+                    cls._teams_by_code[code.upper()] = team
             
             # Load players
             players_response = cls._supabase.table('players').select('*').execute()
