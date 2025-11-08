@@ -1,0 +1,584 @@
+import logging
+from typing import Any, Dict, Optional
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+from utils.config_utility import ConfigUtility
+
+logger = logging.getLogger(__name__)
+
+
+class ConfigurationView(discord.ui.View):
+    """Interactive configuration panel for guild administrators."""
+
+    def __init__(self, bot: Any, guild_id: int, config_data: Dict[str, Any]) -> None:
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.guild_id = guild_id
+        self.config_data = config_data.copy()
+        self.original_config = config_data.copy()
+        self.changes_made = False
+        self.original_message: Optional[discord.Message] = None
+        self.is_busy = False
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Ensure the interacting user still has admin rights."""
+        has_permission = await ConfigUtility.check_admin_permissions(interaction, self.config_data)
+        if not has_permission:
+            await interaction.response.send_message(
+                "❌ You don't have permission to configure this server.",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    def set_buttons_state(self, disabled: bool) -> None:
+        """Enable or disable all buttons in the view."""
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = disabled
+
+    def create_embed(self) -> discord.Embed:
+        """Build the configuration summary embed."""
+        embed = ConfigUtility.create_config_display_embed(
+            self.config_data,
+            title="🛠️ Server Configuration Panel",
+        )
+        embed.description = "Configure your server settings using the buttons below."
+
+        if self.changes_made:
+            embed.add_field(
+                name="📝 Status",
+                value="⚠️ **Unsaved Changes**\nClick 'Save Configuration' to apply changes.",
+                inline=False,
+            )
+
+        if self.is_busy:
+            embed.add_field(
+                name="⏳ Status",
+                value="🔄 Configuration in progress... Please wait.",
+                inline=False,
+            )
+
+        embed.set_footer(
+            text="Use the buttons below to configure different aspects of your server."
+        )
+        return embed
+
+    async def update_display(self) -> None:
+        """Refresh the main embed message."""
+        if not self.original_message:
+            return
+
+        try:
+            await self.original_message.edit(embed=self.create_embed(), view=self)
+        except Exception as exc:  # pragma: no cover - network path
+            logger.error("Failed to update configuration panel: %s", exc)
+
+    def mark_changes(self) -> None:
+        """Flag that unsaved changes exist."""
+        self.changes_made = True
+        logger.info("Changes marked for guild %s", self.guild_id)
+
+    @discord.ui.button(label="Admin Role", emoji="👑", style=discord.ButtonStyle.primary, row=0)
+    async def admin_role(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        if self.is_busy:
+            await interaction.response.send_message(
+                "⏳ Please wait for the current operation to complete.",
+                ephemeral=True,
+            )
+            return
+
+        self.is_busy = True
+        self.set_buttons_state(True)
+        await self.update_display()
+
+        try:
+            view = RoleSelectView()
+            embed = discord.Embed(
+                title="👑 Select Admin Role",
+                description="Choose the role that should have admin permissions for this bot.",
+                color=discord.Color.blue(),
+            )
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            await view.wait()
+
+            if view.selected_role_id:
+                self.config_data["admin_role_id"] = view.selected_role_id
+                self.mark_changes()
+        finally:
+            self.is_busy = False
+            self.set_buttons_state(False)
+            await self.update_display()
+
+    @discord.ui.button(label="Transactions Channel", emoji="💼", style=discord.ButtonStyle.primary, row=0)
+    async def transactions_channel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._handle_channel_selection(
+            interaction,
+            "Transactions Channel",
+            "transactionsChannelId",
+            "💼 Select Transactions Channel",
+            "Choose the channel where transaction notifications will be sent.",
+        )
+
+    @discord.ui.button(label="Admin Commands Channel", emoji="⚡", style=discord.ButtonStyle.primary, row=0)
+    async def admin_commands_channel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._handle_channel_selection(
+            interaction,
+            "Admin Commands Channel",
+            "adminCommandsChannelId",
+            "⚡ Select Admin Commands Channel",
+            "Choose the channel where admin commands can be used.",
+        )
+
+    @discord.ui.button(label="Scores Channel", emoji="🎯", style=discord.ButtonStyle.primary, row=0)
+    async def scores_channel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._handle_channel_selection(
+            interaction,
+            "Scores Channel",
+            "scoresChannelId",
+            "🎯 Select Scores Channel",
+            "Choose the channel where match reports will be sent.",
+        )
+
+    async def _handle_channel_selection(
+        self,
+        interaction: discord.Interaction,
+        display_name: str,
+        config_key: str,
+        modal_title: str,
+        modal_description: str,
+    ) -> None:
+        if self.is_busy:
+            await interaction.response.send_message(
+                "⏳ Please wait for the current operation to complete.",
+                ephemeral=True,
+            )
+            return
+
+        self.is_busy = True
+        self.set_buttons_state(True)
+        await self.update_display()
+
+        try:
+            view = ChannelSelectView(display_name)
+            embed = discord.Embed(
+                title=modal_title,
+                description=modal_description,
+                color=discord.Color.blue(),
+            )
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            await view.wait()
+
+            if view.selected_channel_id:
+                self.config_data[config_key] = view.selected_channel_id
+                self.mark_changes()
+        finally:
+            self.is_busy = False
+            self.set_buttons_state(False)
+            await self.update_display()
+
+    @discord.ui.button(label="Result Channels", emoji="🏆", style=discord.ButtonStyle.primary, row=1)
+    async def result_channels(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        if self.is_busy:
+            await interaction.response.send_message(
+                "⏳ Please wait for the current operation to complete.",
+                ephemeral=True,
+            )
+            return
+
+        self.is_busy = True
+        self.set_buttons_state(True)
+        await self.update_display()
+
+        try:
+            view = ResultChannelView(self.config_data.get("result_channels", {}))
+            embed = discord.Embed(
+                title="🏆 Result Channels Configuration",
+                description="Configure channels for different divisions.",
+                color=discord.Color.purple(),
+            )
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            await view.wait()
+
+            if view.changes_made:
+                self.config_data.setdefault("result_channels", {}).update(view.result_channels)
+                self.mark_changes()
+        finally:
+            self.is_busy = False
+            self.set_buttons_state(False)
+            await self.update_display()
+
+    @discord.ui.button(label="Save Configuration", emoji="💾", style=discord.ButtonStyle.success, row=1)
+    async def save_config(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        if self.is_busy:
+            await interaction.response.send_message(
+                "⏳ Please wait for the current operation to complete.",
+                ephemeral=True,
+            )
+            return
+
+        if not self.changes_made:
+            await interaction.response.send_message("ℹ️ No changes to save.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            required_fields = ["admin_role_id"]
+            if all(self.config_data.get(field) for field in required_fields):
+                self.config_data["server_configured"] = True
+
+            await ConfigUtility.save_guild_config(self.bot, self.guild_id, self.config_data)
+            self.changes_made = False
+
+            success_embed = discord.Embed(
+                title="✅ Configuration Saved",
+                description="Your server configuration has been saved successfully!",
+                color=discord.Color.green(),
+            )
+            await interaction.followup.send(embed=success_embed, ephemeral=True)
+            await self.update_display()
+        except Exception as exc:  # pragma: no cover - network path
+            logger.error("Error saving configuration: %s", exc)
+            failure_embed = discord.Embed(
+                title="❌ Save Failed",
+                description="An error occurred while saving the configuration. Please try again.",
+                color=discord.Color.red(),
+            )
+            try:
+                await interaction.followup.send(embed=failure_embed, ephemeral=True)
+            except Exception:  # pragma: no cover - network path
+                logger.exception("Failed to notify user about configuration save failure")
+
+    @discord.ui.button(label="Reset Configuration", emoji="🔄", style=discord.ButtonStyle.danger, row=1)
+    async def reset_config(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        if self.is_busy:
+            await interaction.response.send_message(
+                "⏳ Please wait for the current operation to complete.",
+                ephemeral=True,
+            )
+            return
+
+        view = ConfirmResetView()
+        embed = discord.Embed(
+            title="⚠️ Confirm Reset",
+            description=(
+                "Are you sure you want to reset all configuration to default values?\n\n"
+                "**This action cannot be undone!**"
+            ),
+            color=discord.Color.red(),
+        )
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await view.wait()
+
+        if view.confirmed:
+            self.config_data = {
+                "server_configured": False,
+                "guild_name": self.config_data.get("guild_name", ""),
+                "transactionsChannelId": "",
+                "result_channels": {
+                    "division_2": None,
+                    "division_1": None,
+                },
+                "admin_role_id": "",
+                "adminCommandsChannelId": "",
+                "scoresChannelId": "",
+            }
+            self.mark_changes()
+
+            confirmation_embed = discord.Embed(
+                title="🔄 Configuration Reset",
+                description="Configuration has been reset to default values. Don't forget to save!",
+                color=discord.Color.orange(),
+            )
+            await interaction.edit_original_response(embed=confirmation_embed, view=None)
+            await self.update_display()
+
+    @discord.ui.button(label="Close Panel", emoji="❌", style=discord.ButtonStyle.secondary, row=1)
+    async def close_panel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        if self.is_busy:
+            await interaction.response.send_message(
+                "⏳ Please wait for the current operation to complete.",
+                ephemeral=True,
+            )
+            return
+
+        if self.changes_made:
+            view = ConfirmCloseView()
+            embed = discord.Embed(
+                title="⚠️ Unsaved Changes",
+                description="You have unsaved changes. Are you sure you want to close the configuration panel?",
+                color=discord.Color.orange(),
+            )
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            await view.wait()
+
+            if not view.confirmed:
+                return
+
+        for item in self.children:
+            item.disabled = True
+
+        embed = discord.Embed(
+            title="✅ Configuration Panel Closed",
+            description="The configuration panel has been closed.",
+            color=discord.Color.green(),
+        )
+        await interaction.response.edit_message(embed=embed, view=self)
+        self.stop()
+
+
+class RoleSelectView(discord.ui.View):
+    def __init__(self) -> None:
+        super().__init__(timeout=60)
+        self.selected_role_id: Optional[str] = None
+
+    @discord.ui.select(
+        cls=discord.ui.RoleSelect,
+        placeholder="Select an admin role...",
+        min_values=1,
+        max_values=1,
+    )
+    async def role_select(self, interaction: discord.Interaction, select: discord.ui.RoleSelect) -> None:
+        role = select.values[0]
+        self.selected_role_id = str(role.id)
+
+        embed = discord.Embed(
+            title="✅ Admin Role Selected",
+            description=f"Selected admin role: {role.mention}",
+            color=discord.Color.green(),
+        )
+
+        for item in self.children:
+            item.disabled = True
+
+        await interaction.response.edit_message(embed=embed, view=self)
+        self.stop()
+
+
+class ChannelSelectView(discord.ui.View):
+    def __init__(self, display_name: str) -> None:
+        super().__init__(timeout=60)
+        self.display_name = display_name
+        self.selected_channel_id: Optional[str] = None
+
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        placeholder="Select a channel...",
+        channel_types=[discord.ChannelType.text, discord.ChannelType.forum],
+    )
+    async def channel_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect) -> None:
+        channel = select.values[0]
+        self.selected_channel_id = str(channel.id)
+
+        embed = discord.Embed(
+            title=f"✅ {self.display_name} Selected",
+            description=f"Selected channel: {channel.mention}",
+            color=discord.Color.green(),
+        )
+
+        for item in self.children:
+            item.disabled = True
+
+        await interaction.response.edit_message(embed=embed, view=self)
+        self.stop()
+
+
+class ResultChannelView(discord.ui.View):
+    def __init__(self, current_result_channels: Dict[str, Optional[str]]) -> None:
+        super().__init__(timeout=120)
+        self.result_channels = current_result_channels.copy()
+        self.changes_made = False
+
+    def create_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="🏆 Result Channels Configuration",
+            description="Configure channels for different divisions.",
+            color=discord.Color.purple(),
+        )
+
+        div1_channel = self.result_channels.get("division_1")
+        div2_channel = self.result_channels.get("division_2")
+
+        div1_text = f"<#{div1_channel}>" if div1_channel else "Not Set"
+        div2_text = f"<#{div2_channel}>" if div2_channel else "Not Set"
+
+        embed.add_field(name="🥇 Division 1", value=div1_text, inline=True)
+        embed.add_field(name="🥈 Division 2", value=div2_text, inline=True)
+
+        if self.changes_made:
+            embed.add_field(name="📝 Status", value="⚠️ Changes pending", inline=False)
+
+        return embed
+
+    async def update_embed(self, interaction: discord.Interaction) -> None:
+        try:
+            await interaction.edit_original_response(embed=self.create_embed(), view=self)
+        except Exception as exc:  # pragma: no cover - network path
+            logger.error("Failed to refresh result channel embed: %s", exc)
+
+    @discord.ui.button(label="Division 1 Channel", emoji="🥇", style=discord.ButtonStyle.primary)
+    async def division1_channel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.defer()
+
+        view = ChannelSelectView("Division 1 Results Channel")
+        embed = discord.Embed(
+            title="🥇 Select Division 1 Results Channel",
+            description="Choose the channel for Division 1 match results.",
+            color=discord.Color.gold(),
+        )
+
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        await view.wait()
+
+        if view.selected_channel_id:
+            self.result_channels["division_1"] = view.selected_channel_id
+            self.changes_made = True
+            await self.update_embed(interaction)
+
+    @discord.ui.button(label="Division 2 Channel", emoji="🥈", style=discord.ButtonStyle.primary)
+    async def division2_channel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.defer()
+
+        view = ChannelSelectView("Division 2 Results Channel")
+        embed = discord.Embed(
+            title="🥈 Select Division 2 Results Channel",
+            description="Choose the channel for Division 2 match results.",
+            color=discord.Color.from_rgb(192, 192, 192),
+        )
+
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        await view.wait()
+
+        if view.selected_channel_id:
+            self.result_channels["division_2"] = view.selected_channel_id
+            self.changes_made = True
+            await self.update_embed(interaction)
+
+    @discord.ui.button(label="Done", emoji="✅", style=discord.ButtonStyle.success)
+    async def done(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        status_text = "Result channels configuration complete!"
+        if self.changes_made:
+            status_text = "✅ Changes will be applied when you save the main configuration!"
+
+        embed = discord.Embed(
+            title="✅ Result Channels Configuration Complete",
+            description=status_text,
+            color=discord.Color.green(),
+        )
+
+        for item in self.children:
+            item.disabled = True
+
+        await interaction.response.edit_message(embed=embed, view=self)
+        self.stop()
+
+
+class ConfirmResetView(discord.ui.View):
+    def __init__(self) -> None:
+        super().__init__(timeout=30)
+        self.confirmed = False
+
+    @discord.ui.button(label="Yes, Reset", emoji="✅", style=discord.ButtonStyle.danger)
+    async def confirm_reset(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        self.confirmed = True
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(view=self)
+        self.stop()
+
+    @discord.ui.button(label="Cancel", emoji="❌", style=discord.ButtonStyle.secondary)
+    async def cancel_reset(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        self.confirmed = False
+        for item in self.children:
+            item.disabled = True
+
+        embed = discord.Embed(
+            title="❌ Reset Cancelled",
+            description="Configuration reset has been cancelled.",
+            color=discord.Color.green(),
+        )
+        await interaction.response.edit_message(embed=embed, view=self)
+        self.stop()
+
+
+class ConfirmCloseView(discord.ui.View):
+    def __init__(self) -> None:
+        super().__init__(timeout=30)
+        self.confirmed = False
+
+    @discord.ui.button(label="Yes, Close", emoji="✅", style=discord.ButtonStyle.danger)
+    async def confirm_close(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        self.confirmed = True
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(view=self)
+        self.stop()
+
+    @discord.ui.button(label="Keep Open", emoji="❌", style=discord.ButtonStyle.secondary)
+    async def cancel_close(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        self.confirmed = False
+        for item in self.children:
+            item.disabled = True
+
+        embed = discord.Embed(
+            title="✅ Staying Open",
+            description="Configuration panel will remain open.",
+            color=discord.Color.green(),
+        )
+        await interaction.response.edit_message(embed=embed, view=self)
+        self.stop()
+
+
+class ServerConfigCog(commands.Cog):
+    """Cog exposing the interactive server configuration panel."""
+
+    def __init__(self, bot: commands.Bot) -> None:
+        self.bot = bot
+
+    @app_commands.command(
+        name="configure-server",
+        description="[ADMIN] Configure server settings with an interactive panel",
+    )
+    async def configure_server(self, interaction: discord.Interaction) -> None:
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "❌ This command can only be used inside a Discord server.",
+                ephemeral=True,
+            )
+            return
+
+        guild_config = await ConfigUtility.get_guild_config(self.bot, interaction.guild.id)
+
+        channel_allowed, channel_error_embed = await ConfigUtility.check_admin_channel_restriction(
+            interaction, guild_config
+        )
+        if not channel_allowed:
+            await interaction.response.send_message(embed=channel_error_embed, ephemeral=True)
+            return
+
+        has_permission = await ConfigUtility.check_admin_permissions(interaction, guild_config)
+        if not has_permission:
+            await ConfigUtility.send_permission_denied_message(interaction)
+            return
+
+        guild_config["guild_name"] = interaction.guild.name
+
+        view = ConfigurationView(self.bot, interaction.guild.id, guild_config)
+        embed = view.create_embed()
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        try:
+            view.original_message = await interaction.original_response()
+        except Exception as exc:  # pragma: no cover - network path
+            logger.error("Unable to fetch original response for configuration panel: %s", exc)
+
+
+async def setup(bot: commands.Bot) -> None:
+    await bot.add_cog(ServerConfigCog(bot))
+    try:
+        await ConfigUtility.load_all_configs(bot)
+    except Exception as exc:  # pragma: no cover - network path
+        logger.error("Failed to prime configuration cache: %s", exc)
