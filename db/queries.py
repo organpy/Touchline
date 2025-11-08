@@ -66,6 +66,40 @@ async def get_team_by_code(supabase, code: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+async def get_team_by_owner(supabase, owner_discord_id: int) -> Optional[Dict[str, Any]]:
+    """Get the team managed by a Discord user."""
+    try:
+        response = (
+            supabase
+            .table('teams')
+            .select('*')
+            .eq('owner_discord_id', owner_discord_id)
+            .limit(1)
+            .execute()
+        )
+        return response.data[0] if response.data else None
+    except Exception as e:
+        logger.error(f"Error fetching team for owner {owner_discord_id}: {e}")
+        return None
+
+
+async def get_player_by_discord_id(supabase, discord_id: int) -> Optional[Dict[str, Any]]:
+    """Fetch a player row by Discord account id."""
+    try:
+        response = (
+            supabase
+            .table('players')
+            .select('*')
+            .eq('discord_id', discord_id)
+            .limit(1)
+            .execute()
+        )
+        return response.data[0] if response.data else None
+    except Exception as e:
+        logger.error(f"Error fetching player by discord id {discord_id}: {e}")
+        return None
+
+
 async def get_player_by_name(supabase, display_name: str) -> Optional[Dict[str, Any]]:
     """Get player by display name (case-insensitive)"""
     try:

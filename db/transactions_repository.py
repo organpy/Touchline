@@ -86,6 +86,55 @@ class TransactionsRepository:
             logger.error("Failed to delete pending signing %s: %s", signing_id, exc)
             return False
 
+    def update_pending_signing(self, signing_id: str, payload: Dict[str, Any]) -> bool:
+        """Update arbitrary fields on a pending signing."""
+        if not payload:
+            return True
+        try:
+            self.supabase.table('pending_signings').update(payload).eq('id', signing_id).execute()
+            return True
+        except Exception as exc:
+            logger.error("Failed to update pending signing %s -> %s: %s", signing_id, payload, exc)
+            return False
+
+    def update_pending_signing_status(self, signing_id: str, status: str) -> bool:
+        """Shortcut for updating pending signing status."""
+        return self.update_pending_signing(signing_id, {'status': status})
+
+    def cancel_other_pending_signings(self, player_id: str, keep_id: Optional[str] = None) -> None:
+        """Set all pending signings for player to declined, except keep_id."""
+        try:
+            query = (
+                self.supabase
+                .table('pending_signings')
+                .update({'status': 'declined'})
+                .eq('player_id', player_id)
+                .eq('status', 'pending')
+            )
+            if keep_id:
+                query = query.neq('id', keep_id)
+            query.execute()
+        except Exception as exc:
+            logger.error("Failed to cancel other pending signings for %s: %s", player_id, exc)
+
+    def get_active_roster_entry(self, season_id: str, player_id: str) -> Optional[Dict[str, Any]]:
+        """Return the active roster entry for a player in a season, if any."""
+        try:
+            response = (
+                self.supabase
+                .table('rosters')
+                .select('*')
+                .eq('season_id', season_id)
+                .eq('player_id', player_id)
+                .is_('left_at', 'null')
+                .limit(1)
+                .execute()
+            )
+            return response.data[0] if response.data else None
+        except Exception as exc:
+            logger.error("Failed to fetch roster entry for player %s season %s: %s", player_id, season_id, exc)
+            return None
+
     # ------------------------------------------------------------------
     # Transactions log
     # ------------------------------------------------------------------
