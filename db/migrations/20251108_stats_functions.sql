@@ -46,20 +46,11 @@ WITH player_stats_agg AS (
     WHERE p.id = p_player_id
       AND m.season_id = p_season_id
     GROUP BY p.id, p.display_name
-),
-current_team AS (
-    SELECT DISTINCT t.name
-    FROM teams t
-    JOIN rosters r ON r.team_id = t.id
-    WHERE r.player_id = p_player_id
-      AND r.season_id = p_season_id
-      AND r.left_at IS NULL
-    LIMIT 1
 )
 SELECT
     psa.player_id,
     psa.display_name,
-    COALESCE(ct.name, 'Free Agent') AS team_name,
+    COALESCE(ct.team_name, 'Free Agent') AS team_name,
     psa.games_played,
     ROUND((psa.total_points::NUMERIC / NULLIF(psa.games_played, 0)), 2) AS ppg,
     ROUND((psa.total_assists::NUMERIC / NULLIF(psa.games_played, 0)), 2) AS apg,
@@ -73,7 +64,15 @@ SELECT
         ELSE 0
     END AS pp_efficiency
 FROM player_stats_agg psa
-CROSS JOIN current_team ct;
+LEFT JOIN LATERAL (
+    SELECT t.name AS team_name
+    FROM rosters r
+    JOIN teams t ON t.id = r.team_id
+    WHERE r.player_id = psa.player_id
+      AND r.season_id = p_season_id
+      AND r.left_at IS NULL
+    LIMIT 1
+) ct ON TRUE;
 $$ ;
 
 -- =====================================================================
@@ -119,20 +118,11 @@ WITH player_stats_agg AS (
     WHERE p.id = p_player_id
       AND m.season_id = p_season_id
     GROUP BY p.id, p.display_name
-),
-current_team AS (
-    SELECT DISTINCT t.name
-    FROM teams t
-    JOIN rosters r ON r.team_id = t.id
-    WHERE r.player_id = p_player_id
-      AND r.season_id = p_season_id
-      AND r.left_at IS NULL
-    LIMIT 1
 )
 SELECT
     psa.player_id,
     psa.display_name,
-    COALESCE(ct.name, 'Free Agent') AS team_name,
+        COALESCE(ct.team_name, 'Free Agent') AS team_name,
     psa.games_played,
     psa.total_points,
     psa.total_assists,
@@ -143,7 +133,15 @@ SELECT
     psa.total_pp_plays,
     psa.total_pp_used
 FROM player_stats_agg psa
-CROSS JOIN current_team ct;
+LEFT JOIN LATERAL (
+        SELECT t.name AS team_name
+        FROM rosters r
+        JOIN teams t ON t.id = r.team_id
+        WHERE r.player_id = psa.player_id
+            AND r.season_id = p_season_id
+            AND r.left_at IS NULL
+        LIMIT 1
+) ct ON TRUE;
 $$ ;
 
 -- =====================================================================
@@ -257,7 +255,7 @@ WITH season_player_stats AS (
     SELECT
         p.id AS player_id,
         p.display_name,
-        COALESCE(t.name, 'Free Agent') AS team_name,
+        COALESCE(ct.team_name, 'Free Agent') AS team_name,
         SUM(ps.points) AS total_points,
         SUM(ps.assists) AS total_assists,
         SUM(ps.goals) AS total_goals,
@@ -269,10 +267,17 @@ WITH season_player_stats AS (
     FROM player_stats ps
     JOIN players p ON p.id = ps.player_id
     JOIN matches m ON m.id = ps.match_id
-    LEFT JOIN rosters r ON r.player_id = p.id AND r.season_id = p_season_id AND r.left_at IS NULL
-    LEFT JOIN teams t ON r.team_id = t.id
+    LEFT JOIN LATERAL (
+        SELECT t.name AS team_name
+        FROM rosters r
+        JOIN teams t ON t.id = r.team_id
+        WHERE r.player_id = p.id
+          AND r.season_id = p_season_id
+          AND r.left_at IS NULL
+        LIMIT 1
+    ) ct ON TRUE
     WHERE m.season_id = p_season_id
-    GROUP BY p.id, p.display_name, t.name
+    GROUP BY p.id, p.display_name, ct.team_name
 )
 SELECT
     ROW_NUMBER() OVER (ORDER BY 
