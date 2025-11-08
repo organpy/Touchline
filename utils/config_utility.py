@@ -10,19 +10,11 @@ import discord
 
 from utils.config_manager import get_config_manager
 
-try:
-    # Firestore is optional; guard import so environments without it still run.
-    from firestore import setup_firestore  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover - optional dependency
-    setup_firestore = None  # type: ignore
-
 logger = logging.getLogger(__name__)
 
 
 class ConfigUtility:
     """Helper utilities for guild configuration and admin UX flows."""
-
-    _FIRESTORE_COLLECTION = "configuration"
 
     # ------------------------------------------------------------------
     # Core load/save helpers
@@ -34,20 +26,6 @@ class ConfigUtility:
         manager = get_config_manager()
         guild_config = await manager.get_guild_config(guild_id)
         supabase_config = guild_config.get_all() or {}
-
-        firestore_config: Dict[str, Any] = {}
-        if setup_firestore:
-            try:
-                db = setup_firestore()
-                doc_ref = db.collection(ConfigUtility._FIRESTORE_COLLECTION).document(guild_id_str)
-                snapshot = doc_ref.get()
-                if snapshot.exists:
-                    firestore_config = snapshot.to_dict() or {}
-                    firestore_config.pop("last_updated", None)
-            except Exception as exc:  # pragma: no cover - optional path
-                logger.warning("⚠️ Failed to load Firestore config for guild %s: %s", guild_id, exc)
-        else:
-            logger.debug("Firestore not configured; skipping Firestore load for guild %s", guild_id)
 
         # Prepare defaults used by UI panels.
         defaults: Dict[str, Any] = {
@@ -69,7 +47,6 @@ class ConfigUtility:
 
         merged = deepcopy(defaults)
         merged.update(supabase_config)
-        merged.update(firestore_config)
 
         # Normalise channel ids to strings for embed display.
         for field in ("transactionsChannelId", "adminCommandsChannelId", "scoresChannelId"):
@@ -86,7 +63,6 @@ class ConfigUtility:
     async def load_all_configs(bot: Any) -> None:
         """Prime the in-memory cache with all guild configs."""
         manager = get_config_manager()
-        supabase = manager
         configs: Dict[str, Dict[str, Any]] = {}
 
         # Load all guild rows from Supabase.
@@ -99,18 +75,6 @@ class ConfigUtility:
                 configs[guild_id] = config
         except Exception as exc:  # pragma: no cover - network path
             logger.error("❌ Failed to load configs from Supabase: %s", exc)
-
-        # Overlay Firestore data when available.
-        if setup_firestore:
-            try:
-                db = setup_firestore()
-                documents = db.collection(ConfigUtility._FIRESTORE_COLLECTION).stream()
-                for doc in documents:
-                    data = doc.to_dict() or {}
-                    data.pop("last_updated", None)
-                    configs[doc.id] = {**configs.get(doc.id, {}), **data}
-            except Exception as exc:  # pragma: no cover - optional path
-                logger.warning("⚠️ Failed to load configs from Firestore: %s", exc)
 
         bot.config = {"guilds": configs}
         logger.info("✅ Loaded configuration for %d guild(s)", len(configs))
@@ -195,18 +159,6 @@ class ConfigUtility:
         # Update Supabase record.
         guild_config._cache = deepcopy(config_data)
         await guild_config.save()
-
-        # Update Firestore if configured.
-        if setup_firestore:
-            try:
-                db = setup_firestore()
-                doc_ref = db.collection(ConfigUtility._FIRESTORE_COLLECTION).document(guild_id_str)
-
-                payload = deepcopy(config_data)
-                payload["last_updated"] = discord.utils.utcnow()
-                doc_ref.set(payload)
-            except Exception as exc:  # pragma: no cover - optional path
-                logger.warning("⚠️ Failed to persist config to Firestore for guild %s: %s", guild_id, exc)
 
         # Refresh bot cache to reflect latest state.
         if not hasattr(bot, "config"):
