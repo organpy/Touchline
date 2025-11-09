@@ -53,11 +53,11 @@ class ExpireOfferModal(discord.ui.Modal, title="Expire Signing Offer"):
             return
 
         try:
-            # Find pending signing
+            # Find pending signing by ID (UUID comparison, not pattern matching)
             response = (
                 supabase.table("pending_signings")
                 .select("*")
-                .ilike("id", f"%{self.offer_id.value}%")
+                .eq("id", self.offer_id.value)
                 .limit(1)
                 .execute()
             )
@@ -141,14 +141,14 @@ class ViewPendingOffersView(LazyInitView):
         self.offers_list: list[Dict[str, Any]] = []
 
     async def lazy_init(self) -> None:
-        """Fetch pending signings from database."""
+        """Fetch pending signings from database with player/team joins."""
         if not self.supabase:
             return
 
         try:
             response = (
                 self.supabase.table("pending_signings")
-                .select("*")
+                .select("*, players(id, display_name, discord_id), teams(id, name, code)")
                 .eq("status", "pending")
                 .order("created_at", desc=True)
                 .execute()
@@ -162,7 +162,7 @@ class ViewPendingOffersView(LazyInitView):
         await self.lazy_init()
 
     def create_embed(self) -> discord.Embed:
-        """Build pending offers embed."""
+        """Build pending offers embed with player/team names."""
         if not self.offers_list:
             embed = discord.Embed(
                 title="⏰ Pending Signing Offers",
@@ -184,6 +184,14 @@ class ViewPendingOffersView(LazyInitView):
         )
 
         for offer in page_offers:
+            # Extract joined data
+            player_data = offer.get("players", {})
+            team_data = offer.get("teams", {})
+            
+            player_name = player_data.get("display_name", "Unknown") if player_data else "Unknown"
+            team_name = team_data.get("name", "Unknown") if team_data else "Unknown"
+            team_code = team_data.get("code", "?") if team_data else "?"
+            
             offer_id_short = offer["id"][:8] if offer.get("id") else "Unknown"
             created = offer.get("created_at", "Unknown")[:10]
             expires = offer.get("expires_at", "Unknown")[:10]
@@ -200,8 +208,8 @@ class ViewPendingOffersView(LazyInitView):
             status_emoji = "⏳" if not is_expired else "⚠️"
 
             embed.add_field(
-                name=f"{status_emoji} Offer `{offer_id_short}`",
-                value=f"**Status:** {offer.get('status', 'Unknown')}\n"
+                name=f"{status_emoji} {player_name} → {team_name} ({team_code})",
+                value=f"**ID:** `{offer_id_short}`\n"
                       f"**Created:** {created}\n"
                       f"**Expires:** {expires}",
                 inline=False,

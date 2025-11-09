@@ -66,11 +66,11 @@ class RosterActionsView(discord.ui.View):
 
     @discord.ui.button(label="Force Sign", emoji="✍️", style=discord.ButtonStyle.primary, row=0)
     async def force_sign(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        view = ForceSignView(self.supabase, self, self.repo)
+        view = ForceSignView(self.bot, self.guild_id, self.supabase, self.repo, self)
         await view.prepare()
         embed = discord.Embed(
             title="✍️ Force Sign Player",
-            description="Select season, team, and player to force sign.",
+            description="Select team and Discord member to force sign.",
             color=discord.Color.blue(),
         )
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
@@ -102,10 +102,15 @@ class RosterActionsView(discord.ui.View):
 
     @discord.ui.button(label="Blacklist", emoji="🚫", style=discord.ButtonStyle.danger, row=0)
     async def blacklist(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.send_message(
-            "🚫 Blacklist Management - Coming soon!",
-            ephemeral=True,
+        view = BlacklistView(self.bot, self.guild_id, self.supabase, self)
+        await view.prepare()
+        embed = discord.Embed(
+            title="🚫 Blacklist Management",
+            description="Add or remove players from team blacklists.",
+            color=discord.Color.orange(),
         )
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        view.original_message = await interaction.original_response()
 
     @discord.ui.button(label="View Roster", emoji="📋", style=discord.ButtonStyle.secondary, row=1)
     async def view_roster(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
@@ -126,350 +131,296 @@ class RosterActionsView(discord.ui.View):
         self.stop()
 
 
-class ForceSignView(LazyInitView):
-    """Multi-step view: Division → Season → Team → Player → Confirm."""
+class ForceSignView(discord.ui.View):
+    """Simple force sign: Select team → Select Discord member → Confirm sign."""
 
-    def __init__(self, supabase: Any, parent_view: RosterActionsView, repo: TransactionsRepository) -> None:
+    def __init__(self, bot: Any, guild_id: int, supabase: Any, repo: TransactionsRepository, parent_view: RosterActionsView) -> None:
         super().__init__(timeout=300)
+        self.bot = bot
+        self.guild_id = guild_id
         self.supabase = supabase
-        self.parent_view = parent_view
         self.repo = repo
+        self.parent_view = parent_view
         self.original_message: Optional[discord.Message] = None
-        self._selected_division: Optional[Dict[str, Any]] = None
-        self._selected_season: Optional[Dict[str, Any]] = None
         self._selected_team: Optional[Dict[str, Any]] = None
-        self._selected_player: Optional[Dict[str, Any]] = None
-        self._divisions: List[Dict[str, Any]] = []
+        self._selected_member: Optional[discord.Member] = None
+        self._teams: List[Dict[str, Any]] = []
         self.manager = AdminBaseManager()
+        
+        # Clear existing items and add team select
+        self.clear_items()
 
-    async def populate(self) -> None:
-        """Load available divisions linked to this guild."""
+    async def prepare(self) -> None:
+        """Load and display team options."""
         try:
-            self._divisions = await self.manager.get_guild_divisions(self.parent_view.guild_id)
-        except Exception as exc:  # pragma: no cover
-            logger.error("Failed to load divisions for force sign: %s", exc)
-            self._divisions = []
+            self._teams = await self.manager.get_teams_for_guild(self.guild_id)
+        except Exception as exc:
+            logger.error("Failed to load teams: %s", exc)
+            self._teams = []
 
-        if not self._divisions:
-            empty_select = discord.ui.Select(
-                placeholder="No divisions configured. Use /admin-config to link divisions first.",
-                options=[discord.SelectOption(label="No divisions available", value="none")],
-                disabled=True,
+        if not self._teams:
+            self.add_item(
+                discord.ui.Select(
+                    placeholder="No teams configured.",
+                    options=[discord.SelectOption(label="No teams available", value="none")],
+                    disabled=True,
+                )
             )
-            self.add_item(empty_select)
             return
 
-        division_select = discord.ui.Select(
-            placeholder="Select division...",
+        team_select = discord.ui.Select(
+            placeholder="Select team...",
             min_values=1,
             max_values=1,
             options=[
                 discord.SelectOption(
-                    label=(division.get('name') or division.get('league_type', 'Unknown'))[:100],
-                    value=division.get('id', ''),
-                    description=f"League: {(division.get('league_type') or 'N/A').upper()}",
+                    label=f"{t.get('name', 'Unknown')} ({t.get('code', '?')})",
+                    value=t.get('id', ''),
                 )
-                for division in sorted(
-                    self._divisions,
-                    key=lambda d: (
-                        (d.get('league_type') or '').upper(),
-                        d.get('name') or '',
-                    ),
-                )
+                for t in sorted(self._teams, key=lambda x: x.get('code', ''))
             ],
             row=0,
         )
-        division_select.callback = self.select_division
-        self.add_item(division_select)
-
-    async def select_division(self, interaction: discord.Interaction) -> None:
-        """Handle division selection before seasons."""
-        await interaction.response.defer(ephemeral=True)
-
-        division_id = interaction.data['values'][0]
-        self._selected_division = next(
-            (division for division in self._divisions if division.get('id') == division_id),
-            None,
-        )
-
-        if not self._selected_division:
-            await interaction.followup.send("❌ Division not found.", ephemeral=True)
-            return
-
-        try:
-            seasons_response = (
-                self.supabase
-                .table('seasons')
-                .select('*')
-                .eq('division_id', division_id)
-                .order('created_at', desc=True)
-                .execute()
-            )
-            seasons = seasons_response.data or []
-        except Exception as exc:  # pragma: no cover
-            logger.error("Failed to load seasons for division %s: %s", division_id, exc)
-            seasons = []
-
-        if not seasons:
-            division_label = self.manager.format_division_display(self._selected_division)
-            await interaction.followup.send(
-                f"❌ No seasons found for {division_label}.",
-                ephemeral=True,
-            )
-            return
-
-        season_select = discord.ui.Select(
-            placeholder="Select season...",
-            min_values=1,
-            max_values=1,
-            options=[
-                discord.SelectOption(
-                    label=season.get('name', 'Unknown')[:100],
-                    value=season.get('id', ''),
-                    description="✅ Active" if season.get('active') else "⏸️ Inactive",
-                )
-                for season in seasons[:25]
-            ],
-        )
-        season_select.callback = self.select_season
-        season_view = discord.ui.View()
-        season_view.add_item(season_select)
-
-        division_label = self.manager.format_division_display(self._selected_division)
-        active_flag = any(season.get('active') for season in seasons)
-        status = "✅ Active season available" if active_flag else "⏸️ No active season"
-        await interaction.followup.send(
-            f"{division_label} selected. {status}. Choose a season:",
-            view=season_view,
-            ephemeral=True,
-        )
-
-    async def select_season(self, interaction: discord.Interaction) -> None:
-        """Handle season selection."""
-        await interaction.response.defer(ephemeral=True)
-        season_id = interaction.data['values'][0]
-
-        if not self._selected_division:
-            await interaction.followup.send("❌ Please select a division before choosing a season.", ephemeral=True)
-            return
-
-        try:
-            season = self.supabase.table('seasons').select('*').eq('id', season_id).limit(1).execute()
-            if season.data:
-                self._selected_season = season.data[0]
-                # ✅ FIXED: Use manager to get teams scoped to guild
-                division_id = self._selected_season.get('division_id')
-                teams = await self.manager.get_teams_for_guild(self.parent_view.guild_id)
-                
-                # Filter teams to this division for extra safety
-                teams = [t for t in teams if t.get('division_id') == division_id]
-                
-                if not teams:
-                    await interaction.followup.send("❌ No teams found.", ephemeral=True)
-                    return
-
-                team_select = discord.ui.Select(
-                    placeholder="Select team...",
-                    options=[
-                        discord.SelectOption(
-                            label=t.get('name', 'Unknown')[:100],
-                            value=t.get('id', ''),
-                            description=t.get('code', '?'),
-                        )
-                        for t in sorted(teams, key=lambda x: x.get('code', ''))
-                    ],
-                    row=0,
-                )
-                team_select.callback = self.select_team
-                view = discord.ui.View()
-                view.add_item(team_select)
-
-                await interaction.followup.send(
-                    f"Season: **{self._selected_season.get('name')}**\n\nNow select team:",
-                    view=view,
-                    ephemeral=True,
-                )
-        except Exception as exc:  # pragma: no cover
-            logger.error("Failed to fetch season: %s", exc)
-            await interaction.followup.send("❌ Failed to fetch season.", ephemeral=True)
+        team_select.callback = self.select_team
+        self.add_item(team_select)
 
     async def select_team(self, interaction: discord.Interaction) -> None:
         """Handle team selection."""
         await interaction.response.defer(ephemeral=True)
+
         team_id = interaction.data['values'][0]
+        self._selected_team = next((t for t in self._teams if t.get('id') == team_id), None)
+
+        if not self._selected_team:
+            await interaction.followup.send("❌ Team not found.", ephemeral=True)
+            return
+
+        # Get guild members for member selection
+        try:
+            guild = self.bot.get_guild(self.guild_id)
+            if not guild:
+                await interaction.followup.send("❌ Guild not found.", ephemeral=True)
+                return
+
+            # Build member select (max 25 members)
+            members = sorted(guild.members, key=lambda m: m.display_name)
+            display_count = 24 if len(members) > 25 else 25
+            member_options = [
+                discord.SelectOption(
+                    label=m.display_name[:100],
+                    value=str(m.id),
+                    description=f"ID: {m.id}",
+                )
+                for m in members[:display_count]
+            ]
+
+            if len(members) > 25:
+                member_options.append(
+                    discord.SelectOption(
+                        label=f"... and {len(members) - 24} more members",
+                        value="__more__",
+                    )
+                )
+
+            member_select = discord.ui.Select(
+                placeholder="Select Discord member...",
+                min_values=1,
+                max_values=1,
+                options=member_options,
+                row=0,
+            )
+            member_select.callback = self.select_member
+            
+            view = discord.ui.View()
+            view.add_item(member_select)
+
+            await interaction.followup.send(
+                f"Team: **{self._selected_team.get('name')}** (`{self._selected_team.get('code')}`)\n\n"
+                f"Select Discord member to sign:",
+                view=view,
+                ephemeral=True,
+            )
+        except Exception as exc:
+            logger.error("Failed to fetch guild members: %s", exc)
+            await interaction.followup.send("❌ Failed to fetch guild members.", ephemeral=True)
+
+    async def select_member(self, interaction: discord.Interaction) -> None:
+        """Handle member selection and show confirmation."""
+        await interaction.response.defer(ephemeral=True)
+
+        member_id_str = interaction.data['values'][0]
+        if member_id_str == "__more__":
+            await interaction.followup.send(
+                "⚠️ Too many members to display. Please have the player provide their Discord ID or try /link-discord.",
+                ephemeral=True,
+            )
+            return
 
         try:
-            team = self.supabase.table('teams').select('*').eq('id', team_id).limit(1).execute()
-            if team.data:
-                self._selected_team = team.data[0]
-                # Now show player selection - limit to first 24 (leaving room for "more" if needed)
-                players = self.supabase.table('players').select('*').order('display_name', desc=False).execute()
-                if not players.data:
-                    await interaction.followup.send("❌ No players found.", ephemeral=True)
+            member_id = int(member_id_str)
+            guild = self.bot.get_guild(self.guild_id)
+            if not guild:
+                await interaction.followup.send("❌ Guild not found.", ephemeral=True)
+                return
+
+            self._selected_member = guild.get_member(member_id)
+            if not self._selected_member:
+                await interaction.followup.send("❌ Member not found in guild.", ephemeral=True)
+                return
+
+            # Show confirmation
+            embed = discord.Embed(
+                title="✍️ Confirm Force Sign",
+                color=discord.Color.blue(),
+            )
+            embed.add_field(name="Team", value=f"**{self._selected_team.get('name')}**", inline=False)
+            embed.add_field(name="Member", value=f"**{self._selected_member.display_name}** (<@{member_id}>)", inline=False)
+
+            confirm_view = discord.ui.View()
+            confirm_view.add_item(
+                discord.ui.Button(
+                    label="Confirm Sign",
+                    style=discord.ButtonStyle.success,
+                    custom_id="confirm_force_sign",
+                )
+            )
+            confirm_view.add_item(
+                discord.ui.Button(
+                    label="Cancel",
+                    style=discord.ButtonStyle.danger,
+                    custom_id="cancel_force_sign",
+                )
+            )
+
+            async def confirm_callback(btn_interaction: discord.Interaction) -> None:
+                await self.confirm_force_sign(btn_interaction)
+
+            async def cancel_callback(btn_interaction: discord.Interaction) -> None:
+                await btn_interaction.response.defer(ephemeral=True)
+                await btn_interaction.followup.send("❌ Force sign cancelled.", ephemeral=True)
+
+            confirm_view.children[0].callback = confirm_callback
+            confirm_view.children[1].callback = cancel_callback
+
+            await interaction.followup.send(embed=embed, view=confirm_view, ephemeral=True)
+        except ValueError:
+            await interaction.followup.send("❌ Invalid member ID.", ephemeral=True)
+        except Exception as exc:
+            logger.error("Error in select_member: %s", exc)
+            await interaction.followup.send("❌ Unexpected error occurred.", ephemeral=True)
+
+    async def confirm_force_sign(self, interaction: discord.Interaction) -> None:
+        """Handle force sign confirmation."""
+        await interaction.response.defer(ephemeral=True)
+
+        if not self._selected_team or not self._selected_member:
+            await interaction.followup.send("❌ Selection lost. Please try again.", ephemeral=True)
+            return
+
+        try:
+            # Get or create player for this Discord ID
+            player = await queries.get_player_by_discord_id(self.supabase, self._selected_member.id)
+            if not player:
+                # Create new player record with Discord ID
+                result = (
+                    self.supabase
+                    .table('players')
+                    .insert({
+                        'display_name': self._selected_member.display_name,
+                        'discord_id': self._selected_member.id,
+                        'active': True,
+                    })
+                    .execute()
+                )
+                if result.data:
+                    player = result.data[0]
+                else:
+                    await interaction.followup.send("❌ Failed to create player record.", ephemeral=True)
                     return
 
-                # Discord Select options limited to 25 max - use 24 if there are more
-                display_count = 24 if len(players.data) > 25 else 25
-                player_options = [
-                    discord.SelectOption(
-                        label=p.get('display_name', 'Unknown')[:100],
-                        value=p.get('id', ''),
-                    )
-                    for p in players.data[:display_count]
-                ]
-                
-                if len(players.data) > 25:
-                    player_options.append(
-                        discord.SelectOption(
-                            label=f"... and {len(players.data) - 24} more",
-                            value="__more__",
-                        )
-                    )
-
-                player_select = discord.ui.Select(
-                    placeholder="Select player...",
-                    options=player_options,
-                    row=0,
-                )
-                player_select.callback = self.select_player
-                view = discord.ui.View()
-                view.add_item(player_select)
-
+            # Get active season for team's division
+            team_division_id = self._selected_team.get('division_id')
+            season_response = (
+                self.supabase
+                .table('seasons')
+                .select('*')
+                .eq('division_id', team_division_id)
+                .eq('active', True)
+                .limit(1)
+                .execute()
+            )
+            season = season_response.data[0] if season_response.data else None
+            if not season:
                 await interaction.followup.send(
-                    f"Season: **{self._selected_season.get('name')}**\n"
-                    f"Team: **{self._selected_team.get('name')}** (`{self._selected_team.get('code')}`)\n\n"
-                    f"Now select player:",
-                    view=view,
+                    f"❌ No active season found for division {team_division_id}. Cannot sign player.",
                     ephemeral=True,
                 )
-        except Exception as exc:  # pragma: no cover
-            logger.error("Failed to fetch team: %s", exc)
-            await interaction.followup.send("❌ Failed to fetch team.", ephemeral=True)
+                return
 
-    async def select_player(self, interaction: discord.Interaction) -> None:
-        """Handle player selection and show confirmation."""
-        await interaction.response.defer(ephemeral=True)
-        player_id = interaction.data['values'][0]
-
-        try:
-            player = self.supabase.table('players').select('*').eq('id', player_id).limit(1).execute()
-            if player.data:
-                self._selected_player = player.data[0]
-
-                # Check if already on roster
-                existing_roster = self.repo.get_active_roster_entry(
-                    self._selected_season['id'],
-                    player_id
+            # Check if already on roster
+            existing_roster = (
+                self.supabase
+                .table('rosters')
+                .select('*')
+                .eq('season_id', season['id'])
+                .eq('team_id', self._selected_team['id'])
+                .eq('player_id', player['id'])
+                .is_('left_at', None)
+                .execute()
+            )
+            if existing_roster.data:
+                await interaction.followup.send(
+                    f"⚠️ **{player['display_name']}** is already on the roster.",
+                    ephemeral=True,
                 )
-                if existing_roster:
-                    await interaction.followup.send(
-                        f"⚠️ Player **{self._selected_player.get('display_name')}** is already on a roster.",
-                        ephemeral=True,
-                    )
-                    return
+                return
 
-                # Confirmation
-                class ConfirmSignView(discord.ui.View):
-                    def __init__(self) -> None:
-                        super().__init__(timeout=60)
+            # Sign player
+            transaction_id = await self.repo.create_transaction(
+                season_id=season['id'],
+                transaction_type='admin_force_sign',
+                player_id=player['id'],
+                from_team_id=None,
+                to_team_id=self._selected_team['id'],
+                executed_by=interaction.user.id,
+                details={'signed_by': interaction.user.display_name},
+            )
 
-                    @discord.ui.button(label="Confirm Sign", style=discord.ButtonStyle.success, emoji="✅")
-                    async def confirm(self, confirm_interaction: discord.Interaction, _: discord.ui.Button) -> None:
-                        await confirm_interaction.response.defer(ephemeral=True)
-                        try:
-                            # Insert roster entry
-                            roster_data = {
-                                'season_id': self._selected_season['id'],
-                                'team_id': self._selected_team['id'],
-                                'player_id': player_id,
-                                'joined_at': datetime.utcnow().isoformat(),
-                            }
-                            result = self.supabase.table('rosters').insert(roster_data).execute()
+            if transaction_id:
+                # Post to admin transactions channel
+                config_mgr = get_config_manager()
+                config = await config_mgr.get_config(self.guild_id)
+                channel_id = config.get('admin_transaction_channel_id')
 
-                            if result.data:
-                                logger.info(
-                                    "✅ Force sign: %s → %s (%s) by %s",
-                                    self._selected_player.get('display_name', '?'),
-                                    self._selected_team.get('code', '?'),
-                                    self._selected_season.get('name', '?'),
-                                    confirm_interaction.user.id,
-                                )
-                                # Insert transaction event
-                                self.repo.insert_transaction({
-                                    'season_id': self._selected_season['id'],
-                                    'transaction_type': 'admin_force_sign',
-                                    'player_id': player_id,
-                                    'team_id': self._selected_team['id'],
-                                    'metadata': {
-                                        'admin_user_id': str(confirm_interaction.user.id),
-                                        'reason': 'admin_force_sign',
-                                    },
-                                })
-                                await TeamPlayerCache.refresh(self.supabase)
-                                
-                                # Post to transactions channel
-                                config_mgr = get_config_manager()
-                                tx_config = await config_mgr.get_transactions_config(self.parent_view.guild_id)
-                                channel_id = tx_config.get('channel_id')
-                                if channel_id:
-                                    try:
-                                        channel = self.parent_view.bot.get_channel(int(channel_id))
-                                        if channel and isinstance(channel, discord.TextChannel):
-                                            embed = discord.Embed(
-                                                title="🔐 Admin Signing",
-                                                description=f"Player **{self._selected_player.get('display_name')}** was force-signed to **{self._selected_team.get('name')}**",
-                                                color=discord.Color.orange(),
-                                            )
-                                            embed.add_field(name="Season", value=self._selected_season.get('name'), inline=True)
-                                            embed.add_field(name="Team Code", value=self._selected_team.get('code'), inline=True)
-                                            embed.add_field(name="Admin", value=f"<@{confirm_interaction.user.id}>", inline=True)
-                                            await channel.send(embed=embed)
-                                    except Exception as e:
-                                        logger.warning(f"Failed to post admin signing to transactions channel: {e}")
-                                
-                                await confirm_interaction.followup.send(
-                                    f"✅ **{self._selected_player.get('display_name')}** force signed to "
-                                    f"**{self._selected_team.get('name')}** for **{self._selected_season.get('name')}**",
-                                    ephemeral=True,
-                                )
-                                await self.parent_view.update_display()
-                            else:
-                                raise Exception("No data returned from insert")
-                        except Exception as exc:  # pragma: no cover
-                            logger.error("Failed to force sign player: %s", exc)
-                            await confirm_interaction.followup.send(
-                                "❌ Failed to force sign player. Check server logs.",
-                                ephemeral=True,
+                if channel_id:
+                    try:
+                        channel = self.bot.get_channel(int(channel_id))
+                        if channel:
+                            embed = discord.Embed(
+                                title="✍️ Force Sign",
+                                description=f"**{player['display_name']}** signed to **{self._selected_team.get('name')}**",
+                                color=discord.Color.green(),
                             )
+                            embed.add_field(name="Season", value=season.get('name'), inline=False)
+                            embed.add_field(name="Executed by", value=interaction.user.mention, inline=False)
+                            await channel.send(embed=embed)
+                    except Exception as channel_error:
+                        logger.warning("Failed to post to transaction channel: %s", channel_error)
 
-                    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
-                    async def cancel(self, cancel_interaction: discord.Interaction, _: discord.ui.Button) -> None:
-                        await cancel_interaction.response.defer(ephemeral=True)
-                        await cancel_interaction.followup.send("❌ Cancelled.", ephemeral=True)
-
-                confirm_view = ConfirmSignView()
-                confirm_view.supabase = self.supabase
-                confirm_view.parent_view = self.parent_view
-                confirm_view.repo = self.repo
-                confirm_view._selected_season = self._selected_season
-                confirm_view._selected_team = self._selected_team
-                confirm_view._selected_player = self._selected_player
+                await TeamPlayerCache.refresh()
 
                 embed = discord.Embed(
-                    title="✅ Confirm Force Sign",
-                    description=(
-                        f"**Player**: {self._selected_player.get('display_name')}\n"
-                        f"**Team**: {self._selected_team.get('name')} (`{self._selected_team.get('code')}`)\n"
-                        f"**Season**: {self._selected_season.get('name')}\n\n"
-                        f"Confirm force sign?"
-                    ),
+                    title="✅ Player Signed",
+                    description=f"**{player['display_name']}** has been signed to **{self._selected_team.get('name')}** for **{season.get('name')}**",
                     color=discord.Color.green(),
                 )
-                await interaction.followup.send(embed=embed, view=confirm_view, ephemeral=True)
-        except Exception as exc:  # pragma: no cover
-            logger.error("Failed to fetch player: %s", exc)
-            await interaction.followup.send("❌ Failed to fetch player.", ephemeral=True)
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Failed to create transaction.", ephemeral=True)
 
+        except Exception as exc:
+            logger.error("Error confirming force sign: %s", exc, exc_info=True)
+            await interaction.followup.send(f"❌ Error: {str(exc)[:100]}", ephemeral=True)
 
 
 class ForceReleaseView(LazyInitView):
@@ -832,6 +783,254 @@ class ForceTransferView(LazyInitView):
             logger.error("Failed to fetch destination team: %s", exc)
             await interaction.followup.send("❌ Failed to fetch team.", ephemeral=True)
 
+
+
+class BlacklistView(discord.ui.View):
+    """Blacklist management: Add/Remove players from team blacklists."""
+
+    def __init__(self, bot: Any, guild_id: int, supabase: Any, parent_view: RosterActionsView) -> None:
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.guild_id = guild_id
+        self.supabase = supabase
+        self.parent_view = parent_view
+        self.original_message: Optional[discord.Message] = None
+        self._selected_team: Optional[Dict[str, Any]] = None
+        self._teams: List[Dict[str, Any]] = []
+        self.manager = AdminBaseManager()
+
+    async def prepare(self) -> None:
+        """Load and display team options."""
+        try:
+            self._teams = await self.manager.get_teams_for_guild(self.guild_id)
+        except Exception as exc:
+            logger.error("Failed to load teams for blacklist: %s", exc)
+            self._teams = []
+
+        if not self._teams:
+            self.add_item(
+                discord.ui.Select(
+                    placeholder="No teams configured.",
+                    options=[discord.SelectOption(label="No teams available", value="none")],
+                    disabled=True,
+                )
+            )
+            return
+
+        team_select = discord.ui.Select(
+            placeholder="Select team...",
+            min_values=1,
+            max_values=1,
+            options=[
+                discord.SelectOption(
+                    label=f"{t.get('name', 'Unknown')} ({t.get('code', '?')})",
+                    value=t.get('id', ''),
+                )
+                for t in sorted(self._teams, key=lambda x: x.get('code', ''))
+            ],
+            row=0,
+        )
+        team_select.callback = self.select_team
+        self.add_item(team_select)
+
+    async def select_team(self, interaction: discord.Interaction) -> None:
+        """Handle team selection and show blacklist actions."""
+        await interaction.response.defer(ephemeral=True)
+
+        team_id = interaction.data['values'][0]
+        self._selected_team = next((t for t in self._teams if t.get('id') == team_id), None)
+
+        if not self._selected_team:
+            await interaction.followup.send("❌ Team not found.", ephemeral=True)
+            return
+
+        # Build action buttons
+        action_view = discord.ui.View()
+        
+        add_btn = discord.ui.Button(
+            label="Add to Blacklist",
+            style=discord.ButtonStyle.danger,
+            custom_id="add_blacklist",
+        )
+        
+        remove_btn = discord.ui.Button(
+            label="Remove from Blacklist",
+            style=discord.ButtonStyle.secondary,
+            custom_id="remove_blacklist",
+        )
+
+        async def add_callback(btn_interaction: discord.Interaction) -> None:
+            await self.show_player_select(btn_interaction, "add")
+
+        async def remove_callback(btn_interaction: discord.Interaction) -> None:
+            await self.show_player_select(btn_interaction, "remove")
+
+        add_btn.callback = add_callback
+        remove_btn.callback = remove_callback
+        action_view.add_item(add_btn)
+        action_view.add_item(remove_btn)
+
+        embed = discord.Embed(
+            title="🚫 Blacklist Management",
+            description=f"Team: **{self._selected_team.get('name')}** (`{self._selected_team.get('code')}`)",
+            color=discord.Color.orange(),
+        )
+        embed.add_field(
+            name="Options",
+            value="• **Add to Blacklist** - Prevent player from joining\n• **Remove from Blacklist** - Allow player again",
+            inline=False,
+        )
+
+        await interaction.followup.send(embed=embed, view=action_view, ephemeral=True)
+
+    async def show_player_select(self, interaction: discord.Interaction, action: str) -> None:
+        """Show player dropdown for add/remove blacklist action."""
+        await interaction.response.defer(ephemeral=True)
+
+        if not self._selected_team:
+            await interaction.followup.send("❌ Team selection lost. Please try again.", ephemeral=True)
+            return
+
+        try:
+            # Get guild members for selection
+            guild = self.bot.get_guild(self.guild_id)
+            if not guild:
+                await interaction.followup.send("❌ Guild not found.", ephemeral=True)
+                return
+
+            members = sorted(guild.members, key=lambda m: m.display_name)
+            display_count = 24 if len(members) > 25 else 25
+            member_options = [
+                discord.SelectOption(
+                    label=m.display_name[:100],
+                    value=str(m.id),
+                    description=f"ID: {m.id}",
+                )
+                for m in members[:display_count]
+            ]
+
+            if len(members) > 25:
+                member_options.append(
+                    discord.SelectOption(
+                        label=f"... and {len(members) - 24} more members",
+                        value="__more__",
+                    )
+                )
+
+            member_select = discord.ui.Select(
+                placeholder=f"Select Discord member to {action}...",
+                min_values=1,
+                max_values=1,
+                options=member_options,
+                row=0,
+            )
+
+            async def select_member_callback(member_interaction: discord.Interaction) -> None:
+                member_id_str = member_interaction.data['values'][0]
+                if member_id_str == "__more__":
+                    await member_interaction.response.defer(ephemeral=True)
+                    await member_interaction.followup.send(
+                        "⚠️ Too many members to display. Please provide Discord ID or try another approach.",
+                        ephemeral=True,
+                    )
+                    return
+
+                try:
+                    member_id = int(member_id_str)
+                    member = guild.get_member(member_id)
+                    if not member:
+                        await member_interaction.response.defer(ephemeral=True)
+                        await member_interaction.followup.send("❌ Member not found.", ephemeral=True)
+                        return
+
+                    await member_interaction.response.defer(ephemeral=True)
+                    await self.confirm_blacklist_action(member_interaction, action, member)
+                except ValueError:
+                    await member_interaction.response.defer(ephemeral=True)
+                    await member_interaction.followup.send("❌ Invalid member ID.", ephemeral=True)
+
+            member_select.callback = select_member_callback
+            view = discord.ui.View()
+            view.add_item(member_select)
+
+            action_text = "add to blacklist" if action == "add" else "remove from blacklist"
+            await interaction.followup.send(
+                f"Select Discord member to {action_text}:",
+                view=view,
+                ephemeral=True,
+            )
+        except Exception as exc:
+            logger.error("Error showing player select: %s", exc)
+            await interaction.followup.send("❌ Failed to fetch members.", ephemeral=True)
+
+    async def confirm_blacklist_action(
+        self, interaction: discord.Interaction, action: str, member: discord.Member
+    ) -> None:
+        """Confirm and execute blacklist action."""
+        try:
+            # Get or create player record
+            player = await queries.get_player_by_discord_id(self.supabase, member.id)
+            if not player:
+                # Create new player record
+                result = (
+                    self.supabase
+                    .table('players')
+                    .insert({
+                        'display_name': member.display_name,
+                        'discord_id': member.id,
+                        'active': True,
+                    })
+                    .execute()
+                )
+                if result.data:
+                    player = result.data[0]
+                else:
+                    await interaction.followup.send("❌ Failed to create player record.", ephemeral=True)
+                    return
+
+            team_id = self._selected_team['id']
+            team_name = self._selected_team.get('name', 'Unknown')
+
+            # Get blacklist data (stored in teams table as JSON metadata)
+            team_data = self.supabase.table('teams').select('metadata').eq('id', team_id).limit(1).execute()
+            metadata = {}
+            if team_data.data and team_data.data[0].get('metadata'):
+                metadata = team_data.data[0]['metadata']
+
+            if 'blacklist' not in metadata:
+                metadata['blacklist'] = []
+
+            blacklist = metadata['blacklist']
+
+            if action == "add":
+                if player['id'] not in blacklist:
+                    blacklist.append(player['id'])
+                    message = f"✅ **{member.display_name}** added to **{team_name}** blacklist"
+                else:
+                    await interaction.followup.send(f"⚠️ **{member.display_name}** is already blacklisted.", ephemeral=True)
+                    return
+            else:  # remove
+                if player['id'] in blacklist:
+                    blacklist.remove(player['id'])
+                    message = f"✅ **{member.display_name}** removed from **{team_name}** blacklist"
+                else:
+                    await interaction.followup.send(f"⚠️ **{member.display_name}** is not blacklisted.", ephemeral=True)
+                    return
+
+            # Update team metadata
+            metadata['blacklist'] = blacklist
+            self.supabase.table('teams').update({'metadata': metadata}).eq('id', team_id).execute()
+
+            embed = discord.Embed(
+                title="🚫 Blacklist Updated",
+                description=message,
+                color=discord.Color.green(),
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as exc:
+            logger.error("Error in confirm_blacklist_action: %s", exc, exc_info=True)
+            await interaction.followup.send(f"❌ Error: {str(exc)[:100]}", ephemeral=True)
 
 
 class ViewRosterView(LazyInitView):
