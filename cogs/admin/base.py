@@ -34,23 +34,12 @@ class AdminBaseManager:
     # =====================================================================
 
     async def get_guild_divisions(self, guild_id: int) -> list[Dict[str, Any]]:
-        """Get all divisions available for a guild."""
+        """Get all divisions from Supabase (ignores guild_id - single server setup)."""
         try:
-            response = self.supabase.table('guild_divisions').select(
-                'divisions ( id, name, league_type )'
-            ).eq('guild_id', guild_id).execute()
-            
-            if not response.data:
-                return []
-            
-            # Extract nested division data
-            divisions = []
-            for item in response.data:
-                if item.get('divisions'):
-                    divisions.append(item['divisions'])
-            return divisions
+            response = self.supabase.table('divisions').select('*').execute()
+            return response.data or []
         except Exception as exc:
-            logger.error(f"Failed to get guild divisions for {guild_id}: {exc}")
+            logger.error(f"Failed to get divisions: {exc}")
             return []
 
     async def get_active_league_for_guild(self, guild_id: int) -> Optional[Dict[str, Any]]:
@@ -74,44 +63,23 @@ class AdminBaseManager:
         team_code_or_name: str,
         guild_id: int,
     ) -> Optional[Dict[str, Any]]:
-        """Resolve a team that belongs to the guild's division(s).
-        
-        Only returns teams from divisions managed by this guild.
-        Handles both team codes and team names.
-        """
+        """Resolve a team by code or name (guild_id ignored - single server setup)."""
         try:
-            divisions = await self.get_guild_divisions(guild_id)
-            if not divisions:
-                logger.warning(f"No divisions found for guild {guild_id}")
-                return None
+            # Try by code first (faster)
+            response = self.supabase.table('teams').select(
+                '*'
+            ).eq('code', team_code_or_name.upper()).execute()
             
-            division_ids = [d['id'] for d in divisions]
-            
-            # Try to find by code first (faster)
-            for div_id in division_ids:
-                try:
-                    response = self.supabase.table('teams').select(
-                        '*'
-                    ).eq('division_id', div_id).eq('code', team_code_or_name.upper()).execute()
-                    
-                    if response.data and len(response.data) > 0:
-                        return response.data[0]
-                except Exception as e:
-                    logger.debug(f"Error searching by code: {e}")
-                    continue
+            if response.data and len(response.data) > 0:
+                return response.data[0]
             
             # Try by name if code search failed
-            for div_id in division_ids:
-                try:
-                    response = self.supabase.table('teams').select(
-                        '*'
-                    ).eq('division_id', div_id).ilike('name', f"%{team_code_or_name}%").execute()
-                    
-                    if response.data and len(response.data) > 0:
-                        return response.data[0]
-                except Exception as e:
-                    logger.debug(f"Error searching by name: {e}")
-                    continue
+            response = self.supabase.table('teams').select(
+                '*'
+            ).ilike('name', f"%{team_code_or_name}%").execute()
+            
+            if response.data and len(response.data) > 0:
+                return response.data[0]
             
             return None
         except Exception as exc:
@@ -119,20 +87,12 @@ class AdminBaseManager:
             return None
 
     async def get_teams_for_guild(self, guild_id: int) -> list[Dict[str, Any]]:
-        """Get all teams from divisions managed by this guild."""
+        """Get all teams from Supabase (guild_id ignored - single server setup)."""
         try:
-            divisions = await self.get_guild_divisions(guild_id)
-            if not divisions:
-                return []
-            
-            all_teams = []
-            for division in divisions:
-                teams = await queries.get_all_teams(self.supabase, division['id'])
-                all_teams.extend(teams or [])
-            
-            return all_teams
+            response = self.supabase.table('teams').select('*').execute()
+            return response.data or []
         except Exception as exc:
-            logger.error(f"Failed to get guild teams: {exc}")
+            logger.error(f"Failed to get teams: {exc}")
             return []
 
     # =====================================================================
