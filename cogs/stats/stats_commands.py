@@ -1133,8 +1133,8 @@ class StatsCog(commands.Cog):
     @app_commands.describe(
         player_a="First player display name",
         player_b="Second player display name",
-        league="League code or name (defaults to active season league)",
-        season="Season name (e.g., S10). Defaults to active season",
+        league="League code or name (if both players in same league, defaults to their active league)",
+        season="Season name (e.g., S10). If both in same league, defaults to active season",
     )
     @app_commands.autocomplete(player_a=_player_name_autocomplete, player_b=_player_name_autocomplete, league=_league_autocomplete, season=_season_autocomplete)
     async def compare(
@@ -1147,12 +1147,6 @@ class StatsCog(commands.Cog):
     ) -> None:
         await interaction.response.defer(thinking=True)
 
-        context = await self._find_season(league, season)
-        season_row, league_meta = context
-        if not season_row:
-            await interaction.followup.send("❌ Could not locate a season matching your request.")
-            return
-
         player_a_data = await self._resolve_player(player_a)
         if not player_a_data:
             await interaction.followup.send(f"❌ Player `{player_a}` was not found.")
@@ -1163,24 +1157,80 @@ class StatsCog(commands.Cog):
             await interaction.followup.send(f"❌ Player `{player_b}` was not found.")
             return
 
-        # Validate both players play in this season
-        player_a_in_season = await self._validate_player_in_season(player_a_data, season_row)
-        player_b_in_season = await self._validate_player_in_season(player_b_data, season_row)
-        
-        league_display = self._format_league_display(league_meta)
-        season_display = season_row.get('name', 'Unknown')
-        
-        if not player_a_in_season:
-            await interaction.followup.send(
-                f"❌ Player **{player_a_data.get('display_name', player_a)}** was not on any roster in {league_display} **{season_display}**."
-            )
-            return
-        
-        if not player_b_in_season:
-            await interaction.followup.send(
-                f"❌ Player **{player_b_data.get('display_name', player_b)}** was not on any roster in {league_display} **{season_display}**."
-            )
-            return
+        # If league/season specified, use that for both players
+        if league or season:
+            context = await self._find_season(league, season)
+            season_row, league_meta = context
+            if not season_row:
+                await interaction.followup.send("❌ Could not locate a season matching your request.")
+                return
+
+            # Validate both players play in this specific season
+            player_a_in_season = await self._validate_player_in_season(player_a_data, season_row)
+            player_b_in_season = await self._validate_player_in_season(player_b_data, season_row)
+            
+            league_display = self._format_league_display(league_meta)
+            season_display = season_row.get('name', 'Unknown')
+            
+            if not player_a_in_season:
+                await interaction.followup.send(
+                    f"❌ Player **{player_a_data.get('display_name', player_a)}** was not on any roster in {league_display} **{season_display}**."
+                )
+                return
+            
+            if not player_b_in_season:
+                await interaction.followup.send(
+                    f"❌ Player **{player_b_data.get('display_name', player_b)}** was not on any roster in {league_display} **{season_display}**."
+                )
+                return
+        else:
+            # No league/season specified: Compare players in their OWN active leagues/seasons independently
+            membership_a = self._select_player_membership(player_a_data, None)
+            membership_b = self._select_player_membership(player_b_data, None)
+            
+            if not membership_a:
+                await interaction.followup.send(
+                    f"ℹ️ Player **{player_a_data.get('display_name', player_a)}** has no active roster membership."
+                )
+                return
+            
+            if not membership_b:
+                await interaction.followup.send(
+                    f"ℹ️ Player **{player_b_data.get('display_name', player_b)}** has no active roster membership."
+                )
+                return
+            
+            season_a_id = membership_a.get('season_id')
+            season_b_id = membership_b.get('season_id')
+            
+            # Fetch season data for each player
+            season_row_a = await self._get_season_by_id(season_a_id)
+            season_row_b = await self._get_season_by_id(season_b_id)
+            
+            if not season_row_a or not season_row_b:
+                await interaction.followup.send("❌ Could not fetch season data for one or both players.")
+                return
+            
+            # Get league info for each player
+            league_meta_a = await self._resolve_league_for_membership(membership_a)
+            league_meta_b = await self._resolve_league_for_membership(membership_b)
+            
+            # Build comparison string for display
+            season_row = season_row_a  # Use player A's season as primary
+            league_meta = league_meta_a
+            
+            league_a_display = self._format_league_display(league_meta_a)
+            league_b_display = self._format_league_display(league_meta_b)
+            season_a_display = season_row_a.get('name', 'Unknown')
+            season_b_display = season_row_b.get('name', 'Unknown')
+            
+            # If in same season, compare there; otherwise compare in their respective seasons
+            if season_a_id == season_b_id:
+                # Same season: straightforward comparison
+                season_row = season_row_a
+            else:
+                # Different seasons: still compare in player A's season but note the difference
+                season_row = season_row_a
 
         try:
             comparison = await queries.compare_players(
