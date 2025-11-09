@@ -13,6 +13,8 @@ from cogs.admin.picks import PicksActionsView
 from cogs.admin.players import PlayerActionsView
 from cogs.admin.seasons import SeasonActionsView
 from cogs.admin.overrides import OverridesActionsView
+from cogs.admin.pending_offers import PendingOffersActionsView
+from cogs.admin.audit_reports import AuditReportsActionsView
 from utils.config_utility import ConfigUtility
 
 logger = logging.getLogger(__name__)
@@ -147,17 +149,27 @@ class AdminDashboardView(discord.ui.View):
 
     @discord.ui.button(label="Pending Offers", emoji="⏰", style=discord.ButtonStyle.primary, row=1)
     async def pending_offers(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.send_message(
-            "⏰ Pending Offers Management - Coming soon!",
-            ephemeral=True,
-        )
+        """Open pending offers management interface."""
+        await interaction.response.defer(ephemeral=True)
+        view = PendingOffersActionsView(self.bot, interaction.guild.id, self.bot.supabase)
+        embed = view.create_embed()
+        message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        try:
+            view.original_message = message
+        except Exception as exc:  # pragma: no cover
+            logger.error("Unable to fetch original response for pending offers: %s", exc)
 
     @discord.ui.button(label="Audit & Reports", emoji="📊", style=discord.ButtonStyle.primary, row=1)
     async def audit(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.send_message(
-            "📊 Audit & Reporting - Coming soon!",
-            ephemeral=True,
-        )
+        """Open audit & reporting interface."""
+        await interaction.response.defer(ephemeral=True)
+        view = AuditReportsActionsView(self.bot, interaction.guild.id, self.bot.supabase)
+        embed = view.create_embed()
+        message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        try:
+            view.original_message = message
+        except Exception as exc:  # pragma: no cover
+            logger.error("Unable to fetch original response for audit & reports: %s", exc)
 
     @discord.ui.button(label="Close", emoji="❌", style=discord.ButtonStyle.secondary, row=2)
     async def close(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:

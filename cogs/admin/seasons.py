@@ -65,20 +65,32 @@ class CreateSeasonModal(discord.ui.Modal, title="Create New Season"):
             )
             return
 
-        manager = AdminBaseManager(supabase, interaction.guild_id if interaction.guild else 0)
+        manager = AdminBaseManager()
+        guild_id = interaction.guild_id or 0
+        divisions = await manager.get_guild_divisions(guild_id)
 
-        # Get division by code
-        divisions = await manager.get_divisions_for_guild()
-        division = None
-        for d in divisions:
-            if d.get("code", "").upper() == self.division_code.value.upper():
-                division = d
-                break
+        if not divisions:
+            await interaction.followup.send(
+                "❌ No divisions are configured for this server. Set up guild divisions first.",
+                ephemeral=True,
+            )
+            return
+
+        division_code = self.division_code.value.strip().upper()
+        division = next(
+            (
+                d
+                for d in divisions
+                if (d.get("league_type") or "").upper() == division_code
+                or (d.get("name") or "").upper() == division_code
+            ),
+            None,
+        )
 
         if not division:
             await interaction.followup.send(
                 f"❌ Division **{self.division_code.value}** not found.\n"
-                f"Available divisions: {', '.join(d.get('code', 'Unknown') for d in divisions)}",
+                f"Available divisions: {', '.join((d.get('league_type') or d.get('name', 'Unknown')) for d in divisions)}",
                 ephemeral=True,
             )
             return
@@ -312,8 +324,8 @@ class ViewSeasonsView(LazyInitView):
             return
 
         try:
-            manager = AdminBaseManager(self.supabase, self.guild_id)
-            divisions = await manager.get_divisions_for_guild()
+            manager = AdminBaseManager()
+            divisions = await manager.get_guild_divisions(self.guild_id)
 
             seasons_data = []
             for division in divisions:
@@ -398,7 +410,8 @@ class SeasonActionsView(AdminUIView):
     """Buttons for season management actions."""
 
     def __init__(self, bot: Any, guild_id: int, supabase: Any) -> None:
-        super().__init__(timeout=300)
+        manager = AdminBaseManager()
+        super().__init__(manager, guild_id, timeout=300)
         self.bot = bot
         self.guild_id = guild_id
         self.supabase = supabase
@@ -424,12 +437,8 @@ class SeasonActionsView(AdminUIView):
 
     async def get_divisions_for_guild(self) -> list[Dict[str, Any]]:
         """Get divisions accessible to this guild."""
-        if not self.supabase:
-            return []
-
         try:
-            manager = AdminBaseManager(self.supabase, self.guild_id)
-            return await manager.get_divisions_for_guild()
+            return await self.manager.get_guild_divisions(self.guild_id)
         except Exception as e:
             logger.error(f"Error fetching divisions: {e}", exc_info=True)
             return []

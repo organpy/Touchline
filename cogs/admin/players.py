@@ -471,10 +471,11 @@ class PlayerActionsView(AdminUIView):
     """Buttons for player management actions."""
 
     def __init__(self, bot: Any, guild_id: int, supabase: Any) -> None:
-        super().__init__(timeout=300)
-        self.bot = bot
-        self.guild_id = guild_id
-        self.supabase = supabase
+    manager = AdminBaseManager()
+    super().__init__(manager, guild_id, timeout=300)
+    self.bot = bot
+    self.guild_id = guild_id
+    self.supabase = supabase
 
     def create_embed(self) -> discord.Embed:
         """Build player management embed."""
