@@ -143,7 +143,14 @@ class LinkPlayerModal(discord.ui.Modal, title="Link Player to Discord"):
 
         # Fetch all unlinked players for dropdown
         try:
-            response = supabase.table("players").select("*").eq("discord_id", None).execute()
+            response = (
+                supabase
+                .table("players")
+                .select("*")
+                .is_("discord_id", "null")
+                .order("display_name")
+                .execute()
+            )
             unlinked_players = response.data or []
         except Exception as e:
             logger.error(f"Error fetching unlinked players: {e}", exc_info=True)

@@ -328,7 +328,6 @@ class ForceSignView(discord.ui.View):
                     .insert({
                         'display_name': self._selected_member.display_name,
                         'discord_id': self._selected_member.id,
-                        'active': True,
                     })
                     .execute()
                 )

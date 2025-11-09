@@ -41,6 +41,19 @@ class AdminDashboardView(discord.ui.View):
         self.config_data = config_data
         self.original_message: Optional[discord.Message] = None
 
+    async def _safe_defer(self, interaction: discord.Interaction) -> bool:
+        """Attempt to defer the interaction; return False if it's expired."""
+        try:
+            await interaction.response.defer(ephemeral=True)
+            return True
+        except discord.NotFound:
+            logger.warning(
+                "Expired interaction token for admin dashboard button (user=%s)",
+                getattr(interaction.user, "id", "unknown"),
+            )
+            # Interaction token is no longer valid; we can't respond, so bail out.
+            return False
+
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Ensure user still has admin rights."""
         has_permission = await ConfigUtility.check_admin_permissions(interaction, self.config_data)
@@ -78,7 +91,8 @@ class AdminDashboardView(discord.ui.View):
     @discord.ui.button(label="Team Management", emoji="🏢", style=discord.ButtonStyle.primary, row=0)
     async def teams(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open team management interface."""
-        await interaction.response.defer(ephemeral=True)
+        if not await self._safe_defer(interaction):
+            return
         view = TeamActionsView(self.bot, interaction.guild.id, self.bot.supabase)
         embed = view.create_embed()
         message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
@@ -90,7 +104,8 @@ class AdminDashboardView(discord.ui.View):
     @discord.ui.button(label="Player Management", emoji="👤", style=discord.ButtonStyle.primary, row=0)
     async def players(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open player management interface."""
-        await interaction.response.defer(ephemeral=True)
+        if not await self._safe_defer(interaction):
+            return
         view = PlayerActionsView(self.bot, interaction.guild.id, self.bot.supabase)
         embed = view.create_embed()
         message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
@@ -102,7 +117,8 @@ class AdminDashboardView(discord.ui.View):
     @discord.ui.button(label="Roster Management", emoji="🏀", style=discord.ButtonStyle.primary, row=0)
     async def rosters(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open roster management interface."""
-        await interaction.response.defer(ephemeral=True)
+        if not await self._safe_defer(interaction):
+            return
         view = RosterActionsView(self.bot, interaction.guild.id, self.bot.supabase)
         embed = view.create_embed()
         message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
@@ -114,7 +130,8 @@ class AdminDashboardView(discord.ui.View):
     @discord.ui.button(label="Draft Picks", emoji="🏆", style=discord.ButtonStyle.primary, row=0)
     async def picks(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open draft picks management interface."""
-        await interaction.response.defer(ephemeral=True)
+        if not await self._safe_defer(interaction):
+            return
         view = PicksActionsView(self.bot, interaction.guild.id, self.bot.supabase)
         embed = view.create_embed()
         message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
@@ -126,7 +143,8 @@ class AdminDashboardView(discord.ui.View):
     @discord.ui.button(label="Transaction Overrides", emoji="📝", style=discord.ButtonStyle.primary, row=1)
     async def transactions(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open transaction overrides interface."""
-        await interaction.response.defer(ephemeral=True)
+        if not await self._safe_defer(interaction):
+            return
         view = OverridesActionsView(self.bot, interaction.guild.id, self.bot.supabase)
         embed = view.create_embed()
         message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
@@ -138,7 +156,8 @@ class AdminDashboardView(discord.ui.View):
     @discord.ui.button(label="Season Management", emoji="📅", style=discord.ButtonStyle.primary, row=1)
     async def seasons(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open season management interface."""
-        await interaction.response.defer(ephemeral=True)
+        if not await self._safe_defer(interaction):
+            return
         view = SeasonActionsView(self.bot, interaction.guild.id, self.bot.supabase)
         embed = view.create_embed()
         message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
@@ -150,7 +169,8 @@ class AdminDashboardView(discord.ui.View):
     @discord.ui.button(label="Pending Offers", emoji="⏰", style=discord.ButtonStyle.primary, row=1)
     async def pending_offers(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open pending offers management interface."""
-        await interaction.response.defer(ephemeral=True)
+        if not await self._safe_defer(interaction):
+            return
         view = PendingOffersActionsView(self.bot, interaction.guild.id, self.bot.supabase)
         embed = view.create_embed()
         message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
@@ -162,7 +182,8 @@ class AdminDashboardView(discord.ui.View):
     @discord.ui.button(label="Audit & Reports", emoji="📊", style=discord.ButtonStyle.primary, row=1)
     async def audit(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open audit & reporting interface."""
-        await interaction.response.defer(ephemeral=True)
+        if not await self._safe_defer(interaction):
+            return
         view = AuditReportsActionsView(self.bot, interaction.guild.id, self.bot.supabase)
         embed = view.create_embed()
         message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
