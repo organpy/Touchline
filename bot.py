@@ -71,6 +71,8 @@ class NBLBot(commands.Bot):
             'history.py', 'trade_approval.py', 'trade_views.py',
             # Admin panel helper modules
             'admin_transactions_views_example.py', 'teams.py', 'rosters.py', 'picks.py', "common.py",
+            # Stats helper modules (base, autocomplete, utils are shared by modularized command cogs)
+            'autocomplete.py', 'stats_commands.py',
         }
 
         for root, dirs, files in os.walk(cogs_directory):
