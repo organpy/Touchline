@@ -407,6 +407,9 @@ class ViewPlayersView(LazyInitView):
             logger.error(f"Error fetching players: {e}", exc_info=True)
             self.players_list = []
 
+    async def populate(self) -> None:
+        await self.lazy_init()
+
     def create_embed(self) -> discord.Embed:
         """Build player list embed."""
         if not self.players_list:

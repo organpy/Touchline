@@ -406,6 +406,9 @@ class ViewTransactionHistoryView(LazyInitView):
             logger.error(f"Error fetching transactions: {e}", exc_info=True)
             self.transactions_list = []
 
+    async def populate(self) -> None:
+        await self.lazy_init()
+
     def create_embed(self) -> discord.Embed:
         """Build transaction history embed."""
         if not self.transactions_list:

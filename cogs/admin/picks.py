@@ -124,87 +124,84 @@ class SeedPicksView(LazyInitView):
         self.parent_view = parent_view
         self.repo = repo
         self.original_message: Optional[discord.Message] = None
-        self._selected_league: Optional[Dict[str, Any]] = None
+        self._selected_division: Optional[Dict[str, Any]] = None
         self._selected_season: Optional[Dict[str, Any]] = None
-        self._leagues: List[Dict[str, Any]] = []
+        self._divisions: List[Dict[str, Any]] = []
         self.manager = AdminBaseManager()  # ✅ NEW
 
     async def populate(self) -> None:
-        """Load available leagues before season selection."""
+        """Load available divisions before season selection."""
         try:
-            leagues_response = (
-                self.supabase
-                .table('leagues')
-                .select('*')
-                .order('name', desc=False)
-                .limit(25)
-                .execute()
-            )
-            self._leagues = leagues_response.data or []
+            self._divisions = await self.manager.get_guild_divisions(self.parent_view.guild_id)
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to load leagues for seed picks: %s", exc)
-            self._leagues = []
+            logger.error("Failed to load divisions for seed picks: %s", exc)
+            self._divisions = []
 
-        if not self._leagues:
+        if not self._divisions:
             empty_select = discord.ui.Select(
-                placeholder="No leagues available",
-                options=[discord.SelectOption(label="No leagues configured", value="none")],
+                placeholder="No divisions configured. Use /admin-config to link divisions first.",
+                options=[discord.SelectOption(label="No divisions available", value="none")],
                 disabled=True,
             )
             self.add_item(empty_select)
             return
 
-        league_select = discord.ui.Select(
-            placeholder="Select league...",
+        division_select = discord.ui.Select(
+            placeholder="Select division...",
             min_values=1,
             max_values=1,
             options=[
                 discord.SelectOption(
-                    label=league.get('name', 'Unknown')[:100],
-                    value=league.get('code', league.get('id', '')),
-                    description=f"Code: {league.get('code', '?').upper()}",
+                    label=(division.get('name') or division.get('league_type', 'Unknown'))[:100],
+                    value=division.get('id', ''),
+                    description=f"League: {(division.get('league_type') or 'N/A').upper()}",
                 )
-                for league in self._leagues
+                for division in sorted(
+                    self._divisions,
+                    key=lambda d: (
+                        (d.get('league_type') or '').upper(),
+                        d.get('name') or '',
+                    ),
+                )
             ],
             row=0,
         )
-        league_select.callback = self.select_league
-        self.add_item(league_select)
+        division_select.callback = self.select_division
+        self.add_item(division_select)
 
-    async def select_league(self, interaction: discord.Interaction) -> None:
-        """Handle league selection before seeding seasons."""
+    async def select_division(self, interaction: discord.Interaction) -> None:
+        """Handle division selection before seeding seasons."""
         await interaction.response.defer(ephemeral=True)
 
-        league_code = interaction.data['values'][0]
+        division_id = interaction.data['values'][0]
         self._selected_season = None
-        self._selected_league = next(
-            (league for league in self._leagues if league.get('code') == league_code or league.get('id') == league_code),
+        self._selected_division = next(
+            (division for division in self._divisions if division.get('id') == division_id),
             None,
         )
 
-        league_filter = None
-        if self._selected_league:
-            league_filter = self._selected_league.get('code') or self._selected_league.get('id')
-        if not league_filter:
-            league_filter = league_code
+        if not self._selected_division:
+            await interaction.followup.send("❌ Division not found.", ephemeral=True)
+            return
 
         try:
             seasons_response = (
                 self.supabase
                 .table('seasons')
                 .select('*')
-                .eq('league_type', league_filter)
+                .eq('division_id', division_id)
                 .order('created_at', desc=True)
                 .execute()
             )
             seasons = seasons_response.data or []
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to load seasons for league %s: %s", league_code, exc)
+            logger.error("Failed to load seasons for division %s: %s", division_id, exc)
             seasons = []
 
         if not seasons:
+            division_label = self.manager.format_division_display(self._selected_division)
             await interaction.followup.send(
-                f"❌ No seasons found for league `{league_code.upper()}`.",
+                f"❌ No seasons found for {division_label}.",
                 ephemeral=True,
             )
             return
@@ -226,17 +223,21 @@ class SeedPicksView(LazyInitView):
         season_view = discord.ui.View()
         season_view.add_item(season_select)
 
-        league_name = self._selected_league.get('name') if self._selected_league else league_code.upper()
+        division_label = self.manager.format_division_display(self._selected_division)
         active_flag = any(season.get('active') for season in seasons)
         status = "✅ Active season available" if active_flag else "⏸️ No active season"
         await interaction.followup.send(
-            f"**{league_name}** selected. {status}. Choose a season to seed:",
+            f"{division_label} selected. {status}. Choose a season to seed:",
             view=season_view,
             ephemeral=True,
         )
 
     async def select_season(self, interaction: discord.Interaction) -> None:
         """Handle season selection."""
+        if not self._selected_division:
+            await interaction.response.send_message("❌ Please select a division first.", ephemeral=True)
+            return
+
         season_id = interaction.data['values'][0]
 
         try:
@@ -313,7 +314,7 @@ class NumTeamsModal(discord.ui.Modal, title="Number of Teams for Seeding"):
             
             if not teams:
                 await interaction.followup.send(
-                    "❌ No teams found for the selected league or division.",
+                    "❌ No teams found for the selected division.",
                     ephemeral=True,
                 )
                 return
@@ -419,89 +420,86 @@ class ReassignPickView(LazyInitView):
         self.repo = repo
         self.original_message: Optional[discord.Message] = None
         self._selected_pick: Optional[Dict[str, Any]] = None
-        self._selected_league: Optional[Dict[str, Any]] = None
+        self._selected_division: Optional[Dict[str, Any]] = None
         self._selected_season: Optional[Dict[str, Any]] = None
-        self._leagues: List[Dict[str, Any]] = []
+        self._divisions: List[Dict[str, Any]] = []
         self._team_map: Dict[str, Dict[str, Any]] = {}
         self.manager = AdminBaseManager()  # ✅ NEW
 
     async def populate(self) -> None:
-        """Load available leagues before narrowing to seasons."""
+        """Load available divisions before narrowing to seasons."""
         try:
-            leagues_response = (
-                self.supabase
-                .table('leagues')
-                .select('*')
-                .order('name', desc=False)
-                .limit(25)
-                .execute()
-            )
-            self._leagues = leagues_response.data or []
+            self._divisions = await self.manager.get_guild_divisions(self.parent_view.guild_id)
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to load leagues for reassign view: %s", exc)
-            self._leagues = []
+            logger.error("Failed to load divisions for reassign view: %s", exc)
+            self._divisions = []
 
-        if not self._leagues:
+        if not self._divisions:
             empty_select = discord.ui.Select(
-                placeholder="No leagues available",
-                options=[discord.SelectOption(label="No leagues configured", value="none")],
+                placeholder="No divisions configured. Use /admin-config to link divisions first.",
+                options=[discord.SelectOption(label="No divisions available", value="none")],
                 disabled=True,
             )
             self.add_item(empty_select)
             return
 
-        league_select = discord.ui.Select(
-            placeholder="Select league...",
+        division_select = discord.ui.Select(
+            placeholder="Select division...",
             min_values=1,
             max_values=1,
             options=[
                 discord.SelectOption(
-                    label=league.get('name', 'Unknown')[:100],
-                    value=league.get('code', league.get('id', '')),
-                    description=f"Code: {league.get('code', '?').upper()}",
+                    label=(division.get('name') or division.get('league_type', 'Unknown'))[:100],
+                    value=division.get('id', ''),
+                    description=f"League: {(division.get('league_type') or 'N/A').upper()}",
                 )
-                for league in self._leagues
+                for division in sorted(
+                    self._divisions,
+                    key=lambda d: (
+                        (d.get('league_type') or '').upper(),
+                        d.get('name') or '',
+                    ),
+                )
             ],
             row=0,
         )
-        league_select.callback = self.select_league
-        self.add_item(league_select)
+        division_select.callback = self.select_division
+        self.add_item(division_select)
 
-    async def select_league(self, interaction: discord.Interaction) -> None:
-        """Handle league selection prior to showing seasons."""
+    async def select_division(self, interaction: discord.Interaction) -> None:
+        """Handle division selection prior to showing seasons."""
         await interaction.response.defer(ephemeral=True)
 
-        league_code = interaction.data['values'][0]
+        division_id = interaction.data['values'][0]
         self._selected_season = None
         self._team_map = {}
-        self._selected_league = next(
-            (league for league in self._leagues if league.get('code') == league_code or league.get('id') == league_code),
+        self._selected_division = next(
+            (division for division in self._divisions if division.get('id') == division_id),
             None,
         )
 
-        league_filter = None
-        if self._selected_league:
-            league_filter = self._selected_league.get('code') or self._selected_league.get('id')
-        if not league_filter:
-            league_filter = league_code
+        if not self._selected_division:
+            await interaction.followup.send("❌ Division not found.", ephemeral=True)
+            return
 
         try:
             seasons_response = (
                 self.supabase
                 .table('seasons')
                 .select('*')
-                .eq('league_type', league_filter)
+                .eq('division_id', division_id)
                 .order('created_at', desc=True)
                 .execute()
             )
             seasons = seasons_response.data or []
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to load seasons for league %s: %s", league_filter, exc)
+            logger.error("Failed to load seasons for division %s: %s", division_id, exc)
             seasons = []
 
         if not seasons:
+            division_label = self.manager.format_division_display(self._selected_division)
             await interaction.followup.send(
-                f"❌ No seasons found for league `{league_code.upper()}`.",
+                f"❌ No seasons found for {division_label}.",
                 ephemeral=True,
             )
             return
@@ -523,19 +521,19 @@ class ReassignPickView(LazyInitView):
         season_view = discord.ui.View()
         season_view.add_item(season_select)
 
-        league_name = self._selected_league.get('name') if self._selected_league else league_code.upper()
+        division_label = self.manager.format_division_display(self._selected_division)
         active_flag = any(season.get('active') for season in seasons)
         status = "✅ Active season available" if active_flag else "⏸️ No active season"
         await interaction.followup.send(
-            f"**{league_name}** selected. {status}. Choose a season:",
+            f"{division_label} selected. {status}. Choose a season:",
             view=season_view,
             ephemeral=True,
         )
 
     async def select_season(self, interaction: discord.Interaction) -> None:
         """Handle season selection and present draft picks."""
-        if not self._selected_league:
-            await interaction.response.send_message("❌ Please select a league first.", ephemeral=True)
+        if not self._selected_division:
+            await interaction.response.send_message("❌ Please select a division first.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -750,89 +748,86 @@ class ViewPicksView(LazyInitView):
         self.parent_view = parent_view
         self.original_message: Optional[discord.Message] = None
         self.repo = TransactionsRepository(supabase)
-        self._leagues: List[Dict[str, Any]] = []
-        self._selected_league: Optional[Dict[str, Any]] = None
+        self._divisions: List[Dict[str, Any]] = []
+        self._selected_division: Optional[Dict[str, Any]] = None
         self._selected_season: Optional[Dict[str, Any]] = None
         self._team_map: Dict[str, Dict[str, Any]] = {}
         self.manager = AdminBaseManager()  # ✅ NEW
 
     async def populate(self) -> None:
-        """Load leagues first before narrowing to seasons."""
+        """Load divisions first before narrowing to seasons."""
         try:
-            leagues_response = (
-                self.supabase
-                .table('leagues')
-                .select('*')
-                .order('name', desc=False)
-                .limit(25)
-                .execute()
-            )
-            self._leagues = leagues_response.data or []
+            self._divisions = await self.manager.get_guild_divisions(self.parent_view.guild_id)
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to load leagues for view picks: %s", exc)
-            self._leagues = []
+            logger.error("Failed to load divisions for view picks: %s", exc)
+            self._divisions = []
 
-        if not self._leagues:
+        if not self._divisions:
             empty_select = discord.ui.Select(
-                placeholder="No leagues available",
-                options=[discord.SelectOption(label="No leagues configured", value="none")],
+                placeholder="No divisions configured. Use /admin-config to link divisions first.",
+                options=[discord.SelectOption(label="No divisions available", value="none")],
                 disabled=True,
             )
             self.add_item(empty_select)
             return
 
-        league_select = discord.ui.Select(
-            placeholder="Select league...",
+        division_select = discord.ui.Select(
+            placeholder="Select division...",
             min_values=1,
             max_values=1,
             options=[
                 discord.SelectOption(
-                    label=league.get('name', 'Unknown')[:100],
-                    value=league.get('code', league.get('id', '')),
-                    description=f"Code: {league.get('code', '?').upper()}",
+                    label=(division.get('name') or division.get('league_type', 'Unknown'))[:100],
+                    value=division.get('id', ''),
+                    description=f"League: {(division.get('league_type') or 'N/A').upper()}",
                 )
-                for league in self._leagues
+                for division in sorted(
+                    self._divisions,
+                    key=lambda d: (
+                        (d.get('league_type') or '').upper(),
+                        d.get('name') or '',
+                    ),
+                )
             ],
             row=0,
         )
-        league_select.callback = self.select_league
-        self.add_item(league_select)
+        division_select.callback = self.select_division
+        self.add_item(division_select)
 
-    async def select_league(self, interaction: discord.Interaction) -> None:
-        """Handle league selection and present seasons."""
+    async def select_division(self, interaction: discord.Interaction) -> None:
+        """Handle division selection and present seasons."""
         await interaction.response.defer(ephemeral=True)
 
-        league_code = interaction.data['values'][0]
-        self._selected_league = next(
-            (league for league in self._leagues if league.get('code') == league_code or league.get('id') == league_code),
+        division_id = interaction.data['values'][0]
+        self._selected_division = next(
+            (division for division in self._divisions if division.get('id') == division_id),
             None,
         )
         self._selected_season = None
         self._team_map = {}
 
-        league_filter = None
-        if self._selected_league:
-            league_filter = self._selected_league.get('code') or self._selected_league.get('id')
-        if not league_filter:
-            league_filter = league_code
+        if not self._selected_division:
+            await interaction.followup.send("❌ Division not found.", ephemeral=True)
+            return
 
         try:
             seasons_response = (
                 self.supabase
                 .table('seasons')
                 .select('*')
-                .eq('league_type', league_filter)
+                .eq('division_id', division_id)
                 .order('created_at', desc=True)
                 .execute()
             )
             seasons = seasons_response.data or []
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to load seasons for league %s: %s", league_filter, exc)
+            logger.error("Failed to load seasons for division %s: %s", division_id, exc)
             seasons = []
 
         if not seasons:
+            division_label = self.manager.format_division_display(self._selected_division)
             await interaction.followup.send(
-                f"❌ No seasons found for league `{league_code.upper()}`.",
+                f"❌ No seasons found for {division_label}.",
                 ephemeral=True,
             )
             return
@@ -854,19 +849,19 @@ class ViewPicksView(LazyInitView):
         season_view = discord.ui.View()
         season_view.add_item(season_select)
 
-        league_name = self._selected_league.get('name') if self._selected_league else league_code.upper()
+        division_label = self.manager.format_division_display(self._selected_division)
         active_flag = any(season.get('active') for season in seasons)
         status = "✅ Active season available" if active_flag else "⏸️ No active season"
         await interaction.followup.send(
-            f"**{league_name}** selected. {status}. Choose a season to view picks:",
+            f"{division_label} selected. {status}. Choose a season to view picks:",
             view=season_view,
             ephemeral=True,
         )
 
     async def view_season_picks(self, interaction: discord.Interaction) -> None:
         """Display all picks for season."""
-        if not self._selected_league:
-            await interaction.response.send_message("❌ Please select a league first.", ephemeral=True)
+        if not self._selected_division:
+            await interaction.response.send_message("❌ Please select a division first.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -938,8 +933,8 @@ class ViewPicksByTeamView(LazyInitView):
         self.supabase = supabase
         self.parent_view = parent_view
         self.original_message: Optional[discord.Message] = None
-        self._leagues: List[Dict[str, Any]] = []
-        self._selected_league: Optional[Dict[str, Any]] = None
+        self._divisions: List[Dict[str, Any]] = []
+        self._selected_division: Optional[Dict[str, Any]] = None
         self._selected_season: Optional[Dict[str, Any]] = None
         self._season_name: Optional[str] = None
         self._teams: List[Dict[str, Any]] = []
@@ -947,54 +942,52 @@ class ViewPicksByTeamView(LazyInitView):
         self.manager = AdminBaseManager()  # ✅ NEW
 
     async def populate(self) -> None:
-        """Load leagues prior to season/team filtering."""
+        """Load divisions prior to season/team filtering."""
         try:
-            leagues_response = (
-                self.supabase
-                .table('leagues')
-                .select('*')
-                .order('name', desc=False)
-                .limit(25)
-                .execute()
-            )
-            self._leagues = leagues_response.data or []
+            self._divisions = await self.manager.get_guild_divisions(self.parent_view.guild_id)
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to load leagues for view team picks: %s", exc)
-            self._leagues = []
+            logger.error("Failed to load divisions for view team picks: %s", exc)
+            self._divisions = []
 
-        if not self._leagues:
+        if not self._divisions:
             empty_select = discord.ui.Select(
-                placeholder="No leagues available",
-                options=[discord.SelectOption(label="No leagues configured", value="none")],
+                placeholder="No divisions configured. Use /admin-config to link divisions first.",
+                options=[discord.SelectOption(label="No divisions available", value="none")],
                 disabled=True,
             )
             self.add_item(empty_select)
             return
 
-        league_select = discord.ui.Select(
-            placeholder="Select league...",
+        division_select = discord.ui.Select(
+            placeholder="Select division...",
             min_values=1,
             max_values=1,
             options=[
                 discord.SelectOption(
-                    label=league.get('name', 'Unknown')[:100],
-                    value=league.get('code', league.get('id', '')),
-                    description=f"Code: {league.get('code', '?').upper()}",
+                    label=(division.get('name') or division.get('league_type', 'Unknown'))[:100],
+                    value=division.get('id', ''),
+                    description=f"League: {(division.get('league_type') or 'N/A').upper()}",
                 )
-                for league in self._leagues
+                for division in sorted(
+                    self._divisions,
+                    key=lambda d: (
+                        (d.get('league_type') or '').upper(),
+                        d.get('name') or '',
+                    ),
+                )
             ],
             row=0,
         )
-        league_select.callback = self.select_league
-        self.add_item(league_select)
+        division_select.callback = self.select_division
+        self.add_item(division_select)
 
-    async def select_league(self, interaction: discord.Interaction) -> None:
-        """Handle league selection and present seasons."""
+    async def select_division(self, interaction: discord.Interaction) -> None:
+        """Handle division selection and present seasons."""
         await interaction.response.defer(ephemeral=True)
 
-        league_code = interaction.data['values'][0]
-        self._selected_league = next(
-            (league for league in self._leagues if league.get('code') == league_code or league.get('id') == league_code),
+        division_id = interaction.data['values'][0]
+        self._selected_division = next(
+            (division for division in self._divisions if division.get('id') == division_id),
             None,
         )
         self._selected_season = None
@@ -1002,29 +995,28 @@ class ViewPicksByTeamView(LazyInitView):
         self._teams = []
         self._team_map = {}
 
-        league_filter = None
-        if self._selected_league:
-            league_filter = self._selected_league.get('code') or self._selected_league.get('id')
-        if not league_filter:
-            league_filter = league_code
+        if not self._selected_division:
+            await interaction.followup.send("❌ Division not found.", ephemeral=True)
+            return
 
         try:
             seasons_response = (
                 self.supabase
                 .table('seasons')
                 .select('*')
-                .eq('league_type', league_filter)
+                .eq('division_id', division_id)
                 .order('created_at', desc=True)
                 .execute()
             )
             seasons = seasons_response.data or []
         except Exception as exc:  # pragma: no cover
-            logger.error("Failed to load seasons for league %s: %s", league_filter, exc)
+            logger.error("Failed to load seasons for division %s: %s", division_id, exc)
             seasons = []
 
         if not seasons:
+            division_label = self.manager.format_division_display(self._selected_division)
             await interaction.followup.send(
-                f"❌ No seasons found for league `{league_code.upper()}`.",
+                f"❌ No seasons found for {division_label}.",
                 ephemeral=True,
             )
             return
@@ -1046,19 +1038,19 @@ class ViewPicksByTeamView(LazyInitView):
         season_view = discord.ui.View()
         season_view.add_item(season_select)
 
-        league_name = self._selected_league.get('name') if self._selected_league else league_code.upper()
+        division_label = self.manager.format_division_display(self._selected_division)
         active_flag = any(season.get('active') for season in seasons)
         status = "✅ Active season available" if active_flag else "⏸️ No active season"
         await interaction.followup.send(
-            f"**{league_name}** selected. {status}. Choose a season to filter teams:",
+            f"{division_label} selected. {status}. Choose a season to filter teams:",
             view=season_view,
             ephemeral=True,
         )
 
     async def select_season(self, interaction: discord.Interaction) -> None:
         """Handle season selection and present teams."""
-        if not self._selected_league:
-            await interaction.response.send_message("❌ Please select a league first.", ephemeral=True)
+        if not self._selected_division:
+            await interaction.response.send_message("❌ Please select a division first.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)

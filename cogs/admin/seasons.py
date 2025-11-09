@@ -345,6 +345,9 @@ class ViewSeasonsView(LazyInitView):
             logger.error(f"Error fetching seasons: {e}", exc_info=True)
             self.seasons_list = []
 
+    async def populate(self) -> None:
+        await self.lazy_init()
+
     def create_embed(self) -> discord.Embed:
         """Build seasons list embed."""
         if not self.seasons_list:

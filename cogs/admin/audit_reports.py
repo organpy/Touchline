@@ -176,6 +176,9 @@ class ViewActivityTimelineView(LazyInitView):
             logger.error(f"Error fetching activity timeline: {e}", exc_info=True)
             self.events_list = []
 
+    async def populate(self) -> None:
+        await self.lazy_init()
+
     def create_embed(self) -> discord.Embed:
         """Build activity timeline embed."""
         if not self.events_list:
@@ -278,6 +281,9 @@ class ViewFlaggedActionsView(LazyInitView):
         except Exception as e:
             logger.error(f"Error fetching flagged actions: {e}", exc_info=True)
             self.flagged_list = []
+
+    async def populate(self) -> None:
+        await self.lazy_init()
 
     def create_embed(self) -> discord.Embed:
         """Build flagged actions embed."""

@@ -158,6 +158,9 @@ class ViewPendingOffersView(LazyInitView):
             logger.error(f"Error fetching pending offers: {e}", exc_info=True)
             self.offers_list = []
 
+    async def populate(self) -> None:
+        await self.lazy_init()
+
     def create_embed(self) -> discord.Embed:
         """Build pending offers embed."""
         if not self.offers_list:
