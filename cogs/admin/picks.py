@@ -684,7 +684,7 @@ class ReassignPickView(LazyInitView):
                     async def confirm(self, confirm_interaction: discord.Interaction, _: discord.ui.Button) -> None:
                         await confirm_interaction.response.defer(ephemeral=True)
                         try:
-                            result = self.repo.update_draft_pick_owner(pick_id, new_team_id)
+                            result = self.repo.update_draft_pick_owner(self._selected_pick.get('id'), new_team_id)
                             if result:
                                 logger.info(
                                     "✅ Draft pick reassigned: R%d.%d (overall %d) from %s to %s by %s",

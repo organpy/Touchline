@@ -165,7 +165,7 @@ class ViewActivityTimelineView(LazyInitView):
         try:
             # Fetch last 100 events (performance optimization)
             response = (
-                supabase.table("transaction_events")
+                self.supabase.table("transaction_events")
                 .select("*")
                 .order("created_at", desc=True)
                 .limit(100)
@@ -267,7 +267,7 @@ class ViewFlaggedActionsView(LazyInitView):
         try:
             # Fetch events with "VOID" or "EDIT" event types (flagged actions)
             response = (
-                supabase.table("transaction_events")
+                self.supabase.table("transaction_events")
                 .select("*")
                 .in_("event_type", ["VOID", "EDIT"])
                 .order("created_at", desc=True)
