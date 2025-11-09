@@ -302,27 +302,27 @@ class ForceSignView(LazyInitView):
             team = self.supabase.table('teams').select('*').eq('id', team_id).limit(1).execute()
             if team.data:
                 self._selected_team = team.data[0]
-                # Now show player selection - limit to first 25 only
+                # Now show player selection - limit to first 24 (leaving room for "more" if needed)
                 players = self.supabase.table('players').select('*').order('display_name', desc=False).execute()
                 if not players.data:
                     await interaction.followup.send("❌ No players found.", ephemeral=True)
                     return
 
-                # Discord Select options limited to 25 max
+                # Discord Select options limited to 25 max - use 24 if there are more
+                display_count = 24 if len(players.data) > 25 else 25
                 player_options = [
                     discord.SelectOption(
                         label=p.get('display_name', 'Unknown')[:100],
                         value=p.get('id', ''),
                     )
-                    for p in players.data[:25]
+                    for p in players.data[:display_count]
                 ]
                 
                 if len(players.data) > 25:
                     player_options.append(
                         discord.SelectOption(
-                            label=f"... and {len(players.data) - 25} more",
+                            label=f"... and {len(players.data) - 24} more",
                             value="__more__",
-                            description="More players available. Try searching or filtering.",
                         )
                     )
 

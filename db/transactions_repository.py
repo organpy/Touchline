@@ -199,13 +199,53 @@ class TransactionsRepository:
     # Transactions log
     # ------------------------------------------------------------------
     def insert_transaction(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Insert a transaction row and return the created record."""
+        """Insert a transaction row and return the created record. Also creates a transaction_event."""
         try:
-            response = self.supabase.table('transactions').insert(payload).execute()
-            return response.data[0] if response.data else None
+            # Map transaction payload to transactions table schema
+            tx_payload = {
+                'season_id': payload.get('season_id'),
+                'type': self._map_transaction_type(payload.get('transaction_type', 'unknown')),
+                'player_id': payload.get('player_id'),
+                'from_team_id': payload.get('metadata', {}).get('from_team_id'),
+                'to_team_id': payload.get('team_id'),  # destination team
+                'executed_by': payload.get('metadata', {}).get('admin_user_id'),
+                'details': payload.get('metadata', {}),
+            }
+            
+            # Remove None values
+            tx_payload = {k: v for k, v in tx_payload.items() if v is not None}
+            
+            # Insert transaction record
+            tx_response = self.supabase.table('transactions').insert(tx_payload).execute()
+            transaction = tx_response.data[0] if tx_response.data else None
+            
+            if transaction:
+                # Also create a transaction_event for the audit trail
+                event_payload = {
+                    'transaction_id': transaction.get('id'),
+                    'event_type': payload.get('transaction_type', 'unknown'),
+                    'payload': payload,
+                }
+                try:
+                    self.supabase.table('transaction_events').insert(event_payload).execute()
+                except Exception as e:
+                    logger.warning(f"Failed to create transaction_event: {e}")
+            
+            return transaction
         except Exception as exc:
             logger.error("Failed to insert transaction %s: %s", payload, exc)
             return None
+
+    def _map_transaction_type(self, transaction_type: str) -> str:
+        """Map transaction_type names to database transaction.type values."""
+        mapping = {
+            'admin_force_sign': 'sign',
+            'admin_force_release': 'release',
+            'admin_force_transfer': 'transfer',
+            'draft_pick': 'sign',
+            'trade': 'transfer',
+        }
+        return mapping.get(transaction_type, transaction_type)
 
     def list_transactions_for_team(self, team_id: str, limit: int = 25) -> List[Dict[str, Any]]:
         """Return recent transactions for a team."""
