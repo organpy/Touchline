@@ -84,24 +84,102 @@ class TeamPlayerCache:
             
             # Load players
             players_response = cls._supabase.table('players').select('*').execute()
-            cls._players = {p['id']: p for p in (players_response.data or [])}
-            cls._players_by_discord = {p['discord_id']: p for p in (players_response.data or []) if p.get('discord_id')}
-            cls._players_by_name = {p['display_name'].lower(): p for p in (players_response.data or [])}
+            cls._players = {}
+            for raw_player in (players_response.data or []):
+                player = dict(raw_player)
+                if player.get('id'):
+                    cls._players[player['id']] = player
             
             # Load active rosters (team -> players mapping)
             rosters_response = cls._supabase.table('rosters').select(
                 '*, players(id, display_name, discord_id), teams(id, code)'
             ).is_('left_at', None).execute()
+
+            season_ids = {r.get('season_id') for r in (rosters_response.data or []) if r.get('season_id')}
+            seasons_map: Dict[str, dict] = {}
+            if season_ids:
+                seasons_response = (
+                    cls._supabase
+                    .table('seasons')
+                    .select('id, name, division_id')
+                    .in_('id', list(season_ids))
+                    .execute()
+                )
+                seasons_map = {s['id']: s for s in (seasons_response.data or [])}
             
             cls._team_players = {}
+            for player in cls._players.values():
+                player['active_memberships'] = []
+                player['memberships_by_season'] = {}
+                player.pop('current_team_id', None)
+                player.pop('current_team_code', None)
+                player.pop('current_team_name', None)
+                player.pop('current_league_type', None)
+                player.pop('current_league_name', None)
+                player.pop('current_season_id', None)
+                player.pop('current_season_name', None)
+
             for roster in (rosters_response.data or []):
                 team_id = roster.get('team_id')
+                player_data = roster.get('players') or {}
+                player_id = roster.get('player_id') or player_data.get('id')
+                season_id = roster.get('season_id')
+                team_info = cls._teams.get(team_id) or roster.get('teams') or {}
+                division_id = team_info.get('division_id')
+                season = seasons_map.get(season_id)
+                if not division_id:
+                    division_id = (season or {}).get('division_id')
+                division = division_map.get(division_id)
+                season_name = (season or {}).get('name')
+                if not season_name and division_id:
+                    season_name = (active_season_map.get(division_id) or {}).get('name')
+                league_type = team_info.get('league_type') or (division or {}).get('league_type')
+                league_name = team_info.get('league_name') or (division or {}).get('name')
+
                 if team_id:
                     if team_id not in cls._team_players:
                         cls._team_players[team_id] = []
-                    player_data = roster.get('players')
-                    if player_data:
-                        cls._team_players[team_id].append(player_data)
+                    player_entry = cls._players.get(player_id)
+                    if player_entry and player_entry not in cls._team_players[team_id]:
+                        cls._team_players[team_id].append(player_entry)
+
+                player_entry = cls._players.get(player_id)
+                if not player_entry:
+                    continue
+
+                membership = {
+                    'team_id': team_id,
+                    'team_code': team_info.get('code'),
+                    'team_name': team_info.get('name'),
+                    'season_id': season_id,
+                    'season_name': season_name,
+                    'division_id': division_id,
+                    'league_type': league_type,
+                    'league_name': league_name,
+                }
+
+                player_entry['active_memberships'].append(membership)
+                if season_id:
+                    player_entry['memberships_by_season'][season_id] = membership
+
+                if not player_entry.get('current_team_id'):
+                    player_entry['current_team_id'] = membership.get('team_id')
+                    player_entry['current_team_code'] = membership.get('team_code')
+                    player_entry['current_team_name'] = membership.get('team_name')
+                    player_entry['current_league_type'] = membership.get('league_type')
+                    player_entry['current_league_name'] = membership.get('league_name')
+                    player_entry['current_season_id'] = membership.get('season_id')
+                    player_entry['current_season_name'] = membership.get('season_name')
+
+            cls._players_by_discord = {}
+            cls._players_by_name = {}
+            for player in cls._players.values():
+                discord_id = player.get('discord_id')
+                if discord_id:
+                    cls._players_by_discord[discord_id] = player
+                display_name = player.get('display_name')
+                if display_name:
+                    cls._players_by_name[display_name.lower()] = player
             
             cls._last_refresh = datetime.utcnow()
             total_teams = len(cls._teams)
@@ -122,6 +200,7 @@ class TeamPlayerCache:
         cls._players_by_discord.clear()
         cls._players_by_name.clear()
         cls._team_players.clear()
+        cls._last_refresh = None
         logger.info("🔄 TeamPlayerCache invalidated")
 
     # ==================== TEAMS ====================

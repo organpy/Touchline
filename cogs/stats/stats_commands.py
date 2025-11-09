@@ -346,6 +346,42 @@ class StatsCog(commands.Cog):
         return None
 
     @staticmethod
+    def _select_player_membership(player: Optional[Dict[str, Any]], season_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Return the most relevant active membership for a player."""
+        if not player:
+            return None
+
+        memberships_by_season = player.get('memberships_by_season') or {}
+        if season_id and season_id in memberships_by_season:
+            return memberships_by_season[season_id]
+
+        active_memberships = player.get('active_memberships') or []
+        if active_memberships:
+            return active_memberships[0]
+
+        return None
+
+    async def _resolve_league_for_membership(self, membership: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Resolve league metadata based on a player membership entry."""
+        if not membership:
+            return None
+
+        league_hint = membership.get('league_type')
+        if league_hint:
+            league_meta = await self._fetch_league_metadata(league_hint)
+            if league_meta:
+                return league_meta
+
+        division_id = membership.get('division_id')
+        if division_id:
+            division = await self._fetch_division_by_id(division_id)
+            if division:
+                league_code = division.get('league_type') or division.get('name')
+                return await self._fetch_league_metadata(league_code)
+
+        return None
+
+    @staticmethod
     def _format_league_display(league_meta: Optional[Dict[str, Any]]) -> str:
         if not league_meta:
             return "Unknown"
@@ -410,15 +446,20 @@ class StatsCog(commands.Cog):
                 f"ℹ️ No recorded stats for **{player.get('display_name', player_name)}** in season `{season_row.get('name')}`.")
             return
 
-        league_display = self._format_league_display(league_meta)
+        membership = self._select_player_membership(player, season_row.get('id'))
+        membership_league_meta = await self._resolve_league_for_membership(membership)
+        player_league_display = self._format_league_display(membership_league_meta)
+        season_league_display = self._format_league_display(league_meta)
+        team_display = (membership or {}).get('team_name') or averages.get('team_name', 'Free Agent')
 
         embed = discord.Embed(
             title=f"Season Averages — {player.get('display_name', player_name)}",
             color=discord.Color.blue(),
         )
-        embed.add_field(name="League", value=league_display, inline=True)
+        embed.add_field(name="Player League", value=player_league_display, inline=True)
         embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
-        embed.add_field(name="Team", value=averages.get('team_name', 'Free Agent'), inline=True)
+        embed.add_field(name="Season League", value=season_league_display, inline=True)
+        embed.add_field(name="Team", value=team_display, inline=True)
         embed.add_field(name="Games Played", value=str(averages.get('games_played', 0)), inline=True)
 
         production_lines = [
@@ -485,15 +526,20 @@ class StatsCog(commands.Cog):
                 f"ℹ️ No recorded stats for **{player.get('display_name', player_name)}** in season `{season_row.get('name')}`.")
             return
 
-        league_display = self._format_league_display(league_meta)
+        membership = self._select_player_membership(player, season_row.get('id'))
+        membership_league_meta = await self._resolve_league_for_membership(membership)
+        player_league_display = self._format_league_display(membership_league_meta)
+        season_league_display = self._format_league_display(league_meta)
+        team_display = (membership or {}).get('team_name') or totals.get('team_name', 'Free Agent')
 
         embed = discord.Embed(
             title=f"Season Totals — {player.get('display_name', player_name)}",
             color=discord.Color.gold(),
         )
-        embed.add_field(name="League", value=league_display, inline=True)
+        embed.add_field(name="Player League", value=player_league_display, inline=True)
         embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
-        embed.add_field(name="Team", value=totals.get('team_name', 'Free Agent'), inline=True)
+        embed.add_field(name="Season League", value=season_league_display, inline=True)
+        embed.add_field(name="Team", value=team_display, inline=True)
         embed.add_field(name="Games Played", value=str(totals.get('games_played', 0)), inline=True)
 
         totals_lines = [
@@ -859,14 +905,21 @@ class StatsCog(commands.Cog):
                 f"ℹ️ No recorded match history for **{player.get('display_name', player_name)}** in season `{season_row.get('name')}`.")
             return
 
-        league_display = self._format_league_display(league_meta)
+        membership = self._select_player_membership(player, season_row.get('id'))
+        membership_league_meta = await self._resolve_league_for_membership(membership)
+        player_league_display = self._format_league_display(membership_league_meta)
+        season_league_display = self._format_league_display(league_meta)
+        team_display = (membership or {}).get('team_name')
 
         embed = discord.Embed(
             title=f"Match History — {player.get('display_name', player_name)}",
             color=discord.Color.teal(),
         )
-        embed.add_field(name="League", value=league_display, inline=True)
+        embed.add_field(name="Player League", value=player_league_display, inline=True)
         embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
+        embed.add_field(name="Season League", value=season_league_display, inline=True)
+        if team_display:
+            embed.add_field(name="Team", value=team_display, inline=True)
         embed.timestamp = datetime.utcnow()
 
         for match in history[:limit]:
