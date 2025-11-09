@@ -110,7 +110,7 @@ class AddPlayerModal(discord.ui.Modal, title="Add Player"):
 
 
 class LinkPlayerModal(discord.ui.Modal, title="Link Player to Discord"):
-    """Modal for linking an existing player to a Discord ID. Starts player selection."""
+    """Modal for linking an existing player to a Discord ID."""
 
     discord_id = discord.ui.TextInput(
         label="Discord User ID",
@@ -120,8 +120,16 @@ class LinkPlayerModal(discord.ui.Modal, title="Link Player to Discord"):
         max_length=20,
     )
 
+    player_name = discord.ui.TextInput(
+        label="Player Display Name",
+        placeholder="e.g., Ace, Pro Player",
+        required=True,
+        min_length=1,
+        max_length=100,
+    )
+
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        """Handle modal submission - show player dropdown next."""
+        """Handle modal submission - link player to Discord ID."""
         await interaction.response.defer(ephemeral=True)
 
         try:
@@ -141,192 +149,142 @@ class LinkPlayerModal(discord.ui.Modal, title="Link Player to Discord"):
             )
             return
 
-        # Fetch all unlinked players for dropdown
+        # Check if Discord ID is already linked to someone
+        existing = await queries.get_player_by_discord_id(supabase, discord_id_int)
+        if existing:
+            await interaction.followup.send(
+                f"⚠️ Discord ID {discord_id_int} is already linked to **{existing['display_name']}**.",
+                ephemeral=True,
+            )
+            return
+
+        # Find player by display name
         try:
             response = (
-                supabase
-                .table("players")
+                supabase.table("players")
                 .select("*")
                 .is_("discord_id", "null")
+                .ilike("display_name", f"%{self.player_name.value}%")
                 .order("display_name")
                 .execute()
             )
-            unlinked_players = response.data or []
+            matching_players = response.data or []
         except Exception as e:
-            logger.error(f"Error fetching unlinked players: {e}", exc_info=True)
+            logger.error(f"Error fetching players: {e}", exc_info=True)
             await interaction.followup.send(
                 "❌ Failed to fetch player list.",
                 ephemeral=True,
             )
             return
 
-        if not unlinked_players:
+        if not matching_players:
             await interaction.followup.send(
-                "❌ No unlinked players available.",
+                f"❌ No unlinked player found matching **{self.player_name.value}**.",
                 ephemeral=True,
             )
             return
 
-        # Build select dropdown (max 25 options)
-        display_count = 24 if len(unlinked_players) > 25 else len(unlinked_players)
-        options = [
-            discord.SelectOption(
-                label=p["display_name"],
-                value=p["id"],
-                description=f"Position: {p.get('position') or '—'}"
+        if len(matching_players) > 1:
+            # Show multiple matches
+            embed = discord.Embed(
+                title="Multiple Players Found",
+                description=f"Found {len(matching_players)} players matching **{self.player_name.value}**:\n" +
+                            "\n".join([f"• {p['display_name']}" for p in matching_players[:10]]),
+                color=discord.Color.orange(),
             )
-            for p in unlinked_players[:display_count]
-        ]
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
 
-        if len(unlinked_players) > 25:
-            options.append(
-                discord.SelectOption(
-                    label=f"+{len(unlinked_players) - 24} more players",
-                    value="view_more",
-                    description="Show more players"
-                )
+        # Single match - proceed to linking
+        player = matching_players[0]
+
+        # Update player with Discord ID
+        try:
+            response = (
+                supabase.table("players")
+                .update({"discord_id": discord_id_int})
+                .eq("id", player["id"])
+                .execute()
             )
 
-        player_select = discord.ui.Select(
-            placeholder="Select a player to link...",
-            min_values=1,
-            max_values=1,
-            options=options,
-        )
+            if response.data:
+                # Show position selection
+                POSITIONS = [
+                    "Forward",
+                    "Guard",
+                    "Center",
+                    "Wing",
+                    "Point Guard",
+                    "Shooting Guard",
+                    "Small Forward",
+                    "Power Forward",
+                    "Goalkeeper",
+                    "Striker",
+                    "Defender",
+                    "Midfielder",
+                    "All-Rounder",
+                    "Specialist",
+                    "Other",
+                ]
 
-        async def select_player_callback(player_interaction: discord.Interaction) -> None:
-            selected_player_id = player_interaction.data['values'][0]
-            
-            if selected_player_id == "view_more":
-                await player_interaction.response.defer(ephemeral=True)
-                await player_interaction.followup.send(
-                    "⚠️ Too many unlinked players to display. Please narrow down by typing a name in the player selection.",
+                position_select = discord.ui.Select(
+                    placeholder="Select position...",
+                    min_values=1,
+                    max_values=1,
+                    options=[
+                        discord.SelectOption(label=pos, value=pos)
+                        for pos in POSITIONS
+                    ],
+                )
+
+                async def select_position_callback(pos_interaction: discord.Interaction) -> None:
+                    await pos_interaction.response.defer(ephemeral=True)
+                    position = pos_interaction.data['values'][0]
+
+                    try:
+                        result = supabase.table("players").update(
+                            {"position": position}
+                        ).eq("id", player['id']).execute()
+
+                        if result.data:
+                            embed = discord.Embed(
+                                title="✅ Player Linked & Position Set",
+                                description=f"**{player['display_name']}** linked to <@{discord_id_int}>\nPosition: **{position}**",
+                                color=discord.Color.green(),
+                            )
+                            await pos_interaction.followup.send(embed=embed, ephemeral=True)
+
+                            try:
+                                await TeamPlayerCache.refresh()
+                            except Exception as cache_error:
+                                logger.warning(f"Failed to refresh cache: {cache_error}")
+                        else:
+                            await pos_interaction.followup.send("❌ Failed to set position.", ephemeral=True)
+                    except Exception as e:
+                        logger.error(f"Error setting position: {e}", exc_info=True)
+                        await pos_interaction.followup.send("❌ Error setting position.", ephemeral=True)
+
+                position_select.callback = select_position_callback
+                view = discord.ui.View()
+                view.add_item(position_select)
+
+                await interaction.followup.send(
+                    f"**{player['display_name']}** linked to <@{discord_id_int}>. Now select their position:",
+                    view=view,
                     ephemeral=True,
                 )
-                return
-
-            await player_interaction.response.defer(ephemeral=True)
-
-            # Fetch the selected player
-            player = None
-            for p in unlinked_players:
-                if p["id"] == selected_player_id:
-                    player = p
-                    break
-
-            if not player:
-                await player_interaction.followup.send(
-                    "❌ Player not found.",
-                    ephemeral=True,
-                )
-                return
-
-            # Check if Discord ID is already linked to someone else
-            existing = await queries.get_player_by_discord_id(supabase, discord_id_int)
-            if existing:
-                await player_interaction.followup.send(
-                    f"⚠️ Discord ID {discord_id_int} is already linked to **{existing['display_name']}**.",
-                    ephemeral=True,
-                )
-                return
-
-            # Update player with Discord ID
-            try:
-                response = (
-                    supabase.table("players")
-                    .update({"discord_id": discord_id_int})
-                    .eq("id", player["id"])
-                    .execute()
-                )
-
-                if response.data:
-                    # Now show position selection
-                    POSITIONS = [
-                        "Forward",
-                        "Guard", 
-                        "Center",
-                        "Wing",
-                        "Point Guard",
-                        "Shooting Guard",
-                        "Small Forward",
-                        "Power Forward",
-                        "Goalkeeper",
-                        "Striker",
-                        "Defender",
-                        "Midfielder",
-                        "All-Rounder",
-                        "Specialist",
-                        "Other",
-                    ]
-                    
-                    position_select = discord.ui.Select(
-                        placeholder="Select position...",
-                        min_values=1,
-                        max_values=1,
-                        options=[
-                            discord.SelectOption(label=pos, value=pos)
-                            for pos in POSITIONS
-                        ],
-                    )
-                    
-                    async def select_position_callback(pos_interaction: discord.Interaction) -> None:
-                        await pos_interaction.response.defer(ephemeral=True)
-                        position = pos_interaction.data['values'][0]
-                        
-                        try:
-                            result = supabase.table("players").update(
-                                {"position": position}
-                            ).eq("id", player['id']).execute()
-                            
-                            if result.data:
-                                embed = discord.Embed(
-                                    title="✅ Player Linked & Position Set",
-                                    description=f"**{player['display_name']}** linked to <@{discord_id_int}>\nPosition: **{position}**",
-                                    color=discord.Color.green(),
-                                )
-                                await pos_interaction.followup.send(embed=embed, ephemeral=True)
-                                
-                                try:
-                                    await TeamPlayerCache.refresh()
-                                except Exception as cache_error:
-                                    logger.warning(f"Failed to refresh cache: {cache_error}")
-                            else:
-                                await pos_interaction.followup.send("❌ Failed to set position.", ephemeral=True)
-                        except Exception as e:
-                            logger.error(f"Error setting position: {e}", exc_info=True)
-                            await pos_interaction.followup.send("❌ Error setting position.", ephemeral=True)
-                    
-                    position_select.callback = select_position_callback
-                    view = discord.ui.View()
-                    view.add_item(position_select)
-                    
-                    await player_interaction.followup.send(
-                        f"**{player['display_name']}** linked to <@{discord_id_int}>. Now select their position:",
-                        view=view,
-                        ephemeral=True,
-                    )
-                else:
-                    await player_interaction.followup.send(
-                        "❌ Failed to link player (unexpected response).",
-                        ephemeral=True,
-                    )
-
-            except Exception as e:
-                logger.error(f"Error linking player: {e}", exc_info=True)
-                await player_interaction.followup.send(
-                    "❌ Error linking player.",
+            else:
+                await interaction.followup.send(
+                    "❌ Failed to link player (unexpected response).",
                     ephemeral=True,
                 )
 
-        player_select.callback = select_player_callback
-        view = discord.ui.View()
-        view.add_item(player_select)
-
-        await interaction.followup.send(
-            "Select a player to link to Discord ID:",
-            view=view,
-            ephemeral=True,
-        )
+        except Exception as e:
+            logger.error(f"Error linking player: {e}", exc_info=True)
+            await interaction.followup.send(
+                f"❌ Error linking player: {str(e)[:100]}",
+                ephemeral=True,
+            )
 
 
 class ViewPlayersView(LazyInitView):

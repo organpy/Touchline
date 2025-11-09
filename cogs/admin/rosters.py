@@ -375,15 +375,18 @@ class ForceSignView(discord.ui.View):
                 return
 
             # Sign player
-            transaction_id = await self.repo.create_transaction(
-                season_id=season['id'],
-                transaction_type='admin_force_sign',
-                player_id=player['id'],
-                from_team_id=None,
-                to_team_id=self._selected_team['id'],
-                executed_by=interaction.user.id,
-                details={'signed_by': interaction.user.display_name},
-            )
+            transaction_result = self.repo.insert_transaction({
+                'season_id': season['id'],
+                'transaction_type': 'admin_force_sign',
+                'player_id': player['id'],
+                'team_id': self._selected_team['id'],
+                'metadata': {
+                    'from_team_id': None,
+                    'admin_user_id': interaction.user.id,
+                    'signed_by': interaction.user.display_name,
+                },
+            })
+            transaction_id = transaction_result.get('id') if transaction_result else None
 
             if transaction_id:
                 # Post to admin transactions channel
