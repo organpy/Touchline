@@ -276,51 +276,51 @@ class StatsCog(commands.Cog):
             logger.error("Failed to fetch division %s: %s", division_id, exc)
             return None
 
-        async def _get_season_by_id(self, season_id: Optional[str]) -> Optional[Dict[str, Any]]:
-            if not season_id:
-                return None
+    async def _get_season_by_id(self, season_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not season_id:
+            return None
 
-            try:
-                response = (
-                    self.supabase
-                    .table('seasons')
-                    .select('*')
-                    .eq('id', season_id)
-                    .limit(1)
-                    .execute()
-                )
-                return (response.data or [None])[0]
-            except Exception as exc:  # pragma: no cover - network failure path
-                logger.error("Failed to fetch season by id %s: %s", season_id, exc)
-                return None
+        try:
+            response = (
+                self.supabase
+                .table('seasons')
+                .select('*')
+                .eq('id', season_id)
+                .limit(1)
+                .execute()
+            )
+            return (response.data or [None])[0]
+        except Exception as exc:  # pragma: no cover - network failure path
+            logger.error("Failed to fetch season by id %s: %s", season_id, exc)
+            return None
 
-        async def _resolve_season_context(
-            self,
-            *,
-            league_input: Optional[str] = None,
-            season_input: Optional[str] = None,
-            default_season_id: Optional[str] = None,
-            default_league_code: Optional[str] = None,
-        ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
-            """Resolve season + league metadata with fallbacks for team/player defaults."""
+    async def _resolve_season_context(
+        self,
+        *,
+        league_input: Optional[str] = None,
+        season_input: Optional[str] = None,
+        default_season_id: Optional[str] = None,
+        default_league_code: Optional[str] = None,
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """Resolve season + league metadata with fallbacks for team/player defaults."""
 
-            if season_input or league_input:
-                return await self._find_season(league_input, season_input)
+        if season_input or league_input:
+            return await self._find_season(league_input, season_input)
 
-            if default_season_id:
-                season_row = await self._get_season_by_id(default_season_id)
-                league_meta = await self._resolve_league_for_season(season_row) if season_row else None
-                if not league_meta and default_league_code:
-                    league_meta = await self._fetch_league_metadata(default_league_code)
-                if season_row or league_meta:
-                    return season_row, league_meta
+        if default_season_id:
+            season_row = await self._get_season_by_id(default_season_id)
+            league_meta = await self._resolve_league_for_season(season_row) if season_row else None
+            if not league_meta and default_league_code:
+                league_meta = await self._fetch_league_metadata(default_league_code)
+            if season_row or league_meta:
+                return season_row, league_meta
 
-            if default_league_code:
-                season_row, league_meta = await self._find_season(default_league_code, None)
-                if season_row or league_meta:
-                    return season_row, league_meta
+        if default_league_code:
+            season_row, league_meta = await self._find_season(default_league_code, None)
+            if season_row or league_meta:
+                return season_row, league_meta
 
-            return await self._find_season(None, None)
+        return await self._find_season(None, None)
 
     async def _fetch_division_by_league_code(self, league_code: Optional[str]) -> Optional[Dict[str, Any]]:
         if not league_code:
@@ -436,6 +436,48 @@ class StatsCog(commands.Cog):
         if name and code and name.upper() != code:
             return f"{name} ({code})"
         return name or code or "Unknown"
+
+    async def _validate_player_in_season(self, player: Dict[str, Any], season: Dict[str, Any]) -> bool:
+        """Check if player actually has a roster entry in this season (not just cache data)."""
+        if not player or not season:
+            return False
+        
+        player_id = player.get('id')
+        season_id = season.get('id')
+        if not player_id or not season_id:
+            return False
+        
+        try:
+            response = (
+                self.supabase
+                .table('rosters')
+                .select('id')
+                .eq('player_id', player_id)
+                .eq('season_id', season_id)
+                .limit(1)
+                .execute()
+            )
+            return bool(response.data)
+        except Exception as exc:
+            logger.error("Failed to validate player in season: %s", exc)
+            return False
+
+    async def _validate_team_in_season(self, team: Dict[str, Any], season: Dict[str, Any]) -> bool:
+        """Check if team actually plays in this season (season's division matches team's division)."""
+        if not team or not season:
+            return False
+        
+        team_id = team.get('id')
+        season_id = season.get('id')
+        team_division = team.get('division_id')
+        season_division = season.get('division_id')
+        
+        if not team_id or not season_id or not team_division:
+            return False
+        
+        # Verify season belongs to team's division
+        return team_division == season_division
+
     # ------------------------------------------------------------------
     # (autocomplete handlers moved to module-level functions)
     # ------------------------------------------------------------------
@@ -475,6 +517,16 @@ class StatsCog(commands.Cog):
         )
         if not season_row:
             await interaction.followup.send("❌ Could not locate a season matching your request.")
+            return
+
+        # Validate player plays in this season
+        player_in_season = await self._validate_player_in_season(player, season_row)
+        if not player_in_season:
+            league_display = self._format_league_display(league_meta)
+            await interaction.followup.send(
+                f"❌ Player **{player.get('display_name', player_name)}** was not on any roster in {league_display} "
+                f"**{season_row.get('name')}**."
+            )
             return
 
         try:
@@ -562,6 +614,16 @@ class StatsCog(commands.Cog):
         )
         if not season_row:
             await interaction.followup.send("❌ Could not locate a season matching your request.")
+            return
+
+        # Validate player plays in this season
+        player_in_season = await self._validate_player_in_season(player, season_row)
+        if not player_in_season:
+            league_display = self._format_league_display(league_meta)
+            await interaction.followup.send(
+                f"❌ Player **{player.get('display_name', player_name)}** was not on any roster in {league_display} "
+                f"**{season_row.get('name')}**."
+            )
             return
 
         try:
@@ -733,6 +795,15 @@ class StatsCog(commands.Cog):
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
+        # Validate team plays in this season
+        team_in_season = await self._validate_team_in_season(team_data, season_row)
+        if not team_in_season:
+            league_display = self._format_league_display(league_meta)
+            await interaction.followup.send(
+                f"❌ Team **{team_data.get('name', team)}** does not play in {league_display} **{season_row.get('name')}**."
+            )
+            return
+
         if not league_meta:
             league_meta = await self._fetch_league_metadata(team_data.get('league_type'))
 
@@ -816,6 +887,15 @@ class StatsCog(commands.Cog):
         )
         if not season_row:
             await interaction.followup.send("❌ Could not locate a season matching your request.")
+            return
+
+        # Validate team plays in this season
+        team_in_season = await self._validate_team_in_season(team_data, season_row)
+        if not team_in_season:
+            league_display = self._format_league_display(league_meta)
+            await interaction.followup.send(
+                f"❌ Team **{team_data.get('name', team)}** does not play in {league_display} **{season_row.get('name')}**."
+            )
             return
 
         if not league_meta:
@@ -968,6 +1048,16 @@ class StatsCog(commands.Cog):
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
+        # Validate player plays in this season
+        player_in_season = await self._validate_player_in_season(player, season_row)
+        if not player_in_season:
+            league_display = self._format_league_display(league_meta)
+            await interaction.followup.send(
+                f"❌ Player **{player.get('display_name', player_name)}** was not on any roster in {league_display} "
+                f"**{season_row.get('name')}**."
+            )
+            return
+
         try:
             history = await queries.get_player_history(
                 self.supabase,
@@ -1071,6 +1161,25 @@ class StatsCog(commands.Cog):
         player_b_data = await self._resolve_player(player_b)
         if not player_b_data:
             await interaction.followup.send(f"❌ Player `{player_b}` was not found.")
+            return
+
+        # Validate both players play in this season
+        player_a_in_season = await self._validate_player_in_season(player_a_data, season_row)
+        player_b_in_season = await self._validate_player_in_season(player_b_data, season_row)
+        
+        league_display = self._format_league_display(league_meta)
+        season_display = season_row.get('name', 'Unknown')
+        
+        if not player_a_in_season:
+            await interaction.followup.send(
+                f"❌ Player **{player_a_data.get('display_name', player_a)}** was not on any roster in {league_display} **{season_display}**."
+            )
+            return
+        
+        if not player_b_in_season:
+            await interaction.followup.send(
+                f"❌ Player **{player_b_data.get('display_name', player_b)}** was not on any roster in {league_display} **{season_display}**."
+            )
             return
 
         try:
