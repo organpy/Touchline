@@ -276,6 +276,52 @@ class StatsCog(commands.Cog):
             logger.error("Failed to fetch division %s: %s", division_id, exc)
             return None
 
+        async def _get_season_by_id(self, season_id: Optional[str]) -> Optional[Dict[str, Any]]:
+            if not season_id:
+                return None
+
+            try:
+                response = (
+                    self.supabase
+                    .table('seasons')
+                    .select('*')
+                    .eq('id', season_id)
+                    .limit(1)
+                    .execute()
+                )
+                return (response.data or [None])[0]
+            except Exception as exc:  # pragma: no cover - network failure path
+                logger.error("Failed to fetch season by id %s: %s", season_id, exc)
+                return None
+
+        async def _resolve_season_context(
+            self,
+            *,
+            league_input: Optional[str] = None,
+            season_input: Optional[str] = None,
+            default_season_id: Optional[str] = None,
+            default_league_code: Optional[str] = None,
+        ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+            """Resolve season + league metadata with fallbacks for team/player defaults."""
+
+            if season_input or league_input:
+                return await self._find_season(league_input, season_input)
+
+            if default_season_id:
+                season_row = await self._get_season_by_id(default_season_id)
+                league_meta = await self._resolve_league_for_season(season_row) if season_row else None
+                if not league_meta and default_league_code:
+                    league_meta = await self._fetch_league_metadata(default_league_code)
+                if season_row or league_meta:
+                    return season_row, league_meta
+
+            if default_league_code:
+                season_row, league_meta = await self._find_season(default_league_code, None)
+                if season_row or league_meta:
+                    return season_row, league_meta
+
+            return await self._find_season(None, None)
+
     async def _fetch_division_by_league_code(self, league_code: Optional[str]) -> Optional[Dict[str, Any]]:
         if not league_code:
             return None
@@ -415,15 +461,20 @@ class StatsCog(commands.Cog):
     ) -> None:
         await interaction.response.defer(thinking=True)
 
-        context = await self._find_season(league, season)
-        season_row, league_meta = context
-        if not season_row:
-            await interaction.followup.send("❌ Could not locate a season matching your request.")
-            return
-
         player = await self._resolve_player(player_name)
         if not player:
             await interaction.followup.send(f"❌ Player `{player_name}` was not found.")
+            return
+
+        membership_hint = self._select_player_membership(player, None)
+        season_row, league_meta = await self._resolve_season_context(
+            league_input=league,
+            season_input=season,
+            default_season_id=(membership_hint or {}).get('season_id'),
+            default_league_code=(membership_hint or {}).get('league_type'),
+        )
+        if not season_row:
+            await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
         try:
@@ -448,6 +499,8 @@ class StatsCog(commands.Cog):
 
         membership = self._select_player_membership(player, season_row.get('id'))
         membership_league_meta = await self._resolve_league_for_membership(membership)
+        if not league_meta:
+            league_meta = membership_league_meta or league_meta
         player_league_display = self._format_league_display(membership_league_meta)
         season_league_display = self._format_league_display(league_meta)
         team_display = (membership or {}).get('team_name') or averages.get('team_name', 'Free Agent')
@@ -495,15 +548,20 @@ class StatsCog(commands.Cog):
     ) -> None:
         await interaction.response.defer(thinking=True)
 
-        context = await self._find_season(league, season)
-        season_row, league_meta = context
-        if not season_row:
-            await interaction.followup.send("❌ Could not locate a season matching your request.")
-            return
-
         player = await self._resolve_player(player_name)
         if not player:
             await interaction.followup.send(f"❌ Player `{player_name}` was not found.")
+            return
+
+        membership_hint = self._select_player_membership(player, None)
+        season_row, league_meta = await self._resolve_season_context(
+            league_input=league,
+            season_input=season,
+            default_season_id=(membership_hint or {}).get('season_id'),
+            default_league_code=(membership_hint or {}).get('league_type'),
+        )
+        if not season_row:
+            await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
         try:
@@ -528,6 +586,8 @@ class StatsCog(commands.Cog):
 
         membership = self._select_player_membership(player, season_row.get('id'))
         membership_league_meta = await self._resolve_league_for_membership(membership)
+        if not league_meta:
+            league_meta = membership_league_meta or league_meta
         player_league_display = self._format_league_display(membership_league_meta)
         season_league_display = self._format_league_display(league_meta)
         team_display = (membership or {}).get('team_name') or totals.get('team_name', 'Free Agent')
@@ -657,17 +717,24 @@ class StatsCog(commands.Cog):
     ) -> None:
         await interaction.response.defer(thinking=True)
 
-        context = await self._find_season(league, season)
-        season_row, league_meta = context
-        if not season_row:
-            await interaction.followup.send("❌ Could not locate a season matching your request.")
-            return
-
         cache = TeamPlayerCache()
         team_data = cache.get_team_by_code(team.strip().upper())
         if not team_data:
             await interaction.followup.send(f"❌ Team `{team}` was not found.")
             return
+
+        season_row, league_meta = await self._resolve_season_context(
+            league_input=league,
+            season_input=season,
+            default_season_id=team_data.get('active_season_id'),
+            default_league_code=team_data.get('league_type'),
+        )
+        if not season_row:
+            await interaction.followup.send("❌ Could not locate a season matching your request.")
+            return
+
+        if not league_meta:
+            league_meta = await self._fetch_league_metadata(team_data.get('league_type'))
 
         try:
             totals = await queries.get_team_totals(
@@ -735,17 +802,24 @@ class StatsCog(commands.Cog):
     ) -> None:
         await interaction.response.defer(thinking=True)
 
-        context = await self._find_season(league, season)
-        season_row, league_meta = context
-        if not season_row:
-            await interaction.followup.send("❌ Could not locate a season matching your request.")
-            return
-
         cache = TeamPlayerCache()
         team_data = cache.get_team_by_code(team.strip().upper())
         if not team_data:
             await interaction.followup.send(f"❌ Team `{team}` was not found.")
             return
+
+        season_row, league_meta = await self._resolve_season_context(
+            league_input=league,
+            season_input=season,
+            default_season_id=team_data.get('active_season_id'),
+            default_league_code=team_data.get('league_type'),
+        )
+        if not season_row:
+            await interaction.followup.send("❌ Could not locate a season matching your request.")
+            return
+
+        if not league_meta:
+            league_meta = await self._fetch_league_metadata(team_data.get('league_type'))
 
         try:
             averages = await queries.get_team_averages(self.supabase, team_data['id'], season_row['id'])
@@ -878,15 +952,20 @@ class StatsCog(commands.Cog):
     ) -> None:
         await interaction.response.defer(thinking=True)
 
-        context = await self._find_season(league, season)
-        season_row, league_meta = context
-        if not season_row:
-            await interaction.followup.send("❌ Could not locate a season matching your request.")
-            return
-
         player = await self._resolve_player(player_name)
         if not player:
             await interaction.followup.send(f"❌ Player `{player_name}` was not found.")
+            return
+
+        membership_hint = self._select_player_membership(player, None)
+        season_row, league_meta = await self._resolve_season_context(
+            league_input=league,
+            season_input=season,
+            default_season_id=(membership_hint or {}).get('season_id'),
+            default_league_code=(membership_hint or {}).get('league_type'),
+        )
+        if not season_row:
+            await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
         try:
@@ -907,6 +986,8 @@ class StatsCog(commands.Cog):
 
         membership = self._select_player_membership(player, season_row.get('id'))
         membership_league_meta = await self._resolve_league_for_membership(membership)
+        if not league_meta:
+            league_meta = membership_league_meta or league_meta
         player_league_display = self._format_league_display(membership_league_meta)
         season_league_display = self._format_league_display(league_meta)
         team_display = (membership or {}).get('team_name')
@@ -923,8 +1004,22 @@ class StatsCog(commands.Cog):
         embed.timestamp = datetime.utcnow()
 
         for match in history[:limit]:
-            match_date = match.get('match_date')
-            date_str = match_date.strftime('%m/%d') if match_date else 'Unknown'
+            match_date_raw = match.get('match_date')
+            date_str = 'Unknown'
+            match_dt = None
+            if isinstance(match_date_raw, datetime):
+                match_dt = match_date_raw
+            elif isinstance(match_date_raw, str) and match_date_raw:
+                normalized = match_date_raw.replace('Z', '+00:00')
+                try:
+                    match_dt = datetime.fromisoformat(normalized)
+                except ValueError:
+                    match_dt = None
+                if not match_dt:
+                    date_str = match_date_raw.split('T')[0]
+            if match_dt:
+                date_str = match_dt.strftime('%b %d')
+
             opponent = match.get('opponent_name', 'Unknown')
             points = match.get('points', 0)
             assists = match.get('assists', 0)
@@ -936,7 +1031,8 @@ class StatsCog(commands.Cog):
 
             line = (
                 f"**{date_str}** vs {opponent}\n"
-                f"{points}P | {assists}A | {goals}G | {saves}S | {blocks}B | PP {pp_plays}/{pp_used}"
+                f"`P:{points}  A:{assists}  G:{goals}  S:{saves}  B:{blocks}`\n"
+                f"Power Plays: {pp_plays}/{pp_used}"
             )
             embed.add_field(name="\u200b", value=line, inline=False)
 
