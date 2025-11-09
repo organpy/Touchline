@@ -19,6 +19,27 @@ async def get_active_season(supabase) -> Optional[Dict[str, Any]]:
         return None
 
 
+async def get_all_active_seasons(supabase) -> List[Dict[str, Any]]:
+    """Get all active seasons across all divisions"""
+    try:
+        response = supabase.table('seasons').select(
+            '*, divisions(id, league_type, name)'
+        ).eq('active', True).execute()
+        
+        # Enrich seasons with division league type and name
+        if response.data:
+            for season in response.data:
+                division = season.get('divisions', {})
+                if isinstance(division, dict):
+                    season['league_type'] = division.get('league_type')
+                    season['league_name'] = division.get('name')
+        
+        return response.data if response.data else []
+    except Exception as e:
+        logger.error(f"Error fetching all active seasons: {e}")
+        return []
+
+
 async def get_division_by_type(supabase, league_type: str = 'NBL') -> Optional[Dict[str, Any]]:
     """Get division by league type (NBL, MBL, NCBA, etc.)"""
     try:

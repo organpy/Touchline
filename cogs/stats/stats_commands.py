@@ -943,7 +943,7 @@ class StatsCog(commands.Cog):
     @app_commands.command(name="leaderboard", description="Show top players for a stat in a season")
     @app_commands.describe(
         metric="Stat to rank by (points, assists, goals, saves, blocks, pp_plays)",
-        league="League code or name (defaults to active season league)",
+        league="League code or name (use 'all' for cross-league rankings)",
         season="Season name (e.g., S10). Defaults to active season",
         limit="Number of players to show (default 10)",
     )
@@ -952,7 +952,7 @@ class StatsCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         metric: str,
-        league: Optional[str] = None,
+        league: str,
         season: Optional[str] = None,
         limit: app_commands.Range[int, 3, 25] = 10,
     ) -> None:
@@ -965,6 +965,75 @@ class StatsCog(commands.Cog):
                 f"❌ Invalid metric. Choose from: {', '.join(valid_metrics)}")
             return
 
+        # Handle 'all' option for cross-league rankings
+        if league.lower() == 'all':
+            # Query all active seasons and combine results
+            try:
+                all_seasons = await queries.get_all_active_seasons(self.supabase)
+                if not all_seasons:
+                    await interaction.followup.send("❌ No active seasons found.")
+                    return
+
+                all_leaders = {}  # Dict to store leaders by season for aggregation
+                for season_row in all_seasons:
+                    try:
+                        leaders_in_season = await queries.get_leaderboard(
+                            self.supabase,
+                            metric.lower(),
+                            season_row['id'],
+                            limit * 2  # Get more to ensure good cross-league coverage
+                        )
+                        if leaders_in_season:
+                            all_leaders[season_row['id']] = {
+                                'season': season_row,
+                                'leaders': leaders_in_season
+                            }
+                    except Exception as exc:
+                        logger.warning(f"Failed to fetch leaderboard for season {season_row['id']}: {exc}")
+                        continue
+
+                if not all_leaders:
+                    await interaction.followup.send(f"ℹ️ No leaderboard data available for metric `{metric}` across any active leagues.")
+                    return
+
+                metric_display = metric.replace('_', ' ').title()
+                embed = discord.Embed(
+                    title=f"Leaderboard — {metric_display} (All Leagues)",
+                    color=discord.Color.gold(),
+                )
+                embed.add_field(name="Coverage", value=f"Top {limit} players per league", inline=False)
+                embed.timestamp = datetime.utcnow()
+
+                for season_id, data in all_leaders.items():
+                    season_row = data['season']
+                    leaders = data['leaders'][:limit]
+                    league_display = self._format_league_display({'league_type': season_row.get('league_type'), 'name': season_row.get('league_name')})
+
+                    leader_lines = []
+                    for leader in leaders:
+                        rank = leader.get('rank', '?')
+                        player = leader.get('player_name', 'Unknown')
+                        team = leader.get('team_name', 'Free Agent')
+                        value = leader.get('value', 0)
+                        leader_lines.append(f"#{rank} **{player}** ({team}) — {value}")
+
+                    if leader_lines:
+                        embed.add_field(
+                            name=f"🏆 {league_display} {season_row.get('name')}",
+                            value="\n".join(leader_lines[:limit]),
+                            inline=False
+                        )
+
+                embed.set_footer(text="Rankings based on season totals across all active leagues")
+                await interaction.followup.send(embed=embed)
+                return
+
+            except Exception as exc:
+                logger.error(f"Failed to fetch cross-league leaderboard: {exc}")
+                await interaction.followup.send("❌ Error fetching cross-league rankings.")
+                return
+
+        # Single league mode (user specified specific league)
         context = await self._find_season(league, season)
         season_row, league_meta = context
         if not season_row:
