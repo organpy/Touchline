@@ -12,6 +12,7 @@ from discord.ext import commands
 
 from db import get_supabase, queries
 from utils.team_player_cache import TeamPlayerCache
+from utils.autocomplete_loader import get_metrics, get_metric_values
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +55,20 @@ async def _league_autocomplete(
     interaction: discord.Interaction,
     current: str,
 ) -> List[app_commands.Choice[str]]:
-    """Autocomplete for league names/codes (module-level coroutine required by discord)."""
+    """Autocomplete for league names/codes with 'all' option for cross-league queries."""
+    current_lower = current.lower()
+    suggestions = []
+
+    # Always include 'all' option at the start if it matches
+    if current_lower == '' or 'all'.startswith(current_lower):
+        suggestions.append(app_commands.Choice(
+            name="all (cross-league rankings)",
+            value="all"
+        ))
+
     supabase = get_supabase()
     try:
-        # Query distinct league_type from divisions since leagues table doesn't exist
+        # Query distinct league_type from divisions
         response = (
             supabase
             .table('divisions')
@@ -71,8 +82,6 @@ async def _league_autocomplete(
         logger.error("Failed to fetch league types for autocomplete: %s", exc)
         league_codes = []
 
-    current_lower = current.lower()
-    suggestions = []
     for code in league_codes:
         label = code.upper()
         if current_lower and current_lower not in label.lower():
@@ -80,6 +89,7 @@ async def _league_autocomplete(
         suggestions.append(app_commands.Choice(name=label, value=code))
         if len(suggestions) >= 25:
             break
+    
     return suggestions
 
 
@@ -143,6 +153,52 @@ async def _team_autocomplete(
         if current_lower and current_lower not in label.lower() and current_lower not in code.lower():
             continue
         suggestions.append(app_commands.Choice(name=label[:100], value=code or name))
+        if len(suggestions) >= 25:
+            break
+    return suggestions
+
+
+async def _metric_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> List[app_commands.Choice[str]]:
+    """Autocomplete for stat metrics (points, assists, goals, etc.)."""
+    metrics = get_metrics()
+    current_lower = current.lower()
+
+    suggestions = []
+    for metric in metrics:
+        name = metric.get('name', '')
+        if current_lower and current_lower not in name.lower():
+            continue
+        suggestions.append(app_commands.Choice(
+            name=name,
+            value=metric.get('value', name)
+        ))
+        if len(suggestions) >= 25:
+            break
+    return suggestions
+
+
+
+
+async def _metric_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> List[app_commands.Choice[str]]:
+    """Autocomplete for stat metrics (points, assists, goals, etc.)."""
+    metrics = get_metrics()
+    current_lower = current.lower()
+
+    suggestions = []
+    for metric in metrics:
+        name = metric.get('name', '')
+        if current_lower and current_lower not in name.lower():
+            continue
+        suggestions.append(app_commands.Choice(
+            name=name,
+            value=metric.get('value', name)
+        ))
         if len(suggestions) >= 25:
             break
     return suggestions
@@ -942,12 +998,12 @@ class StatsCog(commands.Cog):
 
     @app_commands.command(name="leaderboard", description="Show top players for a stat in a season")
     @app_commands.describe(
-        metric="Stat to rank by (points, assists, goals, saves, blocks, pp_plays)",
+        metric="Stat to rank by (points, assists, goals, saves, blocks, own_goals, pp_plays)",
         league="League code or name (use 'all' for cross-league rankings)",
         season="Season name (e.g., S10). Defaults to active season",
         limit="Number of players to show (default 10)",
     )
-    @app_commands.autocomplete(league=_league_autocomplete, season=_season_autocomplete)
+    @app_commands.autocomplete(metric=_metric_autocomplete, league=_league_autocomplete, season=_season_autocomplete)
     async def leaderboard(
         self,
         interaction: discord.Interaction,
@@ -959,7 +1015,7 @@ class StatsCog(commands.Cog):
         await interaction.response.defer(thinking=True)
 
         # Validate metric
-        valid_metrics = ['points', 'assists', 'goals', 'saves', 'blocks', 'own_goals', 'pp_plays']
+        valid_metrics = get_metric_values()
         if metric.lower() not in valid_metrics:
             await interaction.followup.send(
                 f"❌ Invalid metric. Choose from: {', '.join(valid_metrics)}")

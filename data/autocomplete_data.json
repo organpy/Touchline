@@ -1,0 +1,90 @@
+{
+  "metrics": [
+    {
+      "name": "points",
+      "value": "points",
+      "description": "Total or average points scored"
+    },
+    {
+      "name": "assists",
+      "value": "assists",
+      "description": "Total or average assists"
+    },
+    {
+      "name": "goals",
+      "value": "goals",
+      "description": "Total or average goals"
+    },
+    {
+      "name": "saves",
+      "value": "saves",
+      "description": "Total or average saves"
+    },
+    {
+      "name": "blocks",
+      "value": "blocks",
+      "description": "Total or average blocks"
+    },
+    {
+      "name": "own_goals",
+      "value": "own_goals",
+      "description": "Total or average own goals"
+    },
+    {
+      "name": "powerup_plays",
+      "value": "pp_plays",
+      "description": "Total or average powerup plays"
+    }
+  ],
+  "limits": [
+    {
+      "name": "3",
+      "value": "3"
+    },
+    {
+      "name": "5",
+      "value": "5"
+    },
+    {
+      "name": "10",
+      "value": "10"
+    },
+    {
+      "name": "15",
+      "value": "15"
+    },
+    {
+      "name": "20",
+      "value": "20"
+    },
+    {
+      "name": "25",
+      "value": "25"
+    }
+  ],
+  "special_options": {
+    "all_leagues": {
+      "name": "all",
+      "value": "all",
+      "description": "Show top players across all active leagues"
+    }
+  },
+  "stat_fields": {
+    "points": "Points",
+    "assists": "Assists",
+    "goals": "Goals",
+    "saves": "Saves",
+    "blocks": "Blocks",
+    "own_goals": "Own Goals",
+    "pp_plays": "Powerup Plays"
+  },
+  "descriptions": {
+    "metric": "Stat to rank by (points, assists, goals, saves, blocks, own_goals, pp_plays)",
+    "league": "League code or name (use 'all' for cross-league rankings)",
+    "season": "Season name (e.g., S10). Defaults to active season",
+    "team": "Team name or code (optional filter)",
+    "player": "Player display name",
+    "limit": "Number of results to show (default 10, max 25)",
+    "league_filter": "League code or name (defaults to active season league)"
+  }
+}
