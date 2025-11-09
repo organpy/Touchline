@@ -10,6 +10,9 @@ from discord.ext import commands
 from cogs.admin.teams import TeamActionsView
 from cogs.admin.rosters import RosterActionsView
 from cogs.admin.picks import PicksActionsView
+from cogs.admin.players import PlayerActionsView
+from cogs.admin.seasons import SeasonActionsView
+from cogs.admin.overrides import OverridesActionsView
 from utils.config_utility import ConfigUtility
 
 logger = logging.getLogger(__name__)
@@ -84,10 +87,15 @@ class AdminDashboardView(discord.ui.View):
 
     @discord.ui.button(label="Player Management", emoji="👤", style=discord.ButtonStyle.primary, row=0)
     async def players(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.send_message(
-            "👤 Player Management - Coming soon!",
-            ephemeral=True,
-        )
+        """Open player management interface."""
+        await interaction.response.defer(ephemeral=True)
+        view = PlayerActionsView(self.bot, interaction.guild.id, self.bot.supabase)
+        embed = view.create_embed()
+        message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        try:
+            view.original_message = message
+        except Exception as exc:  # pragma: no cover
+            logger.error("Unable to fetch original response for player management: %s", exc)
 
     @discord.ui.button(label="Roster Management", emoji="🏀", style=discord.ButtonStyle.primary, row=0)
     async def rosters(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
@@ -115,17 +123,27 @@ class AdminDashboardView(discord.ui.View):
 
     @discord.ui.button(label="Transaction Overrides", emoji="📝", style=discord.ButtonStyle.primary, row=1)
     async def transactions(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.send_message(
-            "📝 Transaction Overrides - Coming soon!",
-            ephemeral=True,
-        )
+        """Open transaction overrides interface."""
+        await interaction.response.defer(ephemeral=True)
+        view = OverridesActionsView(self.bot, interaction.guild.id, self.bot.supabase)
+        embed = view.create_embed()
+        message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        try:
+            view.original_message = message
+        except Exception as exc:  # pragma: no cover
+            logger.error("Unable to fetch original response for transaction overrides: %s", exc)
 
     @discord.ui.button(label="Season Management", emoji="📅", style=discord.ButtonStyle.primary, row=1)
     async def seasons(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.send_message(
-            "📅 Season Management - Coming soon!",
-            ephemeral=True,
-        )
+        """Open season management interface."""
+        await interaction.response.defer(ephemeral=True)
+        view = SeasonActionsView(self.bot, interaction.guild.id, self.bot.supabase)
+        embed = view.create_embed()
+        message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        try:
+            view.original_message = message
+        except Exception as exc:  # pragma: no cover
+            logger.error("Unable to fetch original response for season management: %s", exc)
 
     @discord.ui.button(label="Pending Offers", emoji="⏰", style=discord.ButtonStyle.primary, row=1)
     async def pending_offers(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
