@@ -215,8 +215,55 @@ class LinkPlayerModal(discord.ui.Modal, title="Link Player to Discord"):
             )
 
 
+class SetPositionView(discord.ui.View):
+    """Multi-step view for setting player positions: Select Player → Select Position."""
+
+    POSITIONS = [
+        "Forward",
+        "Guard", 
+        "Center",
+        "Wing",
+        "Point Guard",
+        "Shooting Guard",
+        "Small Forward",
+        "Power Forward",
+        "Goalkeeper",
+        "Striker",
+        "Defender",
+        "Midfielder",
+        "All-Rounder",
+        "Specialist",
+        "Other",
+    ]
+
+    def __init__(self) -> None:
+        super().__init__(timeout=300)
+        self.supabase: Optional[Any] = None
+        self._selected_player: Optional[Dict[str, Any]] = None
+        self._players_list: list[Dict[str, Any]] = []
+
+    async def populate(self) -> None:
+        """Load available players."""
+        if not self.supabase:
+            return
+
+        try:
+            response = self.supabase.table("players").select("*").order("display_name").execute()
+            self._players_list = response.data or []
+        except Exception as e:
+            logger.error(f"Error fetching players: {e}", exc_info=True)
+            self._players_list = []
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        """Handle view errors."""
+        logger.error(f"Error in SetPositionView: {error}", exc_info=True)
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
+            await interaction.followup.send("❌ An error occurred. Please try again.", ephemeral=True)
+
+
 class SetPositionModal(discord.ui.Modal, title="Set Player Position"):
-    """Modal for setting a player's position."""
+    """Modal for setting a player's position - DEPRECATED. Use SetPositionView instead."""
 
     player_name = discord.ui.TextInput(
         label="Player Display Name",
@@ -452,7 +499,8 @@ class ViewPlayersView(LazyInitView):
         await interaction.response.defer()
         if self.current_page > 0:
             self.current_page -= 1
-            await self.update_display()
+            embed = self.create_embed()
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
     @discord.ui.button(label="▶", style=discord.ButtonStyle.secondary, row=1)
     async def next_page(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
@@ -461,7 +509,8 @@ class ViewPlayersView(LazyInitView):
         total_pages = (len(self.players_list) + self.per_page - 1) // self.per_page
         if self.current_page < total_pages - 1:
             self.current_page += 1
-            await self.update_display()
+            embed = self.create_embed()
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
     @discord.ui.button(label="Close", style=discord.ButtonStyle.danger, row=2)
     async def close(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
@@ -514,9 +563,102 @@ class PlayerActionsView(AdminUIView):
 
     @discord.ui.button(label="Set Position", emoji="📍", style=discord.ButtonStyle.primary, row=0)
     async def set_position(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        """Open set position modal."""
-        modal = SetPositionModal()
-        await interaction.response.send_modal(modal)
+        """Open set position view with dropdowns."""
+        await interaction.response.defer(ephemeral=True)
+        
+        supabase = get_supabase()
+        if not supabase:
+            await interaction.followup.send("❌ Database unavailable.", ephemeral=True)
+            return
+        
+        try:
+            response = supabase.table("players").select("*").order("display_name").execute()
+            players = response.data or []
+            
+            if not players:
+                await interaction.followup.send("❌ No players found.", ephemeral=True)
+                return
+            
+            # Create player select dropdown
+            player_select = discord.ui.Select(
+                placeholder="Select player...",
+                min_values=1,
+                max_values=1,
+                options=[
+                    discord.SelectOption(
+                        label=p.get('display_name', 'Unknown')[:100],
+                        value=p.get('id', ''),
+                        description=f"Current: {p.get('position') or 'None'}",
+                    )
+                    for p in players[:25]
+                ],
+            )
+            
+            async def select_player_callback(select_interaction: discord.Interaction) -> None:
+                await select_interaction.response.defer(ephemeral=True)
+                player_id = select_interaction.data['values'][0]
+                selected_player = next((p for p in players if p.get('id') == player_id), None)
+                
+                if not selected_player:
+                    await select_interaction.followup.send("❌ Player not found.", ephemeral=True)
+                    return
+                
+                # Create position select dropdown
+                position_select = discord.ui.Select(
+                    placeholder="Select position...",
+                    min_values=1,
+                    max_values=1,
+                    options=[
+                        discord.SelectOption(label=pos, value=pos)
+                        for pos in SetPositionView.POSITIONS
+                    ],
+                )
+                
+                async def select_position_callback(pos_interaction: discord.Interaction) -> None:
+                    await pos_interaction.response.defer(ephemeral=True)
+                    new_position = pos_interaction.data['values'][0]
+                    
+                    try:
+                        result = supabase.table("players").update(
+                            {"position": new_position}
+                        ).eq("id", selected_player['id']).execute()
+                        
+                        if result.data:
+                            embed = discord.Embed(
+                                title="✅ Position Updated",
+                                description=f"Player **{selected_player['display_name']}** set to **{new_position}**.",
+                                color=discord.Color.green(),
+                            )
+                            await pos_interaction.followup.send(embed=embed, ephemeral=True)
+                            
+                            try:
+                                await TeamPlayerCache.refresh()
+                            except Exception as cache_error:
+                                logger.warning(f"Failed to refresh cache: {cache_error}")
+                        else:
+                            await pos_interaction.followup.send("❌ Failed to update position.", ephemeral=True)
+                    except Exception as e:
+                        logger.error(f"Error updating position: {e}", exc_info=True)
+                        await pos_interaction.followup.send("❌ Error updating position.", ephemeral=True)
+                
+                position_select.callback = select_position_callback
+                pos_view = discord.ui.View()
+                pos_view.add_item(position_select)
+                
+                await select_interaction.followup.send(
+                    f"Player **{selected_player['display_name']}** selected. Now choose a position:",
+                    view=pos_view,
+                    ephemeral=True,
+                )
+            
+            player_select.callback = select_player_callback
+            view = discord.ui.View()
+            view.add_item(player_select)
+            
+            await interaction.followup.send("Select a player:", view=view, ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error in set_position: {e}", exc_info=True)
+            await interaction.followup.send("❌ Error loading players.", ephemeral=True)
 
     @discord.ui.button(label="Deactivate", emoji="❌", style=discord.ButtonStyle.danger, row=1)
     async def deactivate_player(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:

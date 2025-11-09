@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import discord
 from discord import app_commands
@@ -193,7 +193,7 @@ class ViewPendingOffersView(LazyInitView):
             if offer.get("expires_at"):
                 try:
                     expire_date = datetime.fromisoformat(offer["expires_at"].replace("Z", "+00:00"))
-                    is_expired = expire_date < datetime.utcnow()
+                    is_expired = expire_date < datetime.now(timezone.utc)
                 except (ValueError, AttributeError):
                     pass
 

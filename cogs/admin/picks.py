@@ -345,10 +345,9 @@ class NumTeamsModal(discord.ui.Modal, title="Number of Teams for Seeding"):
                                 picks_to_insert.append({
                                     'season_id': self.season['id'],
                                     'round': round_num,
-                                    'position_in_round': team_idx + 1,
                                     'overall': overall_count,
                                     'current_owner_team_id': team.get('id'),
-                                    'original_owner_team_id': team.get('id'),
+                                    'original_team_id': team.get('id'),
                                 })
                                 overall_count += 1
 

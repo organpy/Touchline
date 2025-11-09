@@ -15,6 +15,7 @@ from db.transactions_repository import TransactionsRepository
 from cogs.admin.common import LazyInitView
 from cogs.admin.base import AdminBaseManager
 from utils.team_player_cache import TeamPlayerCache
+from utils.config_manager import get_config_manager
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -301,21 +302,33 @@ class ForceSignView(LazyInitView):
             team = self.supabase.table('teams').select('*').eq('id', team_id).limit(1).execute()
             if team.data:
                 self._selected_team = team.data[0]
-                # Now show player selection
-                players = self.supabase.table('players').select('*').order('display_name', desc=False).limit(50).execute()
+                # Now show player selection - limit to first 25 only
+                players = self.supabase.table('players').select('*').order('display_name', desc=False).execute()
                 if not players.data:
                     await interaction.followup.send("❌ No players found.", ephemeral=True)
                     return
 
+                # Discord Select options limited to 25 max
+                player_options = [
+                    discord.SelectOption(
+                        label=p.get('display_name', 'Unknown')[:100],
+                        value=p.get('id', ''),
+                    )
+                    for p in players.data[:25]
+                ]
+                
+                if len(players.data) > 25:
+                    player_options.append(
+                        discord.SelectOption(
+                            label=f"... and {len(players.data) - 25} more",
+                            value="__more__",
+                            description="More players available. Try searching or filtering.",
+                        )
+                    )
+
                 player_select = discord.ui.Select(
                     placeholder="Select player...",
-                    options=[
-                        discord.SelectOption(
-                            label=p.get('display_name', 'Unknown')[:100],
-                            value=p.get('id', ''),
-                        )
-                        for p in players.data
-                    ],
+                    options=player_options,
                     row=0,
                 )
                 player_select.callback = self.select_player
@@ -381,7 +394,7 @@ class ForceSignView(LazyInitView):
                                     self._selected_season.get('name', '?'),
                                     confirm_interaction.user.id,
                                 )
-                                # Insert transaction log
+                                # Insert transaction event
                                 self.repo.insert_transaction({
                                     'season_id': self._selected_season['id'],
                                     'transaction_type': 'admin_force_sign',
@@ -393,6 +406,27 @@ class ForceSignView(LazyInitView):
                                     },
                                 })
                                 await TeamPlayerCache.refresh(self.supabase)
+                                
+                                # Post to transactions channel
+                                config_mgr = get_config_manager()
+                                tx_config = await config_mgr.get_transactions_config(self.parent_view.guild_id)
+                                channel_id = tx_config.get('channel_id')
+                                if channel_id:
+                                    try:
+                                        channel = self.parent_view.bot.get_channel(int(channel_id))
+                                        if channel and isinstance(channel, discord.TextChannel):
+                                            embed = discord.Embed(
+                                                title="🔐 Admin Signing",
+                                                description=f"Player **{self._selected_player.get('display_name')}** was force-signed to **{self._selected_team.get('name')}**",
+                                                color=discord.Color.orange(),
+                                            )
+                                            embed.add_field(name="Season", value=self._selected_season.get('name'), inline=True)
+                                            embed.add_field(name="Team Code", value=self._selected_team.get('code'), inline=True)
+                                            embed.add_field(name="Admin", value=f"<@{confirm_interaction.user.id}>", inline=True)
+                                            await channel.send(embed=embed)
+                                    except Exception as e:
+                                        logger.warning(f"Failed to post admin signing to transactions channel: {e}")
+                                
                                 await confirm_interaction.followup.send(
                                     f"✅ **{self._selected_player.get('display_name')}** force signed to "
                                     f"**{self._selected_team.get('name')}** for **{self._selected_season.get('name')}**",
@@ -534,6 +568,25 @@ class ForceReleaseView(LazyInitView):
                                 },
                             })
                             await TeamPlayerCache.refresh(self.supabase)
+                            
+                            # Post to transactions channel
+                            config_mgr = get_config_manager()
+                            tx_config = await config_mgr.get_transactions_config(self.parent_view.guild_id)
+                            channel_id = tx_config.get('channel_id')
+                            if channel_id:
+                                try:
+                                    channel = self.parent_view.bot.get_channel(int(channel_id))
+                                    if channel and isinstance(channel, discord.TextChannel):
+                                        embed = discord.Embed(
+                                            title="🔐 Admin Release",
+                                            description=f"Player **{player_name}** was force-released from **{team_code}**",
+                                            color=discord.Color.orange(),
+                                        )
+                                        embed.add_field(name="Admin", value=f"<@{confirm_interaction.user.id}>", inline=True)
+                                        await channel.send(embed=embed)
+                                except Exception as e:
+                                    logger.warning(f"Failed to post admin release to transactions channel: {e}")
+                            
                             await confirm_interaction.followup.send(
                                 f"✅ **{player_name}** released from **{team_code}**",
                                 ephemeral=True,
@@ -720,6 +773,27 @@ class ForceTransferView(LazyInitView):
                                 },
                             })
                             await TeamPlayerCache.refresh(self.supabase)
+                            
+                            # Post to transactions channel
+                            config_mgr = get_config_manager()
+                            tx_config = await config_mgr.get_transactions_config(self.parent_view.guild_id)
+                            channel_id = tx_config.get('channel_id')
+                            if channel_id:
+                                try:
+                                    channel = self.parent_view.bot.get_channel(int(channel_id))
+                                    if channel and isinstance(channel, discord.TextChannel):
+                                        embed = discord.Embed(
+                                            title="🔐 Admin Transfer",
+                                            description=f"Player **{player_name}** was force-transferred from **{current_code}** to **{dest_code}**",
+                                            color=discord.Color.orange(),
+                                        )
+                                        embed.add_field(name="From Team", value=current_code, inline=True)
+                                        embed.add_field(name="To Team", value=dest_code, inline=True)
+                                        embed.add_field(name="Admin", value=f"<@{confirm_interaction.user.id}>", inline=True)
+                                        await channel.send(embed=embed)
+                                except Exception as e:
+                                    logger.warning(f"Failed to post admin transfer to transactions channel: {e}")
+                            
                             await confirm_interaction.followup.send(
                                 f"✅ **{player_name}** transferred from **{current_code}** to **{dest_code}**",
                                 ephemeral=True,
