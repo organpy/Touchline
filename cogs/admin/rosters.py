@@ -10,8 +10,10 @@ import discord
 from discord import app_commands
 
 from db import queries
+from db import get_supabase
 from db.transactions_repository import TransactionsRepository
 from cogs.admin.common import LazyInitView
+from cogs.admin.base import AdminBaseManager
 from utils.team_player_cache import TeamPlayerCache
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -137,6 +139,7 @@ class ForceSignView(LazyInitView):
         self._selected_team: Optional[Dict[str, Any]] = None
         self._selected_player: Optional[Dict[str, Any]] = None
         self._leagues: List[Dict[str, Any]] = []
+        self.manager = AdminBaseManager()  # ✅ NEW
 
     async def populate(self) -> None:
         """Load available leagues for selection."""
@@ -250,9 +253,13 @@ class ForceSignView(LazyInitView):
             season = self.supabase.table('seasons').select('*').eq('id', season_id).limit(1).execute()
             if season.data:
                 self._selected_season = season.data[0]
-                # Now show team selection
+                # ✅ FIXED: Use manager to get teams scoped to guild
                 division_id = self._selected_season.get('division_id')
-                teams = await queries.get_all_teams(self.supabase, division_id)
+                teams = await self.manager.get_teams_for_guild(self.parent_view.guild_id)
+                
+                # Filter teams to this division for extra safety
+                teams = [t for t in teams if t.get('division_id') == division_id]
+                
                 if not teams:
                     await interaction.followup.send("❌ No teams found.", ephemeral=True)
                     return
@@ -567,6 +574,7 @@ class ForceTransferView(LazyInitView):
         self.repo = repo
         self.original_message: Optional[discord.Message] = None
         self._selected_roster: Optional[Dict[str, Any]] = None
+        self.manager = AdminBaseManager()  # ✅ NEW
 
     async def populate(self) -> None:
         """Load active roster players."""
@@ -618,8 +626,8 @@ class ForceTransferView(LazyInitView):
                 player_name = self._selected_roster['players'].get('display_name', 'Unknown')
                 current_team_code = self._selected_roster['teams'].get('code', '?')
 
-                # Now show destination team select
-                teams = await queries.get_all_teams(self.supabase)
+                # ✅ FIXED: Use manager to get teams scoped to guild
+                teams = await self.manager.get_teams_for_guild(self.parent_view.guild_id)
                 if not teams:
                     await interaction.followup.send("❌ No teams found.", ephemeral=True)
                     return
@@ -756,11 +764,13 @@ class ViewRosterView(LazyInitView):
         self.supabase = supabase
         self.parent_view = parent_view
         self.original_message: Optional[discord.Message] = None
+        self.manager = AdminBaseManager()  # ✅ NEW
 
     async def populate(self) -> None:
         """Load teams."""
         try:
-            teams = await queries.get_all_teams(self.supabase)
+            # ✅ FIXED: Use manager to get teams scoped to guild
+            teams = await self.manager.get_teams_for_guild(self.parent_view.guild_id)
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to load teams for roster view: %s", exc)
             teams = None

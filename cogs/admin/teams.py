@@ -9,7 +9,9 @@ import discord
 from discord import app_commands
 
 from db import queries
+from db import get_supabase
 from cogs.admin.common import LazyInitView
+from cogs.admin.base import AdminBaseManager
 from utils.team_player_cache import TeamPlayerCache
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -104,7 +106,9 @@ class TeamActionsView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            teams = await queries.get_all_teams(self.supabase)
+            manager = AdminBaseManager()
+            # ✅ FIXED: Now scoped to guild's divisions only
+            teams = await manager.get_teams_for_guild(self.guild_id)
             if not teams:
                 await interaction.followup.send("ℹ️ No teams found.", ephemeral=True)
                 return
@@ -172,23 +176,38 @@ class AddTeamModal(discord.ui.Modal, title="Add New Team"):
             await interaction.followup.send("❌ Team code must be at least 2 characters.", ephemeral=True)
             return
 
-        # Check if code already exists
+        # Check if code already exists (globally unique)
         existing = await queries.get_team_by_code(self.supabase, team_code)
         if existing:
             await interaction.followup.send(f"❌ Team code `{team_code}` already exists.", ephemeral=True)
             return
 
         try:
-            # Insert team (minimal fields, division/owner can be set after)
+            # ✅ FIXED: Validate this guild can create teams in active division
+            manager = AdminBaseManager()
+            divisions = await manager.get_guild_divisions(self.view.guild_id)
+            
+            if not divisions:
+                await interaction.followup.send(
+                    "❌ No divisions configured for this guild. Contact admin.",
+                    ephemeral=True,
+                )
+                return
+            
+            # Use first active division (or let user pick - simplified to first for now)
+            division_id = divisions[0]['id']
+            
+            # Insert team into correct division
             result = self.supabase.table('teams').insert({
                 'name': team_name,
                 'code': team_code,
-                'division_id': None,  # Can be set later
+                'division_id': division_id,  # ✅ Now scoped to division
                 'owner_discord_id': None,  # Can be set later
             }).execute()
 
             if result.data:
-                logger.info("✅ Team created: %s (%s) by %s", team_name, team_code, interaction.user.id)
+                logger.info("✅ Team created: %s (%s) by %s in division %s", 
+                           team_name, team_code, interaction.user.id, division_id)
                 await TeamPlayerCache.refresh(self.supabase)
                 await interaction.followup.send(
                     f"✅ Team **{team_name}** (`{team_code}`) created successfully!",
@@ -214,11 +233,13 @@ class SetTeamOwnerView(LazyInitView):
         self.parent_view = parent_view
         self.original_message: Optional[discord.Message] = None
         self.selected_team: Optional[Dict[str, Any]] = None
+        self.manager = AdminBaseManager()
 
     async def populate(self) -> None:
         """Initialize select dropdowns on first use."""
         try:
-            teams = await queries.get_all_teams(self.supabase)
+            # ✅ FIXED: Now scoped to guild's divisions only
+            teams = await self.manager.get_teams_for_guild(self.parent_view.guild_id)
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to fetch teams for owner selection: %s", exc)
             return
@@ -255,9 +276,15 @@ class SetTeamOwnerView(LazyInitView):
 
         team_code = interaction.data['values'][0]
         try:
-            self.selected_team = await queries.get_team_by_code(self.supabase, team_code)
+            # ✅ FIXED: Resolve team in guild context
+            self.selected_team = await self.manager.resolve_team_in_guild(
+                team_code, self.parent_view.guild_id
+            )
             if not self.selected_team:
-                await interaction.followup.send(f"❌ Team `{team_code}` not found.", ephemeral=True)
+                await interaction.followup.send(
+                    self.manager.error_team_not_in_guild(team_code),
+                    ephemeral=True
+                )
                 return
 
             # Show owner selection
@@ -323,10 +350,12 @@ class EditTeamDetailsView(LazyInitView):
         self.supabase = supabase
         self.parent_view = parent_view
         self.original_message: Optional[discord.Message] = None
+        self.manager = AdminBaseManager()
 
     async def populate(self) -> None:
         try:
-            teams = await queries.get_all_teams(self.supabase)
+            # ✅ FIXED: Now scoped to guild's divisions only
+            teams = await self.manager.get_teams_for_guild(self.parent_view.guild_id)
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to fetch teams for editing: %s", exc)
             return
@@ -359,10 +388,14 @@ class EditTeamDetailsView(LazyInitView):
     async def select_team_callback(self, interaction: discord.Interaction) -> None:
         """Handle team selection for editing."""
         team_code = interaction.data['values'][0]
-        team = await queries.get_team_by_code(self.supabase, team_code)
+        # ✅ FIXED: Resolve team in guild context
+        team = await self.manager.resolve_team_in_guild(team_code, self.parent_view.guild_id)
 
         if not team:
-            await interaction.response.send_message(f"❌ Team `{team_code}` not found.", ephemeral=True)
+            await interaction.response.send_message(
+                self.manager.error_team_not_in_guild(team_code),
+                ephemeral=True
+            )
             return
 
         modal = EditTeamModal(self.supabase, self.parent_view, team)
@@ -429,10 +462,12 @@ class DeleteTeamView(LazyInitView):
         self.supabase = supabase
         self.parent_view = parent_view
         self.original_message: Optional[discord.Message] = None
+        self.manager = AdminBaseManager()
 
     async def populate(self) -> None:
         try:
-            teams = await queries.get_all_teams(self.supabase)
+            # ✅ FIXED: Now scoped to guild's divisions only
+            teams = await self.manager.get_teams_for_guild(self.parent_view.guild_id)
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to fetch teams for deletion: %s", exc)
             return
@@ -466,10 +501,14 @@ class DeleteTeamView(LazyInitView):
     async def select_team_callback(self, interaction: discord.Interaction) -> None:
         """Handle team selection for deletion."""
         team_code = interaction.data['values'][0]
-        team = await queries.get_team_by_code(self.supabase, team_code)
+        # ✅ FIXED: Resolve team in guild context
+        team = await self.manager.resolve_team_in_guild(team_code, self.parent_view.guild_id)
 
         if not team:
-            await interaction.response.send_message(f"❌ Team `{team_code}` not found.", ephemeral=True)
+            await interaction.response.send_message(
+                self.manager.error_team_not_in_guild(team_code),
+                ephemeral=True
+            )
             return
 
         # Confirmation view

@@ -9,8 +9,10 @@ import discord
 from discord import app_commands
 
 from db import queries
+from db import get_supabase
 from db.transactions_repository import TransactionsRepository
 from cogs.admin.common import LazyInitView
+from cogs.admin.base import AdminBaseManager
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -125,6 +127,7 @@ class SeedPicksView(LazyInitView):
         self._selected_league: Optional[Dict[str, Any]] = None
         self._selected_season: Optional[Dict[str, Any]] = None
         self._leagues: List[Dict[str, Any]] = []
+        self.manager = AdminBaseManager()  # ✅ NEW
 
     async def populate(self) -> None:
         """Load available leagues before season selection."""
@@ -301,9 +304,13 @@ class NumTeamsModal(discord.ui.Modal, title="Number of Teams for Seeding"):
                 await interaction.followup.send("❌ Number of rounds must be between 1 and 10.", ephemeral=True)
                 return
 
-            # Get all teams
+            # ✅ FIXED: Use manager to get teams scoped to guild
             division_id = self.season.get('division_id')
-            teams = await queries.get_all_teams(self.supabase, division_id)
+            teams = await self.view.manager.get_teams_for_guild(self.view.parent_view.guild_id)
+            
+            # Filter teams to this division for extra safety
+            teams = [t for t in teams if t.get('division_id') == division_id]
+            
             if not teams:
                 await interaction.followup.send(
                     "❌ No teams found for the selected league or division.",
@@ -416,6 +423,7 @@ class ReassignPickView(LazyInitView):
         self._selected_season: Optional[Dict[str, Any]] = None
         self._leagues: List[Dict[str, Any]] = []
         self._team_map: Dict[str, Dict[str, Any]] = {}
+        self.manager = AdminBaseManager()  # ✅ NEW
 
     async def populate(self) -> None:
         """Load available leagues before narrowing to seasons."""
@@ -540,8 +548,14 @@ class ReassignPickView(LazyInitView):
                 return
 
             self._selected_season = season_response.data[0]
+            
+            # ✅ FIXED: Use manager to get teams scoped to guild
             division_id = self._selected_season.get('division_id')
-            teams = await queries.get_all_teams(self.supabase, division_id)
+            teams = await self.manager.get_teams_for_guild(self.parent_view.guild_id)
+            
+            # Filter teams to this division for extra safety
+            teams = [t for t in teams if t.get('division_id') == division_id]
+            
             self._team_map = {team.get('id'): team for team in (teams or [])}
 
             picks = self.repo.list_draft_picks(season_id)
@@ -592,12 +606,14 @@ class ReassignPickView(LazyInitView):
             if pick_result.data:
                 self._selected_pick = pick_result.data[0]
 
-                # Show team select for new owner
+                # ✅ FIXED: Use manager to get teams scoped to guild (CRITICAL BUG FIX!)
+                teams = await self.manager.get_teams_for_guild(self.parent_view.guild_id)
+                
+                # Filter teams to this division for extra safety
                 division_id = self._selected_season.get('division_id') if self._selected_season else None
                 if division_id:
-                    teams = await queries.get_all_teams(self.supabase, division_id)
-                else:
-                    teams = await queries.get_all_teams(self.supabase)
+                    teams = [t for t in teams if t.get('division_id') == division_id]
+                
                 if not teams:
                     await interaction.followup.send("❌ No teams found.", ephemeral=True)
                     return
@@ -738,6 +754,7 @@ class ViewPicksView(LazyInitView):
         self._selected_league: Optional[Dict[str, Any]] = None
         self._selected_season: Optional[Dict[str, Any]] = None
         self._team_map: Dict[str, Dict[str, Any]] = {}
+        self.manager = AdminBaseManager()  # ✅ NEW
 
     async def populate(self) -> None:
         """Load leagues first before narrowing to seasons."""
@@ -862,8 +879,14 @@ class ViewPicksView(LazyInitView):
                 return
 
             self._selected_season = season_response.data[0]
+            
+            # ✅ FIXED: Use manager to get teams scoped to guild
             division_id = self._selected_season.get('division_id')
-            teams = await queries.get_all_teams(self.supabase, division_id)
+            teams = await self.manager.get_teams_for_guild(self.parent_view.guild_id)
+            
+            # Filter teams to this division for extra safety
+            teams = [t for t in teams if t.get('division_id') == division_id]
+            
             self._team_map = {team.get('id'): team for team in (teams or [])}
 
             picks = self.repo.list_draft_picks(season_id)
@@ -921,6 +944,7 @@ class ViewPicksByTeamView(LazyInitView):
         self._season_name: Optional[str] = None
         self._teams: List[Dict[str, Any]] = []
         self._team_map: Dict[str, Dict[str, Any]] = {}
+        self.manager = AdminBaseManager()  # ✅ NEW
 
     async def populate(self) -> None:
         """Load leagues prior to season/team filtering."""
@@ -1048,9 +1072,14 @@ class ViewPicksByTeamView(LazyInitView):
 
             self._selected_season = season_response.data[0]
             self._season_name = self._selected_season.get('name', 'Unknown')
+            
+            # ✅ FIXED: Use manager to get teams scoped to guild
             division_id = self._selected_season.get('division_id')
-
-            teams = await queries.get_all_teams(self.supabase, division_id)
+            teams = await self.manager.get_teams_for_guild(self.parent_view.guild_id)
+            
+            # Filter teams to this division for extra safety
+            teams = [t for t in teams if t.get('division_id') == division_id]
+            
             if not teams:
                 await interaction.followup.send("❌ No teams found for this season.", ephemeral=True)
                 return
