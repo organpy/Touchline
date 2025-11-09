@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import discord
 from discord import app_commands
+from discord.ext import commands
 
 from db import queries, get_supabase
 from cogs.admin.base import AdminBaseManager, AdminUIView
@@ -537,3 +538,8 @@ class PlayerActionsView(AdminUIView):
         """Return to admin dashboard."""
         await interaction.response.defer()
         self.stop()
+
+
+async def setup(bot: commands.Bot) -> None:
+    """Setup function for Discord.py cog loading (required but no cog class)."""
+    logger.info("✅ Players module loaded (no cog class needed - provides UI views only)")
