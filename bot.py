@@ -66,13 +66,17 @@ class NBLBot(commands.Bot):
         """
         cog_extensions = []
         excluded_files = {
-            '__init__.py', 'base.py', 'utils.py', 'models.py', 'views.py', 'roster_cache.py',
+            '__init__.py', 'utils.py', 'models.py', 'roster_cache.py',
+            # Shared base classes (not standalone cogs)
+            'base.py',
+            # Autocomplete modules (not standalone cogs)
+            'autocomplete.py',
             # Transaction helper modules (not standalone cogs)
-            'history.py', 'trade_approval.py', 'trade_views.py',
-            # Admin panel helper modules
+            'history.py', 'trade_approval.py', 'trade_views.py', 'views.py',
+            # Admin panel helper modules (deprecated/excluded)
             'admin_transactions_views_example.py', 'teams.py', 'rosters.py', 'picks.py', "common.py",
-            # Stats helper modules (base, autocomplete, utils are shared by modularized command cogs)
-            'autocomplete.py', 'stats_commands.py',
+            # Stats helper modules (deprecated)
+            'stats_commands.py',
         }
 
         for root, dirs, files in os.walk(cogs_directory):
