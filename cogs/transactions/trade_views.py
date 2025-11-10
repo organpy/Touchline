@@ -10,6 +10,12 @@ import discord
 
 from cogs.score.roster_cache import RosterCache
 from db import queries
+from cogs.transactions.pick_trading import (
+    get_available_picks_for_team,
+    validate_picks_for_trade,
+    format_pick,
+    create_pick_label
+)
 
 if TYPE_CHECKING:  # pragma: no cover - hints only
     from .transactions import TransactionsCog
@@ -167,6 +173,7 @@ class TradeAssetModal(discord.ui.Modal):
             initiating_team=self.initiating_team,
             counterparty_team=self.counterparty_team,
             season=self.season,
+            supabase=self.supabase,
             initiating_player_assets=initiating_player_assets,
             initiating_pick_assets=initiating_pick_assets,
             counterparty_player_assets=counterparty_player_assets,
@@ -196,6 +203,7 @@ class TradeAssetSelectionView(discord.ui.View):
         initiating_team: Dict[str, Any],
         counterparty_team: Dict[str, Any],
         season: Dict[str, Any],
+        supabase,
         initiating_player_assets: List[Dict[str, Any]],
         initiating_pick_assets: List[Dict[str, Any]],
         counterparty_player_assets: List[Dict[str, Any]],
@@ -208,6 +216,7 @@ class TradeAssetSelectionView(discord.ui.View):
         self.initiating_team = initiating_team
         self.counterparty_team = counterparty_team
         self.season = season
+        self.supabase = supabase
         self.notes = notes
         self.initiator_discord_id = initiator_discord_id
 
@@ -263,6 +272,51 @@ class TradeAssetSelectionView(discord.ui.View):
         if not assets['outbound'] and not assets['inbound']:
             await interaction.followup.send(
                 "❌ Select at least one asset to trade.",
+                ephemeral=True,
+            )
+            return
+
+        # Validate draft picks (NBL only, ownership, etc.)
+        try:
+            outbound_picks = [a for a in assets['outbound'] if a.get('type') == 'pick']
+            inbound_picks = [a for a in assets['inbound'] if a.get('type') == 'pick']
+            
+            if outbound_picks or inbound_picks:
+                # Validate outbound picks belong to initiating team
+                if outbound_picks:
+                    outbound_pick_ids = [p.get('pick_id') for p in outbound_picks]
+                    valid, reason = await validate_picks_for_trade(
+                        self.supabase,
+                        outbound_pick_ids,
+                        self.initiating_team['id'],
+                        self.season['id']
+                    )
+                    if not valid:
+                        await interaction.followup.send(
+                            f"❌ Outbound picks invalid: {reason}",
+                            ephemeral=True,
+                        )
+                        return
+                
+                # Validate inbound picks belong to counterparty team
+                if inbound_picks:
+                    inbound_pick_ids = [p.get('pick_id') for p in inbound_picks]
+                    valid, reason = await validate_picks_for_trade(
+                        self.supabase,
+                        inbound_pick_ids,
+                        self.counterparty_team['id'],
+                        self.season['id']
+                    )
+                    if not valid:
+                        await interaction.followup.send(
+                            f"❌ Inbound picks invalid: {reason}",
+                            ephemeral=True,
+                        )
+                        return
+        except Exception as e:
+            logger.error("Error validating picks for trade: %s", e, exc_info=True)
+            await interaction.followup.send(
+                "❌ Failed to validate picks for this trade.",
                 ephemeral=True,
             )
             return
@@ -400,7 +454,8 @@ class TradeAssetSelectionView(discord.ui.View):
                 if asset.get('type') == 'player':
                     lines.append(f"🧑 {asset.get('label', 'Unknown')}")
                 elif asset.get('type') == 'pick':
-                    lines.append(f"📋 {asset.get('label', 'Unknown')}")
+                    # Format pick as: "📋 R1P05" (could be enhanced with original owner info later)
+                    lines.append(f"📋 {asset.get('label', 'Unknown Pick')}")
             if lines:
                 embed.add_field(
                     name=f"{self.initiating_team['name']} Sends",
@@ -414,7 +469,8 @@ class TradeAssetSelectionView(discord.ui.View):
                 if asset.get('type') == 'player':
                     lines.append(f"🧑 {asset.get('label', 'Unknown')}")
                 elif asset.get('type') == 'pick':
-                    lines.append(f"📋 {asset.get('label', 'Unknown')}")
+                    # Format pick as: "📋 R1P05" (could be enhanced with original owner info later)
+                    lines.append(f"📋 {asset.get('label', 'Unknown Pick')}")
             if lines:
                 embed.add_field(
                     name=f"{self.counterparty_team['name']} Sends",
