@@ -186,8 +186,8 @@ class TestLinkPlayerModal:  # type: ignore
             # Mock unlinked players query
             mock_supabase.table().select().eq().execute.return_value = Mock(
                 data=[
-                    {'id': 'player_1', 'display_name': 'Ace', 'position': None},
-                    {'id': 'player_2', 'display_name': 'Bob', 'position': None},
+                    {'id': 'player_1', 'display_name': 'Ace'},
+                    {'id': 'player_2', 'display_name': 'Bob'},
                 ]
             )
             
@@ -242,7 +242,7 @@ class TestViewPlayersView:  # type: ignore
         
         # Mock players list
         view.players_list = [
-            {'id': f'player_{i}', 'display_name': f'Player{i}', 'active': True, 'position': 'Forward'}
+            {'id': f'player_{i}', 'display_name': f'Player{i}', 'active': True}
             for i in range(15)
         ]
         view.current_page = 0
@@ -261,8 +261,8 @@ class TestViewPlayersView:  # type: ignore
         """Test that pagination buttons include view object."""
         view = ViewPlayersView(Mock(), 999999, mock_supabase)
         view.players_list = [
-            {'id': 'player_1', 'display_name': 'Ace', 'active': True, 'position': 'Forward'},
-            {'id': 'player_2', 'display_name': 'Bob', 'active': True, 'position': 'Guard'},
+            {'id': 'player_1', 'display_name': 'Ace', 'active': True},
+            {'id': 'player_2', 'display_name': 'Bob', 'active': True},
         ]
         view.current_page = 0
         
@@ -292,7 +292,7 @@ class TestViewPlayersView:  # type: ignore
         """Test pagination with single page of players."""
         view = ViewPlayersView(Mock(), 999999, mock_supabase)
         view.players_list = [
-            {'id': 'player_1', 'display_name': 'Ace', 'active': True, 'position': 'Forward'},
+            {'id': 'player_1', 'display_name': 'Ace', 'active': True},
         ]
         view.current_page = 0
         

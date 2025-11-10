@@ -208,71 +208,18 @@ class LinkPlayerModal(discord.ui.Modal, title="Link Player to Discord"):
             )
 
             if response.data:
-                # Show position selection
-                POSITIONS = [
-                    "Forward",
-                    "Guard",
-                    "Center",
-                    "Wing",
-                    "Point Guard",
-                    "Shooting Guard",
-                    "Small Forward",
-                    "Power Forward",
-                    "Goalkeeper",
-                    "Striker",
-                    "Defender",
-                    "Midfielder",
-                    "All-Rounder",
-                    "Specialist",
-                    "Other",
-                ]
-
-                position_select = discord.ui.Select(
-                    placeholder="Select position...",
-                    min_values=1,
-                    max_values=1,
-                    options=[
-                        discord.SelectOption(label=pos, value=pos)
-                        for pos in POSITIONS
-                    ],
+                # Linking successful
+                embed = discord.Embed(
+                    title="✅ Player Linked",
+                    description=f"**{player['display_name']}** linked to <@{discord_id_int}>",
+                    color=discord.Color.green(),
                 )
+                await interaction.followup.send(embed=embed, ephemeral=True)
 
-                async def select_position_callback(pos_interaction: discord.Interaction) -> None:
-                    await pos_interaction.response.defer(ephemeral=True)
-                    position = pos_interaction.data['values'][0]
-
-                    try:
-                        result = supabase.table("players").update(
-                            {"position": position}
-                        ).eq("id", player['id']).execute()
-
-                        if result.data:
-                            embed = discord.Embed(
-                                title="✅ Player Linked & Position Set",
-                                description=f"**{player['display_name']}** linked to <@{discord_id_int}>\nPosition: **{position}**",
-                                color=discord.Color.green(),
-                            )
-                            await pos_interaction.followup.send(embed=embed, ephemeral=True)
-
-                            try:
-                                await TeamPlayerCache.refresh()
-                            except Exception as cache_error:
-                                logger.warning(f"Failed to refresh cache: {cache_error}")
-                        else:
-                            await pos_interaction.followup.send("❌ Failed to set position.", ephemeral=True)
-                    except Exception as e:
-                        logger.error(f"Error setting position: {e}", exc_info=True)
-                        await pos_interaction.followup.send("❌ Error setting position.", ephemeral=True)
-
-                position_select.callback = select_position_callback
-                view = discord.ui.View()
-                view.add_item(position_select)
-
-                await interaction.followup.send(
-                    f"**{player['display_name']}** linked to <@{discord_id_int}>. Now select their position:",
-                    view=view,
-                    ephemeral=True,
-                )
+                try:
+                    await TeamPlayerCache.refresh()
+                except Exception as cache_error:
+                    logger.warning(f"Failed to refresh cache: {cache_error}")
             else:
                 await interaction.followup.send(
                     "❌ Failed to link player (unexpected response).",
@@ -288,24 +235,6 @@ class LinkPlayerModal(discord.ui.Modal, title="Link Player to Discord"):
 
 
 class ViewPlayersView(LazyInitView):
-
-    POSITIONS = [
-        "Forward",
-        "Guard", 
-        "Center",
-        "Wing",
-        "Point Guard",
-        "Shooting Guard",
-        "Small Forward",
-        "Power Forward",
-        "Goalkeeper",
-        "Striker",
-        "Defender",
-        "Midfielder",
-        "All-Rounder",
-        "Specialist",
-        "Other",
-    ]
 
     def __init__(self) -> None:
         super().__init__(timeout=300)
@@ -475,12 +404,11 @@ class ViewPlayersView(LazyInitView):
 
         for player in page_players:
             status = "🟢 Active" if player.get("active", True) else "🔴 Inactive"
-            position = player.get("position") or "—"
             discord_id = f"<@{player['discord_id']}>" if player.get("discord_id") else "—"
 
             embed.add_field(
                 name=f"{player['display_name']} {status}",
-                value=f"**Position:** {position}\n**Discord:** {discord_id}",
+                value=f"**Discord:** {discord_id}",
                 inline=False,
             )
 
@@ -534,7 +462,7 @@ class PlayerActionsView(AdminUIView):
             name="Available Actions",
             value=(
                 "• ➕ **Add Player** - Register new player\n"
-                "• 🔗 **Link Discord** - Link player to Discord ID and set position\n"
+                "• 🔗 **Link Discord** - Link player to Discord ID\n"
                 "• ❌ **Deactivate** - Mark player as inactive\n"
                 "• 👀 **View All** - List all registered players"
             ),

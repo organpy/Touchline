@@ -127,7 +127,6 @@ class TeamDraftPicksCog(commands.Cog):
                         color=discord.Color.green(),
                     )
                     embed.add_field(name="Season", value=season['name'], inline=True)
-                    embed.add_field(name="Player Position", value=player.get('position') or 'Not set', inline=True)
                     await interaction.followup.send(embed=embed, ephemeral=True)
 
                     # Refresh cache
@@ -181,7 +180,7 @@ class TeamDraftPicksCog(commands.Cog):
 
             # Get all team picks
             picks = self.supabase.table('draft_picks').select(
-                '*, players(display_name, position)'
+                '*, players(display_name)'
             ).eq(
                 'season_id', season['id']
             ).eq(

@@ -391,7 +391,7 @@ class ForceSignView(discord.ui.View):
             if transaction_id:
                 # Post to admin transactions channel
                 config_mgr = get_config_manager()
-                config = await config_mgr.get_config(self.guild_id)
+                config = await config_mgr.get_guild_config(self.guild_id)
                 channel_id = config.get('admin_transaction_channel_id')
 
                 if channel_id:

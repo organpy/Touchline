@@ -25,7 +25,7 @@ class AdminDashboardView(discord.ui.View):
 
     SECTION_DESCRIPTIONS = [
         ("🏢 Team Management", "Add, edit, delete teams and set owners"),
-        ("👤 Player Management", "Register players, link Discord, manage positions"),
+        ("👤 Player Management", "Register players and link Discord"),
         ("🏀 Roster Management", "Force sign/release/transfer players"),
         ("🏆 Draft Pick Management", "Seed picks, reassign ownership"),
         ("📝 Transaction Overrides", "Void, edit, or resend transaction announcements"),
