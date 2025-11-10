@@ -13,6 +13,10 @@ from db import get_supabase
 from db.transactions_repository import TransactionsRepository
 from cogs.admin.common import LazyInitView
 from cogs.admin.base import AdminBaseManager
+from cogs.transactions.pick_trading import (
+    get_nbl_division, validate_nbl_season, get_available_picks_for_team, 
+    format_pick, NBL_LEAGUE_TYPE
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -130,29 +134,32 @@ class SeedPicksView(LazyInitView):
         self.manager = AdminBaseManager()  # ✅ NEW
 
     async def populate(self) -> None:
-        """Load available divisions before season selection."""
+        """Load available divisions before season selection (NBL ONLY)."""
         try:
             self._divisions = await self.manager.get_guild_divisions(self.parent_view.guild_id)
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to load divisions for seed picks: %s", exc)
             self._divisions = []
 
+        # ✅ SAFETY: Filter to NBL only
+        self._divisions = [d for d in self._divisions if d.get('league_type') == NBL_LEAGUE_TYPE]
+
         if not self._divisions:
             empty_select = discord.ui.Select(
-                placeholder="No divisions configured. Use /admin-config to link divisions first.",
-                options=[discord.SelectOption(label="No divisions available", value="none")],
+                placeholder="❌ Draft picks only available for NBL division.",
+                options=[discord.SelectOption(label="NBL division not configured", value="none")],
                 disabled=True,
             )
             self.add_item(empty_select)
             return
 
         division_select = discord.ui.Select(
-            placeholder="Select division...",
+            placeholder="Select NBL division...",
             min_values=1,
             max_values=1,
             options=[
                 discord.SelectOption(
-                    label=(division.get('name') or division.get('league_type', 'Unknown'))[:100],
+                    label=(division.get('name') or 'NBL')[:100],
                     value=division.get('id', ''),
                     description=f"League: {(division.get('league_type') or 'N/A').upper()}",
                 )
@@ -426,38 +433,38 @@ class ReassignPickView(LazyInitView):
         self.manager = AdminBaseManager()  # ✅ NEW
 
     async def populate(self) -> None:
-        """Load available divisions before narrowing to seasons."""
+        """Load available divisions before narrowing to seasons (NBL ONLY)."""
         try:
             self._divisions = await self.manager.get_guild_divisions(self.parent_view.guild_id)
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to load divisions for reassign view: %s", exc)
             self._divisions = []
 
+        # ✅ SAFETY: Filter to NBL only
+        self._divisions = [d for d in self._divisions if d.get('league_type') == NBL_LEAGUE_TYPE]
+
         if not self._divisions:
             empty_select = discord.ui.Select(
-                placeholder="No divisions configured. Use /admin-config to link divisions first.",
-                options=[discord.SelectOption(label="No divisions available", value="none")],
+                placeholder="❌ Draft picks only available for NBL division.",
+                options=[discord.SelectOption(label="NBL division not configured", value="none")],
                 disabled=True,
             )
             self.add_item(empty_select)
             return
 
         division_select = discord.ui.Select(
-            placeholder="Select division...",
+            placeholder="Select NBL division...",
             min_values=1,
             max_values=1,
             options=[
                 discord.SelectOption(
-                    label=(division.get('name') or division.get('league_type', 'Unknown'))[:100],
+                    label=(division.get('name') or 'NBL')[:100],
                     value=division.get('id', ''),
-                    description=f"League: {(division.get('league_type') or 'N/A').upper()}",
+                    description="NBL - Primary League",
                 )
                 for division in sorted(
                     self._divisions,
-                    key=lambda d: (
-                        (d.get('league_type') or '').upper(),
-                        d.get('name') or '',
-                    ),
+                    key=lambda d: d.get('name') or '',
                 )
             ],
             row=0,
@@ -754,38 +761,38 @@ class ViewPicksView(LazyInitView):
         self.manager = AdminBaseManager()  # ✅ NEW
 
     async def populate(self) -> None:
-        """Load divisions first before narrowing to seasons."""
+        """Load divisions first before narrowing to seasons (NBL ONLY)."""
         try:
             self._divisions = await self.manager.get_guild_divisions(self.parent_view.guild_id)
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to load divisions for view picks: %s", exc)
             self._divisions = []
 
+        # ✅ SAFETY: Filter to NBL only
+        self._divisions = [d for d in self._divisions if d.get('league_type') == NBL_LEAGUE_TYPE]
+
         if not self._divisions:
             empty_select = discord.ui.Select(
-                placeholder="No divisions configured. Use /admin-config to link divisions first.",
-                options=[discord.SelectOption(label="No divisions available", value="none")],
+                placeholder="❌ Draft picks only available for NBL division.",
+                options=[discord.SelectOption(label="NBL division not configured", value="none")],
                 disabled=True,
             )
             self.add_item(empty_select)
             return
 
         division_select = discord.ui.Select(
-            placeholder="Select division...",
+            placeholder="Select NBL division...",
             min_values=1,
             max_values=1,
             options=[
                 discord.SelectOption(
-                    label=(division.get('name') or division.get('league_type', 'Unknown'))[:100],
+                    label=(division.get('name') or 'NBL')[:100],
                     value=division.get('id', ''),
-                    description=f"League: {(division.get('league_type') or 'N/A').upper()}",
+                    description="NBL - Primary League",
                 )
                 for division in sorted(
                     self._divisions,
-                    key=lambda d: (
-                        (d.get('league_type') or '').upper(),
-                        d.get('name') or '',
-                    ),
+                    key=lambda d: d.get('name') or '',
                 )
             ],
             row=0,
@@ -941,38 +948,38 @@ class ViewPicksByTeamView(LazyInitView):
         self.manager = AdminBaseManager()  # ✅ NEW
 
     async def populate(self) -> None:
-        """Load divisions prior to season/team filtering."""
+        """Load divisions prior to season/team filtering (NBL ONLY)."""
         try:
             self._divisions = await self.manager.get_guild_divisions(self.parent_view.guild_id)
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to load divisions for view team picks: %s", exc)
             self._divisions = []
 
+        # ✅ SAFETY: Filter to NBL only
+        self._divisions = [d for d in self._divisions if d.get('league_type') == NBL_LEAGUE_TYPE]
+
         if not self._divisions:
             empty_select = discord.ui.Select(
-                placeholder="No divisions configured. Use /admin-config to link divisions first.",
-                options=[discord.SelectOption(label="No divisions available", value="none")],
+                placeholder="❌ Draft picks only available for NBL division.",
+                options=[discord.SelectOption(label="NBL division not configured", value="none")],
                 disabled=True,
             )
             self.add_item(empty_select)
             return
 
         division_select = discord.ui.Select(
-            placeholder="Select division...",
+            placeholder="Select NBL division...",
             min_values=1,
             max_values=1,
             options=[
                 discord.SelectOption(
-                    label=(division.get('name') or division.get('league_type', 'Unknown'))[:100],
+                    label=(division.get('name') or 'NBL')[:100],
                     value=division.get('id', ''),
-                    description=f"League: {(division.get('league_type') or 'N/A').upper()}",
+                    description="NBL - Primary League",
                 )
                 for division in sorted(
                     self._divisions,
-                    key=lambda d: (
-                        (d.get('league_type') or '').upper(),
-                        d.get('name') or '',
-                    ),
+                    key=lambda d: d.get('name') or '',
                 )
             ],
             row=0,
