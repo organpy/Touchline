@@ -27,14 +27,14 @@ class TeamDraftPicksCog(commands.Cog):
     async def autocomplete_available_players(
         self, interaction: discord.Interaction, current: str
     ) -> List[app_commands.Choice[str]]:
-        """Autocomplete for available players (not yet picked)."""
+        """Autocomplete for available players (not yet picked). Only shows non-NBL players."""
         try:
             # Get user's team
             team = await queries.get_team_by_owner(self.supabase, interaction.user.id)
             if not team:
                 return []
 
-            # Get active season
+            # Get active season for this division
             try:
                 seasons_response = self.supabase.table('seasons').select('*').eq(
                     'division_id', team['division_id']
@@ -46,21 +46,51 @@ class TeamDraftPicksCog(commands.Cog):
                 logger.warning(f"Failed to get active season: {e}")
                 return []
 
-            # Get all players not yet picked in this season
+            # Get all divisions (to filter out NBL)
+            try:
+                divs_response = self.supabase.table('divisions').select('id, league_type').execute()
+                divisions = divs_response.data or []
+                nbl_div_ids = {d['id'] for d in divisions if d.get('league_type') == 'NBL'}
+            except Exception as e:
+                logger.warning(f"Failed to get divisions: {e}")
+                nbl_div_ids = set()
+
+            # Get all teams in other leagues (not NBL)
+            try:
+                teams_response = self.supabase.table('teams').select('id, division_id').execute()
+                non_nbl_team_ids = {t['id'] for t in (teams_response.data or []) if t.get('division_id') not in nbl_div_ids}
+            except Exception as e:
+                logger.warning(f"Failed to get teams: {e}")
+                non_nbl_team_ids = set()
+
+            # Get rosters of non-NBL teams to find available players
+            try:
+                rosters_response = self.supabase.table('rosters').select('player_id').eq(
+                    'season_id', season['id']
+                ).is_('left_at', 'null').execute()
+                available_player_ids = {r['player_id'] for r in (rosters_response.data or [])}
+            except Exception as e:
+                logger.warning(f"Failed to get available rosters: {e}")
+                available_player_ids = set()
+
+            # Get picked player IDs (already drafted)
             try:
                 picked_response = self.supabase.table('draft_picks').select(
                     'selected_player_id'
                 ).eq('season_id', season['id']).not_.is_('selected_player_id', 'null').execute()
-                picked_ids = [p.get('selected_player_id') for p in (picked_response.data or []) if p.get('selected_player_id')]
+                picked_ids = {p['selected_player_id'] for p in (picked_response.data or [])}
             except Exception as e:
                 logger.warning(f"Failed to get picked players: {e}")
-                picked_ids = []
+                picked_ids = set()
 
-            # Get all players, filter out picked ones
+            # Get all players, filter to: non-NBL teams + available + not picked yet
             try:
                 all_players_response = self.supabase.table('players').select('id, display_name').execute()
                 all_players = all_players_response.data or []
-                available = [p for p in all_players if p.get('id') not in picked_ids]
+                available = [
+                    p for p in all_players
+                    if p.get('id') in available_player_ids and p.get('id') not in picked_ids
+                ]
             except Exception as e:
                 logger.warning(f"Failed to get available players: {e}")
                 return []
@@ -103,7 +133,7 @@ class TeamDraftPicksCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            # Get user's team using queries function (not cache)
+            # Get user's team
             team = await queries.get_team_by_owner(self.supabase, interaction.user.id)
             
             if not team:
@@ -133,25 +163,7 @@ class TeamDraftPicksCog(commands.Cog):
                 )
                 return
 
-            # Get player by ID (from autocomplete)
-            try:
-                player_response = self.supabase.table('players').select('*').eq('id', player_id).limit(1).execute()
-                if not player_response.data:
-                    await interaction.followup.send(
-                        "❌ Player not found.",
-                        ephemeral=True,
-                    )
-                    return
-                player = player_response.data[0]
-            except Exception as e:
-                logger.error(f"Failed to get player: {e}")
-                await interaction.followup.send(
-                    "❌ Error fetching player. Check server logs.",
-                    ephemeral=True,
-                )
-                return
-
-            # Get team's next available pick
+            # Get team's next available pick (only unpicked picks)
             try:
                 picks_response = self.supabase.table('draft_picks').select('*').eq(
                     'season_id', season['id']
@@ -174,17 +186,17 @@ class TeamDraftPicksCog(commands.Cog):
                 )
                 return
 
-            # Check if player is already picked
+            # Check if player is already picked (avoid duplicates)
             try:
-                existing_response = self.supabase.table('draft_picks').select('*').eq(
+                existing_response = self.supabase.table('draft_picks').select('id').eq(
                     'season_id', season['id']
                 ).eq(
-                    'selected_player_id', player['id']
+                    'selected_player_id', player_id
                 ).limit(1).execute()
 
                 if existing_response.data:
                     await interaction.followup.send(
-                        f"⚠️ Player **{player['display_name']}** has already been picked.",
+                        f"⚠️ Player has already been picked.",
                         ephemeral=True,
                     )
                     return
@@ -194,49 +206,46 @@ class TeamDraftPicksCog(commands.Cog):
             # Update pick with player selection
             try:
                 result = self.supabase.table('draft_picks').update({
-                    'selected_player_id': player['id'],
-                    'selected_at': datetime.utcnow().isoformat(),
+                    'selected_player_id': player_id,
                 }).eq('id', pick['id']).execute()
 
-                if result.data:
-                    # Record transaction
-                    try:
-                        self.repo.insert_transaction({
-                            'season_id': season['id'],
-                            'transaction_type': 'draft_pick',
-                            'player_id': player['id'],
-                            'team_id': team['id'],
-                            'metadata': {
-                                'pick_number': pick.get('overall'),
-                                'round': pick.get('round'),
-                            },
-                        })
-                    except Exception as trans_error:
-                        logger.warning(f"Failed to record transaction: {trans_error}")
-
-                    embed = discord.Embed(
-                        title="✅ Draft Pick Confirmed",
-                        description=f"**{team['code']}** selected **{player['display_name']}** in round {pick.get('round')}, pick #{pick.get('overall')}",
-                        color=discord.Color.green(),
+                if not result.data:
+                    await interaction.followup.send(
+                        "❌ Failed to record pick. Try again.",
+                        ephemeral=True,
                     )
-                    embed.add_field(name="Season", value=season['name'], inline=True)
-                    await interaction.followup.send(embed=embed, ephemeral=True)
+                    return
 
-                    # Refresh cache
-                    try:
-                        await TeamPlayerCache.refresh()
-                    except Exception as cache_error:
-                        logger.warning(f"Failed to refresh cache: {cache_error}")
-                else:
-                    await interaction.followup.send("❌ Failed to record pick. Try again.", ephemeral=True)
+                # Get player display name
+                try:
+                    player_response = self.supabase.table('players').select('display_name').eq('id', player_id).limit(1).execute()
+                    player_name = player_response.data[0]['display_name'] if player_response.data else 'Unknown'
+                except Exception as e:
+                    logger.warning(f"Failed to get player name: {e}")
+                    player_name = 'Unknown'
+
+                # Success
+                await interaction.followup.send(
+                    f"✅ **Draft Pick Confirmed** (Round {pick.get('round')}, Overall {pick.get('overall')})\n"
+                    f"Team: **{team['code']}**\n"
+                    f"Player: **{player_name}**",
+                    ephemeral=True,
+                )
 
             except Exception as e:
-                logger.error(f"Error updating pick: {e}", exc_info=True)
-                await interaction.followup.send("❌ Error processing pick. Check server logs.", ephemeral=True)
+                logger.error(f"Failed to update pick: {e}")
+                await interaction.followup.send(
+                    "❌ Error recording pick. Check server logs.",
+                    ephemeral=True,
+                )
+                return
 
         except Exception as e:
-            logger.error(f"Error in make_pick: {e}", exc_info=True)
-            await interaction.followup.send("❌ Error processing command.", ephemeral=True)
+            logger.error(f"Unexpected error in make_pick: {e}", exc_info=True)
+            await interaction.followup.send(
+                "❌ Unexpected error occurred. Check server logs.",
+                ephemeral=True,
+            )
 
     @app_commands.command(
         name="picks",
@@ -247,7 +256,7 @@ class TeamDraftPicksCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            # Get user's team using queries function (not cache)
+            # Get user's team
             team = await queries.get_team_by_owner(self.supabase, interaction.user.id)
             
             if not team:
@@ -279,9 +288,7 @@ class TeamDraftPicksCog(commands.Cog):
 
             # Get all team picks
             try:
-                picks_response = self.supabase.table('draft_picks').select(
-                    '*, players(display_name)'
-                ).eq(
+                picks_response = self.supabase.table('draft_picks').select('*').eq(
                     'season_id', season['id']
                 ).eq(
                     'current_owner_team_id', team['id']
@@ -314,8 +321,15 @@ class TeamDraftPicksCog(commands.Cog):
 
             for pick in picks:
                 if pick.get('selected_player_id'):
-                    player_data = pick.get('players')
-                    player_name = (player_data[0].get('display_name') if player_data else None) or "Unknown"
+                    # Get player name for selected pick
+                    try:
+                        player_response = self.supabase.table('players').select('display_name').eq(
+                            'id', pick['selected_player_id']
+                        ).limit(1).execute()
+                        player_name = player_response.data[0]['display_name'] if player_response.data else "Unknown"
+                    except Exception:
+                        player_name = "Unknown"
+                    
                     embed.add_field(
                         name=f"Round {pick.get('round')}, Pick #{pick.get('overall')} ✅",
                         value=f"Selected: **{player_name}**",
@@ -342,3 +356,4 @@ async def setup(bot: commands.Bot) -> None:
     """Setup function for Discord.py cog loading."""
     await bot.add_cog(TeamDraftPicksCog(bot))
     logger.info("✅ TeamDraftPicksCog loaded")
+
