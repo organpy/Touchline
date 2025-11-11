@@ -72,7 +72,7 @@ class NBLBot(commands.Bot):
             # Autocomplete modules (not standalone cogs)
             'autocomplete.py',
             # Transaction helper modules (not standalone cogs)
-            'history.py', 'trade_approval.py', 'trade_views.py', 'views.py',
+            'history.py', 'trade_approval.py', 'trade_views.py', 'views.py', 'pick_trading.py',
             # Admin panel helper modules (deprecated/excluded)
             'admin_transactions_views_example.py', 'teams.py', 'rosters.py', 'picks.py', "common.py",
             # Stats helper modules (deprecated)
