@@ -144,3 +144,15 @@ async def validate_picks_for_trade(
     except Exception as e:
         logger.error(f"Failed to validate picks: {e}")
         return False, f"❌ Validation error: {str(e)[:50]}"
+
+
+async def setup(bot) -> None:
+    """Extension entrypoint for compatibility with discord.ext.commands.load_extension.
+
+    This module is primarily a collection of helper functions for pick trading.
+    The bot's cog discovery expects a `setup` coroutine in each file under
+    `cogs/` so we provide a lightweight entrypoint that performs no registration.
+    """
+    logger.info("✅ Loaded: cogs.transactions.pick_trading extension (utility module)")
+    # No Cog to add; utilities only.
+    return
