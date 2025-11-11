@@ -36,61 +36,61 @@ class TeamDraftPicksCog(commands.Cog):
 
             # Get active season for this division
             try:
-                seasons_response = self.supabase.table('seasons').select('*').eq(
+                seasons_response = self.supabase.table('seasons').select('id').eq(
                     'division_id', team['division_id']
                 ).eq('active', True).limit(1).execute()
                 if not seasons_response.data:
                     return []
-                season = seasons_response.data[0]
+                season_id = seasons_response.data[0]['id']
             except Exception as e:
                 logger.warning(f"Failed to get active season: {e}")
                 return []
 
-            # Get all divisions (to filter out NBL)
+            # ONE QUERY: Get available players (non-NBL, on roster, not picked)
+            # Using RPC or direct query to join: teams (non-NBL) -> rosters -> players -> exclude drafted
             try:
-                divs_response = self.supabase.table('divisions').select('id, league_type').execute()
-                divisions = divs_response.data or []
-                nbl_div_ids = {d['id'] for d in divisions if d.get('league_type') == 'NBL'}
-            except Exception as e:
-                logger.warning(f"Failed to get divisions: {e}")
-                nbl_div_ids = set()
+                # Get all available players from non-NBL rosters in this season
+                response = self.supabase.table('rosters').select(
+                    'players(id, display_name)'
+                ).eq('season_id', season_id).is_(
+                    'left_at', 'null'
+                ).execute()
+                
+                # Extract player IDs from rosters
+                roster_player_ids = set()
+                for roster in (response.data or []):
+                    player_data = roster.get('players')
+                    if player_data and isinstance(player_data, dict):
+                        roster_player_ids.add(player_data['id'])
 
-            # Get all teams in other leagues (not NBL)
-            try:
-                teams_response = self.supabase.table('teams').select('id, division_id').execute()
-                non_nbl_team_ids = {t['id'] for t in (teams_response.data or []) if t.get('division_id') not in nbl_div_ids}
-            except Exception as e:
-                logger.warning(f"Failed to get teams: {e}")
-                non_nbl_team_ids = set()
+                if not roster_player_ids:
+                    return []
 
-            # Get rosters of non-NBL teams to find available players
-            try:
-                rosters_response = self.supabase.table('rosters').select('player_id').eq(
-                    'season_id', season['id']
-                ).is_('left_at', 'null').execute()
-                available_player_ids = {r['player_id'] for r in (rosters_response.data or [])}
             except Exception as e:
-                logger.warning(f"Failed to get available rosters: {e}")
-                available_player_ids = set()
+                logger.warning(f"Failed to get rosters: {e}")
+                return []
 
-            # Get picked player IDs (already drafted)
+            # Get picked player IDs (already drafted this season)
             try:
                 picked_response = self.supabase.table('draft_picks').select(
                     'selected_player_id'
-                ).eq('season_id', season['id']).not_.is_('selected_player_id', 'null').execute()
+                ).eq('season_id', season_id).not_.is_('selected_player_id', 'null').execute()
                 picked_ids = {p['selected_player_id'] for p in (picked_response.data or [])}
             except Exception as e:
                 logger.warning(f"Failed to get picked players: {e}")
                 picked_ids = set()
 
-            # Get all players, filter to: non-NBL teams + available + not picked yet
+            # Filter by: on roster + not picked yet + matches search
+            available_ids = roster_player_ids - picked_ids
+            if not available_ids:
+                return []
+
+            # Get full player details for available players (only fetch what we need)
             try:
-                all_players_response = self.supabase.table('players').select('id, display_name').execute()
+                all_players_response = self.supabase.table('players').select(
+                    'id, display_name'
+                ).in_('id', list(available_ids)).execute()
                 all_players = all_players_response.data or []
-                available = [
-                    p for p in all_players
-                    if p.get('id') in available_player_ids and p.get('id') not in picked_ids
-                ]
             except Exception as e:
                 logger.warning(f"Failed to get available players: {e}")
                 return []
@@ -98,7 +98,7 @@ class TeamDraftPicksCog(commands.Cog):
             # Filter by current input (case-insensitive)
             current_lower = current.lower()
             filtered = [
-                p for p in available
+                p for p in all_players
                 if current_lower in (p.get('display_name') or '').lower()
             ]
 
