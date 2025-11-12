@@ -130,7 +130,7 @@ class PlayerStatsCog(StatsCogBase):
 
         await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="player-history", description="[STATS] Show game-by-game stats for a player")
+    @app_commands.command(name="total-stats", description="[STATS] Show season totals for a player")
     @app_commands.describe(
         player_name="Player display name",
         team="Team code or name (optional filter for player autocomplete)",
@@ -233,7 +233,7 @@ class PlayerStatsCog(StatsCogBase):
 
         await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="player-history", description="Show game-by-game stats for a player")
+    @app_commands.command(name="player-history", description="[STATS] Show game-by-game stats for a player")
     @app_commands.describe(
         player_name="Player display name",
         team="Team code or name (optional filter)",
