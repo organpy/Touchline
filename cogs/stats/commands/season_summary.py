@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class SeasonSummaryCog(StatsCogBase):
     """Season summary command: /season-summary"""
 
-    @app_commands.command(name="season-summary", description="Show season overview and statistics")
+    @app_commands.command(name="season-summary", description="[STATS] Show season overview and statistics")
     @app_commands.describe(
         league="League code or name (defaults to active season league)",
         season="Season name (e.g., S10). Defaults to active season",

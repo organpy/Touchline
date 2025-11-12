@@ -192,7 +192,7 @@ class TimerCog(commands.Cog):
 
     @app_commands.command(
         name="timer",
-        description="Start a 10-minute match timer"
+        description="[MEMBERS] Start a match timer"
     )
     @app_commands.describe(minutes="Duration in minutes (default: 10)")
     async def start_timer(self, interaction: discord.Interaction, minutes: int = 10):
@@ -267,7 +267,7 @@ class TimerCog(commands.Cog):
 
     @app_commands.command(
         name="timer-stop",
-        description="Stop the active timer"
+        description="[MEMBERS] Stop the active timer"
     )
     async def stop_timer_cmd(self, interaction: discord.Interaction):
         """Stop active timer via command"""
@@ -299,7 +299,7 @@ class TimerCog(commands.Cog):
 
     @app_commands.command(
         name="timer-config",
-        description="Configure timer settings for this server"
+        description="[ADMIN] Configure timer settings for this server"
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def configure_timer(

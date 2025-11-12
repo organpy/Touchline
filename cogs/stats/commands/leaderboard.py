@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 class LeaderboardCog(StatsCogBase):
     """Leaderboard command: /leaderboard"""
 
-    @app_commands.command(name="leaderboard", description="Show top players for a stat in a season")
+    @app_commands.command(name="leaderboard", description="[STATS] Show top players for a stat in a season")
     @app_commands.describe(
         stat="Stat to rank by (points, assists, blocks, etc.)",
         league="League code or name (defaults to active season league)",

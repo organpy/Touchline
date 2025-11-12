@@ -170,7 +170,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     # ------------------------------------------------------------------
     # Signings
     # ------------------------------------------------------------------
-    @app_commands.command(name="sign", description="Begin a signing offer for a player")
+    @app_commands.command(name="sign", description="[TEAM OWNER] Begin a signing offer for a player")
     @app_commands.describe(player="Discord member to sign", minutes_valid="Minutes before the offer expires (defaults to config)")
     async def sign(self, interaction: discord.Interaction, player: discord.Member, minutes_valid: Optional[int] = None):
         """Create a pending signing and prompt the player to accept or decline."""
@@ -323,7 +323,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     # ------------------------------------------------------------------
     # Releases
     # ------------------------------------------------------------------
-    @app_commands.command(name="release", description="Release a player from your roster")
+    @app_commands.command(name="release", description="[TEAM OWNER] Release a player from your roster")
     async def release(self, interaction: discord.Interaction, player: discord.Member):
         """Launch modal confirmation to release a player from the roster."""
         transactions_cfg = await self.config.get_transactions_config(interaction.guild_id)
@@ -381,9 +381,219 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         await interaction.response.send_modal(modal)
 
     # ------------------------------------------------------------------
+    # Admin force signings (bypass confirmation)
+    # ------------------------------------------------------------------
+    @app_commands.command(name="admin-force-sign", description="[ADMIN] Force sign a player to a team without confirmation")
+    @app_commands.describe(
+        team_code="Team code (e.g., PANDAS)",
+        player="Discord member to sign"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_force_sign(
+        self,
+        interaction: discord.Interaction,
+        team_code: str,
+        player: discord.Member
+    ) -> None:
+        """Admin can force sign a player without waiting for confirmation."""
+        await interaction.response.defer(ephemeral=True)
+
+        # Get active season
+        season = await queries.get_active_season(self.supabase)
+        if not season:
+            await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
+            return
+
+        # Resolve team by code
+        team = await queries.get_team_by_code(self.supabase, team_code)
+        if not team:
+            await interaction.followup.send(
+                f"❌ Unknown team code `{team_code}`.",
+                ephemeral=True,
+            )
+            return
+        if team['division_id'] != season['division_id']:
+            await interaction.followup.send(
+                "❌ Team is not in the active season's division.",
+                ephemeral=True,
+            )
+            return
+
+        # Get or create player record
+        player_record = await queries.get_player_by_discord_id(self.supabase, player.id)
+        if not player_record:
+            player_record = await queries.get_or_create_player(
+                self.supabase,
+                player.display_name,
+                player.id
+            )
+        if not player_record:
+            await interaction.followup.send("❌ Failed to resolve player profile.", ephemeral=True)
+            return
+
+        # Check if player is already on roster (for this season)
+        existing_roster = self.repo.get_active_roster_entry(season['id'], player_record['id'])
+        if existing_roster and existing_roster.get('team_id') == team['id']:
+            await interaction.followup.send(
+                "ℹ️ That player is already on this team's roster.",
+                ephemeral=True,
+            )
+            return
+
+        # If player is on another team, release them first (force)
+        if existing_roster and existing_roster.get('team_id') != team['id']:
+            try:
+                self.repo.release_player_from_roster(
+                    existing_roster['id'],
+                    reason="Admin force sign (auto-release from previous team)"
+                )
+                logger.info(
+                    f"🔧 AUTO-RELEASE: {player.display_name} from "
+                    f"{existing_roster.get('team_id')} for admin force sign"
+                )
+            except Exception as e:
+                logger.error(f"Failed to auto-release player: {e}")
+                await interaction.followup.send(
+                    "⚠️ Player is on another team and auto-release failed. Try again.",
+                    ephemeral=True,
+                )
+                return
+
+        # Sign the player to the team (no pending offer, direct sign)
+        try:
+            roster_entry = self.repo.sign_player_to_roster(
+                season_id=season['id'],
+                team_id=team['id'],
+                player_id=player_record['id'],
+                reason=f"Admin force sign by {interaction.user.name}#{interaction.user.discriminator}"
+            )
+
+            if not roster_entry:
+                await interaction.followup.send(
+                    "❌ Failed to sign player. Try again.",
+                    ephemeral=True,
+                )
+                return
+
+            # Refresh cache
+            await TeamPlayerCache.refresh()
+
+            league_display, league_code = self._get_league_display(season)
+
+            # Log to audit trail
+            logger.info(
+                f"🔧 ADMIN FORCE SIGN: {player.display_name} → {team['code']} "
+                f"in {league_display} {season['name']} by {interaction.user.name}"
+            )
+
+            # Notify
+            embed = discord.Embed(
+                title="✅ Admin Force Sign",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Player", value=player.mention, inline=False)
+            embed.add_field(name="Team", value=f"{team['name']} (`{team['code']}`)", inline=False)
+            embed.add_field(name="League", value=league_display, inline=False)
+            embed.add_field(name="Season", value=season['name'], inline=False)
+            embed.add_field(name="Admin", value=interaction.user.mention, inline=False)
+            embed.set_footer(text="This was an admin force sign (no confirmation needed)")
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            logger.error(f"Failed to force sign player: {e}", exc_info=True)
+            await interaction.followup.send(
+                f"❌ Error: {str(e)}",
+                ephemeral=True,
+            )
+
+    @app_commands.command(name="admin-force-release", description="[ADMIN] Force release a player from their team without confirmation")
+    @app_commands.describe(
+        player="Discord member to release"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_force_release(
+        self,
+        interaction: discord.Interaction,
+        player: discord.Member
+    ) -> None:
+        """Admin can force release a player without confirmation."""
+        await interaction.response.defer(ephemeral=True)
+
+        # Get active season
+        season = await queries.get_active_season(self.supabase)
+        if not season:
+            await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
+            return
+
+        # Get or resolve player
+        player_record = await queries.get_player_by_discord_id(self.supabase, player.id)
+        if not player_record:
+            player_record = await queries.get_player_by_name(self.supabase, player.display_name)
+        if not player_record:
+            await interaction.followup.send(
+                "❌ That player is not registered in the database.",
+                ephemeral=True,
+            )
+            return
+
+        # Check if player is on a roster
+        roster_entry = self.repo.get_active_roster_entry(season['id'], player_record['id'])
+        if not roster_entry:
+            await interaction.followup.send(
+                "❌ That player is not currently on any active roster.",
+                ephemeral=True,
+            )
+            return
+
+        # Release the player
+        try:
+            self.repo.release_player_from_roster(
+                roster_entry['id'],
+                reason=f"Admin force release by {interaction.user.name}#{interaction.user.discriminator}"
+            )
+
+            # Refresh cache
+            await TeamPlayerCache.refresh()
+
+            # Get team info for the embed
+            teams = await queries.get_all_teams(self.supabase, season['division_id'])
+            team = next((t for t in teams if t['id'] == roster_entry['team_id']), None)
+            team_display = f"{team['name']} (`{team['code']}`)" if team else "Unknown Team"
+
+            league_display, league_code = self._get_league_display(season)
+
+            # Log to audit trail
+            logger.info(
+                f"🔧 ADMIN FORCE RELEASE: {player.display_name} from {team_display} "
+                f"in {league_display} {season['name']} by {interaction.user.name}"
+            )
+
+            # Notify
+            embed = discord.Embed(
+                title="✅ Admin Force Release",
+                color=discord.Color.orange()
+            )
+            embed.add_field(name="Player", value=player.mention, inline=False)
+            embed.add_field(name="Previous Team", value=team_display, inline=False)
+            embed.add_field(name="League", value=league_display, inline=False)
+            embed.add_field(name="Season", value=season['name'], inline=False)
+            embed.add_field(name="Admin", value=interaction.user.mention, inline=False)
+            embed.set_footer(text="This was an admin force release (no confirmation needed)")
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            logger.error(f"Failed to force release player: {e}", exc_info=True)
+            await interaction.followup.send(
+                f"❌ Error: {str(e)}",
+                ephemeral=True,
+            )
+
+    # ------------------------------------------------------------------
     # Draft picks
     # ------------------------------------------------------------------
-    @app_commands.command(name="picks", description="Show draft pick ownership for the active season")
+    @app_commands.command(name="picks", description="[MEMBERS] Show draft pick ownership for the active season")
     @app_commands.describe(team_code="Optional team code to filter by current owner")
     async def picks(self, interaction: discord.Interaction, team_code: Optional[str] = None):
         await interaction.response.defer(ephemeral=True)
@@ -461,7 +671,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     # ------------------------------------------------------------------
     # Trades
     # ------------------------------------------------------------------
-    @app_commands.command(name="trade", description="Propose a multi-asset trade with another team")
+    @app_commands.command(name="trade", description="[TEAM OWNER] Propose a multi-asset trade with another team")
     @app_commands.describe(counterparty_team="Team code (e.g., 'pandas') to trade with")
     async def trade(self, interaction: discord.Interaction, counterparty_team: str):
         """Initiate a trade proposal with multi-asset selection modal."""
@@ -522,7 +732,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     # ------------------------------------------------------------------
     # Transaction history
     # ------------------------------------------------------------------
-    @app_commands.command(name="history", description="View transaction history with optional filters")
+    @app_commands.command(name="history", description="[MEMBERS] View transaction history with optional filters")
     @app_commands.describe(
         team_code="Optional team code to filter by (e.g., 'pandas')",
         player_name="Optional player name to filter by",
@@ -593,7 +803,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     # ------------------------------------------------------------------
     # Configuration helpers
     # ------------------------------------------------------------------
-    @app_commands.command(name="config", description="View transaction configuration for this guild")
+    @app_commands.command(name="config", description="[MEMBERS] View transaction configuration for this guild")
     async def view_config(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         transactions_cfg = await self.config.get_transactions_config(interaction.guild_id)
@@ -607,7 +817,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @app_commands.command(name="config-set-channel", description="Set the channel used for transaction offers")
+    @app_commands.command(name="config-set-channel", description="[ADMIN] Set the channel used for transaction offers")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def config_set_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         await interaction.response.defer(ephemeral=True)
@@ -620,7 +830,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             ephemeral=True,
         )
 
-    @app_commands.command(name="config-set-expiry", description="Set default expiry (minutes) for signing offers")
+    @app_commands.command(name="config-set-expiry", description="[ADMIN] Set default expiry (minutes) for signing offers")
     @app_commands.describe(minutes="Offer expiry in minutes (1-1440)")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def config_set_expiry(self, interaction: discord.Interaction, minutes: int):

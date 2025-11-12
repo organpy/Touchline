@@ -51,7 +51,7 @@ class StatRegistrationCog(commands.Cog):
 
     @app_commands.command(
         name="report-stats",
-        description="Start recording a match with individual player statistics"
+        description="[MEMBERS] Start recording a match with individual player statistics"
     )
     async def report_stats(self, interaction: discord.Interaction):
         """Main command to initiate stat registration flow"""

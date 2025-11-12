@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 class PlayerCompareCog(StatsCogBase):
     """Player comparison command: /compare"""
 
-    @app_commands.command(name="compare", description="Compare stats between two players in a season")
+    @app_commands.command(name="compare", description="[STATS] Compare stats between two players in a season")
     @app_commands.describe(
         player_1="First player display name",
         player_2="Second player display name",

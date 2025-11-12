@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class PlayerStatsCog(StatsCogBase):
     """Player stats commands: /average, /total-stats, /player-history"""
 
-    @app_commands.command(name="average", description="Show per-game averages for a player in a season")
+    @app_commands.command(name="average", description="[STATS] Show per-game averages for a player in a season")
     @app_commands.describe(
         player_name="Player display name",
         team="Team code or name (optional filter for player autocomplete)",
@@ -130,7 +130,7 @@ class PlayerStatsCog(StatsCogBase):
 
         await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="total-stats", description="Show total season numbers for a player")
+    @app_commands.command(name="player-history", description="[STATS] Show game-by-game stats for a player")
     @app_commands.describe(
         player_name="Player display name",
         team="Team code or name (optional filter for player autocomplete)",

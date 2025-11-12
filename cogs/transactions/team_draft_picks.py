@@ -118,7 +118,7 @@ class TeamDraftPicksCog(commands.Cog):
 
     @app_commands.command(
         name="pick",
-        description="Make your team's next draft pick"
+        description="[TEAM OWNER] Make your team's next draft pick"
     )
     @app_commands.describe(
         player_id="Player to pick (search by name)"
@@ -249,7 +249,7 @@ class TeamDraftPicksCog(commands.Cog):
 
     @app_commands.command(
         name="picks",
-        description="View your team's remaining draft picks"
+        description="[TEAM OWNER] View your team's remaining draft picks"
     )
     async def view_picks(self, interaction: discord.Interaction):
         """Team owner command to view their remaining picks."""
@@ -350,6 +350,181 @@ class TeamDraftPicksCog(commands.Cog):
         except Exception as e:
             logger.error(f"Error in view_picks: {e}", exc_info=True)
             await interaction.followup.send("❌ Error loading picks.", ephemeral=True)
+
+    # ------------------------------------------------------------------
+    # Admin force pick (bypass all validation)
+    # ------------------------------------------------------------------
+    @app_commands.command(
+        name="admin-force-pick",
+        description="[ADMIN] Admin: Force assign a draft pick to a player"
+    )
+    @app_commands.describe(
+        team_code="Team code (e.g., PANDAS)",
+        player_name="Player display name",
+        pick_number="Overall pick number (optional: auto-select next available)"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def admin_force_pick(
+        self,
+        interaction: discord.Interaction,
+        team_code: str,
+        player_name: str,
+        pick_number: Optional[int] = None
+    ) -> None:
+        """Admin can force assign a draft pick to any player without validation."""
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            # Get active season
+            try:
+                seasons_response = self.supabase.table('seasons').select('*').eq(
+                    'active', True
+                ).limit(1).execute()
+                if not seasons_response.data:
+                    await interaction.followup.send(
+                        "❌ No active season found.",
+                        ephemeral=True,
+                    )
+                    return
+                season = seasons_response.data[0]
+            except Exception as e:
+                logger.error(f"Failed to get active season: {e}")
+                await interaction.followup.send(
+                    "❌ Error getting season. Check server logs.",
+                    ephemeral=True,
+                )
+                return
+
+            # Resolve team by code
+            try:
+                team_response = self.supabase.table('teams').select('*').ilike(
+                    'code', team_code
+                ).limit(1).execute()
+                if not team_response.data:
+                    await interaction.followup.send(
+                        f"❌ Team code `{team_code}` not found.",
+                        ephemeral=True,
+                    )
+                    return
+                team = team_response.data[0]
+            except Exception as e:
+                logger.error(f"Failed to get team: {e}")
+                await interaction.followup.send(
+                    "❌ Error getting team. Check server logs.",
+                    ephemeral=True,
+                )
+                return
+
+            # Resolve player by name
+            try:
+                player_response = self.supabase.table('players').select('*').ilike(
+                    'display_name', player_name
+                ).limit(1).execute()
+                if not player_response.data:
+                    await interaction.followup.send(
+                        f"❌ Player `{player_name}` not found.",
+                        ephemeral=True,
+                    )
+                    return
+                player = player_response.data[0]
+            except Exception as e:
+                logger.error(f"Failed to get player: {e}")
+                await interaction.followup.send(
+                    "❌ Error getting player. Check server logs.",
+                    ephemeral=True,
+                )
+                return
+
+            # Get or create the pick
+            try:
+                if pick_number:
+                    # Use specific pick number
+                    pick_response = self.supabase.table('draft_picks').select('*').eq(
+                        'season_id', season['id']
+                    ).eq(
+                        'overall', pick_number
+                    ).limit(1).execute()
+                    
+                    if not pick_response.data:
+                        await interaction.followup.send(
+                            f"❌ Pick #{pick_number} not found in {season['name']}.",
+                            ephemeral=True,
+                        )
+                        return
+                    pick = pick_response.data[0]
+                else:
+                    # Find next available pick for team
+                    pick_response = self.supabase.table('draft_picks').select('*').eq(
+                        'season_id', season['id']
+                    ).eq(
+                        'current_owner_team_id', team['id']
+                    ).is_(
+                        'selected_player_id', 'null'
+                    ).order('overall', desc=False).limit(1).execute()
+                    
+                    if not pick_response.data:
+                        await interaction.followup.send(
+                            f"❌ {team['code']} has no available picks in {season['name']}.",
+                            ephemeral=True,
+                        )
+                        return
+                    pick = pick_response.data[0]
+            except Exception as e:
+                logger.error(f"Failed to get pick: {e}")
+                await interaction.followup.send(
+                    "❌ Error fetching pick. Check server logs.",
+                    ephemeral=True,
+                )
+                return
+
+            # Update the pick (force assign regardless of state)
+            try:
+                result = self.supabase.table('draft_picks').update({
+                    'selected_player_id': player['id'],
+                }).eq('id', pick['id']).execute()
+
+                if not result.data:
+                    await interaction.followup.send(
+                        "❌ Failed to record pick. Try again.",
+                        ephemeral=True,
+                    )
+                    return
+
+                # Refresh cache to reflect roster change
+                await TeamPlayerCache.refresh()
+
+                # Log to audit trail
+                logger.info(
+                    f"🔧 ADMIN FORCE PICK: Team {team['code']} "
+                    f"(Pick #{pick.get('overall')}) → {player['display_name']} "
+                    f"by {interaction.user.name}#{interaction.user.discriminator}"
+                )
+
+                # Success message
+                await interaction.followup.send(
+                    f"✅ **Admin Force Pick Confirmed**\n"
+                    f"Season: **{season['name']}**\n"
+                    f"Team: **{team['code']}**\n"
+                    f"Pick: **Round {pick.get('round')}, Overall {pick.get('overall')}**\n"
+                    f"Player: **{player['display_name']}**\n\n"
+                    f"⚠️ Assigned by {interaction.user.mention}",
+                    ephemeral=True,
+                )
+
+            except Exception as e:
+                logger.error(f"Failed to update pick: {e}")
+                await interaction.followup.send(
+                    "❌ Error recording pick. Check server logs.",
+                    ephemeral=True,
+                )
+                return
+
+        except Exception as e:
+            logger.error(f"Unexpected error in admin_force_pick: {e}", exc_info=True)
+            await interaction.followup.send(
+                "❌ Unexpected error occurred. Check server logs.",
+                ephemeral=True,
+            )
 
 
 async def setup(bot: commands.Bot) -> None:

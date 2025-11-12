@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class StandingsCog(StatsCogBase):
     """Standings command: /standings"""
 
-    @app_commands.command(name="standings", description="Show current season standings for a league")
+    @app_commands.command(name="standings", description="[STATS] Show current season standings for a league")
     @app_commands.describe(
         league="League code or name (defaults to active season league)",
         season="Season name (e.g., S10). Defaults to active season",
