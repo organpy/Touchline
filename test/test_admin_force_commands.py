@@ -16,6 +16,7 @@ These tests verify:
 """
 
 import pytest
+import asyncio
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from datetime import datetime
 import discord
