@@ -255,7 +255,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             await interaction.followup.send("❌ Failed to create pending signing. Please try again later.", ephemeral=True)
             return
 
-    _, league_code = self._get_league_display(season)
+        league_display, league_code = self._get_league_display(season)
         files, thumbnail = build_team_logo_payload(team['code'])
         # Compose announcement details.
         expiry_text = utils.format_dt(expires_at, style='R')
@@ -779,6 +779,80 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         await interaction.response.send_modal(modal)
 
     # ------------------------------------------------------------------
+    # Team Roster
+    # ------------------------------------------------------------------
+    @app_commands.command(name="roster", description="[MEMBERS] View a team's roster for the active season")
+    @app_commands.describe(team_code="Team code (e.g., PANDAS)")
+    async def view_roster(self, interaction: discord.Interaction, team_code: str):
+        """Display a team's current roster including owner and all active players."""
+        await interaction.response.defer(ephemeral=True)
+
+        season = await queries.get_active_season(self.supabase)
+        if not season:
+            await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
+            return
+
+        # Resolve team by code
+        team = await queries.get_team_by_code(self.supabase, team_code)
+        if not team:
+            await interaction.followup.send(
+                f"❌ Unknown team code `{team_code}`.",
+                ephemeral=True,
+            )
+            return
+
+        if team['division_id'] != season['division_id']:
+            await interaction.followup.send(
+                "❌ That team is not in the active season's division.",
+                ephemeral=True,
+            )
+            return
+
+        # Get active rosters for this team in this season
+        rosters = await queries.get_active_rosters(self.supabase, season['id'])
+        team_rosters = [r for r in rosters if r.get('team_id') == team['id']]
+
+        # Build roster list with player details
+        roster_lines = []
+        for roster in sorted(team_rosters, key=lambda r: r.get('players', {}).get('display_name', '')):
+            player_data = roster.get('players', {})
+            player_name = player_data.get('display_name', 'Unknown')
+            roster_lines.append(f"🧑 **{player_name}**")
+
+        # Get team owner info
+        owner_id = team.get('owner_discord_id')
+        owner_mention = f"<@{owner_id}>" if owner_id else "Unknown"
+
+        league_display, league_code = self._get_league_display(season)
+        files, thumbnail = build_team_logo_payload(team['code'])
+
+        embed = discord.Embed(
+            title=f"📋 {team['name']} Roster",
+            description=f"Season: **{season['name']}**",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="League", value=league_display, inline=True)
+        embed.add_field(name="Team Code", value=f"`{team['code']}`", inline=True)
+        embed.add_field(name="Owner", value=owner_mention, inline=True)
+
+        if roster_lines:
+            embed.add_field(
+                name=f"Players ({len(roster_lines)})",
+                value="\n".join(roster_lines),
+                inline=False
+            )
+        else:
+            embed.add_field(name="Players", value="No players on roster yet.", inline=False)
+
+        embed.timestamp = datetime.utcnow()
+        if thumbnail:
+            target_thumbnail(embed, thumbnail)
+        apply_team_badge(embed, team['code'])
+        apply_league_badge(embed, league_code)
+
+        await interaction.followup.send(embed=embed, ephemeral=True, files=files or None)
+
+    # ------------------------------------------------------------------
     # Transaction history
     # ------------------------------------------------------------------
     @app_commands.command(name="history", description="[MEMBERS] View transaction history with optional filters")
@@ -836,9 +910,9 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         players = self.supabase.table('players').select('id, display_name').execute().data or []
         player_by_id = {p['id']: p for p in players}
 
-    embed = build_history_embed(transactions, team_by_id, player_by_id)
-    _, league_code = self._get_league_display(season)
-    apply_league_badge(embed, league_code)
+        embed = build_history_embed(transactions, team_by_id, player_by_id)
+        _, league_code = self._get_league_display(season)
+        apply_league_badge(embed, league_code)
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
