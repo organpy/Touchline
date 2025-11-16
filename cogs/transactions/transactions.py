@@ -255,7 +255,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             await interaction.followup.send("❌ Failed to create pending signing. Please try again later.", ephemeral=True)
             return
 
-        league_display, league_code = self._get_league_display(season)
+    _, league_code = self._get_league_display(season)
         files, thumbnail = build_team_logo_payload(team['code'])
         # Compose announcement details.
         expiry_text = utils.format_dt(expires_at, style='R')
@@ -277,7 +277,16 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         apply_team_badge(embed, team['code'])
         apply_league_badge(embed, league_code)
 
-        view = PendingSigningView(self, pending, player, team, season, league_display, league_code)
+        view = PendingSigningView(
+            self,
+            pending,
+            player,
+            team,
+            season,
+            league_display,
+            league_code,
+            team_logo_filename=thumbnail,
+        )
 
         # Use configured transactions channel when available.
         channel = interaction.channel
@@ -500,6 +509,8 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             )
 
             # Notify
+            files, thumbnail = build_team_logo_payload(team['code'])
+
             embed = discord.Embed(
                 title="✅ Admin Force Sign",
                 color=discord.Color.green()
@@ -510,8 +521,12 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             embed.add_field(name="Season", value=season['name'], inline=False)
             embed.add_field(name="Admin", value=interaction.user.mention, inline=False)
             embed.set_footer(text="This was an admin force sign (no confirmation needed)")
+            if thumbnail:
+                target_thumbnail(embed, thumbnail)
+            apply_team_badge(embed, team['code'])
+            apply_league_badge(embed, league_code)
 
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send(embed=embed, ephemeral=True, files=files or None)
 
         except Exception as e:
             logger.error(f"Failed to force sign player: {e}", exc_info=True)
@@ -583,6 +598,11 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             )
 
             # Notify
+            files: list[discord.File] = []
+            thumbnail: Optional[str] = None
+            if team and team.get('code'):
+                files, thumbnail = build_team_logo_payload(team['code'])
+
             embed = discord.Embed(
                 title="✅ Admin Force Release",
                 color=discord.Color.orange()
@@ -593,8 +613,13 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             embed.add_field(name="Season", value=season['name'], inline=False)
             embed.add_field(name="Admin", value=interaction.user.mention, inline=False)
             embed.set_footer(text="This was an admin force release (no confirmation needed)")
+            if thumbnail:
+                target_thumbnail(embed, thumbnail)
+            if team:
+                apply_team_badge(embed, team.get('code'))
+            apply_league_badge(embed, league_code)
 
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send(embed=embed, ephemeral=True, files=files or None)
 
         except Exception as e:
             logger.error(f"Failed to force release player: {e}", exc_info=True)
@@ -679,7 +704,18 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         if not embed.fields:
             embed.description = "No picks to display after applying filters."
 
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        league_display, league_code = self._get_league_display(season)
+        apply_league_badge(embed, league_code)
+
+        files: list[discord.File] = []
+        thumbnail: Optional[str] = None
+        if target_team:
+            files, thumbnail = build_team_logo_payload(target_team['code'])
+            if thumbnail:
+                target_thumbnail(embed, thumbnail)
+            apply_team_badge(embed, target_team['code'])
+
+        await interaction.followup.send(embed=embed, ephemeral=True, files=files or None)
 
     # ------------------------------------------------------------------
     # Trades
@@ -800,7 +836,9 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         players = self.supabase.table('players').select('id, display_name').execute().data or []
         player_by_id = {p['id']: p for p in players}
 
-        embed = build_history_embed(transactions, team_by_id, player_by_id)
+    embed = build_history_embed(transactions, team_by_id, player_by_id)
+    _, league_code = self._get_league_display(season)
+    apply_league_badge(embed, league_code)
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 

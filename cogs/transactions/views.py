@@ -36,6 +36,7 @@ class PendingSigningView(discord.ui.View):
         season: Dict[str, Any],
         league_display: str,
         league_code: str,
+        team_logo_filename: Optional[str] = None,
     ):
         super().__init__(timeout=None)
         self.cog = cog
@@ -45,6 +46,7 @@ class PendingSigningView(discord.ui.View):
         self.season = season
         self.league_display = league_display
         self.league_code = league_code
+        self.team_logo_filename = team_logo_filename
         self.season_name = self.season.get('name', 'Unknown Season')
         self.resolved = False
         self.message: Optional[discord.Message] = None
@@ -58,13 +60,21 @@ class PendingSigningView(discord.ui.View):
     def refresh_pending(self, pending: Dict[str, Any]) -> None:
         self.pending_signing = pending
 
+    def _decorate_embed(self, embed: discord.Embed) -> None:
+        if self.team_logo_filename:
+            target_thumbnail(embed, self.team_logo_filename)
+        apply_team_badge(embed, self.team.get('code'))
+        apply_league_badge(embed, self.league_code)
+
     async def _finalize(self, embed: discord.Embed) -> None:
+        self._decorate_embed(embed)
         self.resolved = True
         for child in self.children:
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
         if self.message:
-            await self.message.edit(embed=embed, view=self)
+            attachments = list(self.message.attachments) if self.message.attachments else None
+            await self.message.edit(embed=embed, view=self, attachments=attachments)
 
     async def _already_resolved(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_message(

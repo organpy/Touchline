@@ -10,6 +10,11 @@ import discord
 
 from cogs.score.roster_cache import RosterCache
 from utils.team_player_cache import TeamPlayerCache
+from utils.embed_assets import (
+    apply_league_badge,
+    apply_team_badge,
+    target_thumbnail,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - hints only
     from .transactions import TransactionsCog
@@ -27,7 +32,9 @@ class TradeApprovalView(discord.ui.View):
         initiating_team: Dict[str, Any],
         counterparty_team: Dict[str, Any],
         trade_assets: list,
-        season: Dict[str, Any]
+        season: Dict[str, Any],
+        league_code: Optional[str] = None,
+        team_logo_filename: Optional[str] = None,
     ):
         super().__init__(timeout=None)
         self.cog = cog
@@ -36,19 +43,29 @@ class TradeApprovalView(discord.ui.View):
         self.counterparty_team = counterparty_team
         self.trade_assets = trade_assets
         self.season = season
+        self.league_code = league_code
+        self.team_logo_filename = team_logo_filename
         self.resolved = False
         self.message: Optional[discord.Message] = None
 
     def set_message(self, message: discord.Message) -> None:
         self.message = message
 
+    def _decorate_embed(self, embed: discord.Embed) -> None:
+        if self.team_logo_filename:
+            target_thumbnail(embed, self.team_logo_filename)
+        apply_team_badge(embed, self.initiating_team.get('code'))
+        apply_league_badge(embed, self.league_code)
+
     async def _finalize(self, embed: discord.Embed) -> None:
+        self._decorate_embed(embed)
         self.resolved = True
         for child in self.children:
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
         if self.message:
-            await self.message.edit(embed=embed, view=self)
+            attachments = list(self.message.attachments) if self.message.attachments else None
+            await self.message.edit(embed=embed, view=self, attachments=attachments)
 
     async def _already_resolved(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_message(

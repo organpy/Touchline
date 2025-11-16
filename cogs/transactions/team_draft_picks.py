@@ -12,6 +12,12 @@ from datetime import datetime
 from db import get_supabase, queries
 from db.transactions_repository import TransactionsRepository
 from utils.team_player_cache import TeamPlayerCache
+from utils.embed_assets import (
+    apply_league_badge,
+    apply_team_badge,
+    build_team_logo_payload,
+    target_thumbnail,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -345,7 +351,14 @@ class TeamDraftPicksCog(commands.Cog):
                     remaining += 1
 
             embed.set_footer(text=f"Remaining: {remaining} | Completed: {completed}")
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            files, thumbnail = build_team_logo_payload(team['code'])
+            if thumbnail:
+                target_thumbnail(embed, thumbnail)
+            apply_team_badge(embed, team['code'])
+            league_code = (season.get('league_type') or '').upper() or None
+            apply_league_badge(embed, league_code)
+
+            await interaction.followup.send(embed=embed, ephemeral=True, files=files or None)
 
         except Exception as e:
             logger.error(f"Error in view_picks: {e}", exc_info=True)

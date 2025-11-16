@@ -16,6 +16,12 @@ from cogs.transactions.pick_trading import (
     format_pick,
     create_pick_label
 )
+from utils.embed_assets import (
+    apply_league_badge,
+    apply_team_badge,
+    build_team_logo_payload,
+    target_thumbnail,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - hints only
     from .transactions import TransactionsCog
@@ -191,7 +197,15 @@ class TradeAssetModal(discord.ui.Modal):
         if self.notes.value:
             embed.add_field(name="Notes", value=self.notes.value, inline=False)
 
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        league_display, league_code = self.cog._get_league_display(self.season)
+        embed.set_footer(text=f"{league_display}")
+        files, thumbnail = build_team_logo_payload(self.initiating_team.get('code'))
+        if thumbnail:
+            target_thumbnail(embed, thumbnail)
+        apply_team_badge(embed, self.initiating_team.get('code'))
+        apply_league_badge(embed, league_code)
+
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True, files=files or None)
 
 
 class TradeAssetSelectionView(discord.ui.View):
@@ -368,16 +382,26 @@ class TradeAssetSelectionView(discord.ui.View):
         # Now send approval message to counterparty
         from .trade_approval import TradeApprovalView
 
+        league_display, league_code = self.cog._get_league_display(self.season)
+
+        files, thumbnail = build_team_logo_payload(self.initiating_team.get('code'))
+
         approval_view = TradeApprovalView(
             cog=self.cog,
             trade_proposal=proposal,
             initiating_team=self.initiating_team,
             counterparty_team=self.counterparty_team,
             trade_assets=trade_assets,
-            season=self.season
+            season=self.season,
+            league_code=league_code,
+            team_logo_filename=thumbnail,
         )
 
-        approval_embed = self._build_approval_request_embed()
+        approval_embed = self._build_approval_request_embed(league_display)
+        if thumbnail:
+            target_thumbnail(approval_embed, thumbnail)
+        apply_team_badge(approval_embed, self.initiating_team.get('code'))
+        apply_league_badge(approval_embed, league_code)
 
         cfg = await self.cog.config.get_transactions_config(interaction.guild_id)
         channel = interaction.channel
@@ -403,7 +427,8 @@ class TradeAssetSelectionView(discord.ui.View):
                 content=f"{counterparty_mention} you have a trade proposal to review!",
                 embed=approval_embed,
                 view=approval_view,
-                allowed_mentions=discord.AllowedMentions(users=[]) if counterparty_owner_id else None
+                allowed_mentions=discord.AllowedMentions(users=[]) if counterparty_owner_id else None,
+                files=files or None,
             )
             approval_view.set_message(message)
         except discord.Forbidden:
@@ -435,7 +460,7 @@ class TradeAssetSelectionView(discord.ui.View):
             interaction.user
         )
 
-    def _build_approval_request_embed(self) -> discord.Embed:
+    def _build_approval_request_embed(self, league_display: Optional[str] = None) -> discord.Embed:
         """Build the trade proposal embed for counterparty approval."""
         embed = discord.Embed(
             title="Trade Proposal Review",
@@ -478,7 +503,10 @@ class TradeAssetSelectionView(discord.ui.View):
                     inline=True
                 )
 
-        embed.set_footer(text="Accept or Decline below")
+        footer_text = "Accept or Decline below"
+        if league_display:
+            footer_text = f"{league_display} • {footer_text}"
+        embed.set_footer(text=footer_text)
         return embed
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
