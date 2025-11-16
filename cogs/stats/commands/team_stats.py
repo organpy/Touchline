@@ -19,6 +19,12 @@ from cogs.stats.autocomplete import (
     _league_autocomplete,
     _season_autocomplete,
 )
+from utils.embed_assets import (
+    apply_league_badge,
+    apply_team_badge,
+    build_team_logo_payload,
+    target_thumbnail,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,15 +94,21 @@ class TeamStatsCog(StatsCogBase):
             )
             return
 
-        # Build embed
+        # Build embed with styling
         season_league_display = self._format_league_display(league_meta)
+        league_code = (league_meta or {}).get('league_type', '').upper() or ''
+        team_code = team_row.get('code', '')
+        
+        # Get team logo
+        files, thumbnail = build_team_logo_payload(team_code)
+        
         embed = discord.Embed(
-            title=f"Team Stats — {team_row.get('name', team)}",
+            title=f"🏀 Team Stats — {team_row.get('name', team)}",
             color=discord.Color.green(),
         )
-        embed.add_field(name="Season League", value=season_league_display, inline=True)
+        embed.add_field(name="Team", value=f"**{team_row.get('name')}** (`{team_code}`)", inline=True)
         embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
-        embed.add_field(name="Team Code", value=team_row.get('code', 'N/A'), inline=True)
+        embed.add_field(name="League", value=season_league_display, inline=True)
 
         totals_lines = [
             f"**Total Points**: {team_totals.get('total_points', 0)}",
@@ -107,12 +119,20 @@ class TeamStatsCog(StatsCogBase):
             f"**Total Own Goals**: {team_totals.get('total_own_goals', 0)}",
             f"**Total PP Plays**: {team_totals.get('total_pp_plays', 0)} (used: {team_totals.get('total_pp_used', 0)})",
         ]
-        embed.add_field(name="Totals", value="\n".join(totals_lines), inline=False)
+        embed.add_field(name="Season Totals", value="\n".join(totals_lines), inline=False)
 
         embed.timestamp = datetime.utcnow()
         embed.set_footer(text="Stats from all recorded team matches")
+        
+        # Add styling
+        if thumbnail:
+            target_thumbnail(embed, thumbnail)
+        if team_code:
+            apply_team_badge(embed, team_code)
+        if league_code:
+            apply_league_badge(embed, league_code)
 
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, files=files or None)
 
     @app_commands.command(name="team-average", description="[STATS] Show average per-game stats for a team")
     @app_commands.describe(
@@ -176,16 +196,22 @@ class TeamStatsCog(StatsCogBase):
             )
             return
 
-        # Build embed
+        # Build embed with styling
         season_league_display = self._format_league_display(league_meta)
+        league_code = (league_meta or {}).get('league_type', '').upper() or ''
+        team_code = team_row.get('code', '')
+        
+        # Get team logo
+        files, thumbnail = build_team_logo_payload(team_code)
+        
         embed = discord.Embed(
-            title=f"Team Per-Game Averages — {team_row.get('name', team)}",
+            title=f"📊 Team Per-Game Averages — {team_row.get('name', team)}",
             color=discord.Color.blue(),
         )
-        embed.add_field(name="Season League", value=season_league_display, inline=True)
+        embed.add_field(name="Team", value=f"**{team_row.get('name')}** (`{team_code}`)", inline=True)
         embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
-        embed.add_field(name="Team Code", value=team_row.get('code', 'N/A'), inline=True)
-        embed.add_field(name="Games Played", value=str(team_avg.get('games_played', 0)), inline=True)
+        embed.add_field(name="League", value=season_league_display, inline=True)
+        embed.add_field(name="Games Played", value=str(team_avg.get('games_played', 0)), inline=False)
 
         avg_lines = [
             f"**Points Per Game**: {team_avg.get('ppg', 0)}",
@@ -196,12 +222,20 @@ class TeamStatsCog(StatsCogBase):
             f"**Own Goals Per Game**: {team_avg.get('ogpg', 0)}",
             f"**PP Efficiency**: {team_avg.get('pp_efficiency', 0)}%",
         ]
-        embed.add_field(name="Per Game", value="\n".join(avg_lines), inline=False)
+        embed.add_field(name="Per Game Averages", value="\n".join(avg_lines), inline=False)
 
         embed.timestamp = datetime.utcnow()
         embed.set_footer(text="Stats from all recorded team matches")
+        
+        # Add styling
+        if thumbnail:
+            target_thumbnail(embed, thumbnail)
+        if team_code:
+            apply_team_badge(embed, team_code)
+        if league_code:
+            apply_league_badge(embed, league_code)
 
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, files=files or None)
 
 
 async def setup(bot: commands.Bot) -> None:

@@ -19,6 +19,11 @@ from cogs.stats.autocomplete import (
     _league_autocomplete,
     _season_autocomplete,
 )
+from utils.embed_assets import (
+    apply_league_badge,
+    build_team_logo_payload,
+    target_thumbnail,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,36 +94,56 @@ class LeaderboardCog(StatsCogBase):
             )
             return
 
-        # Build embed
+        # Build embed with styling
         season_league_display = self._format_league_display(league_meta)
+        league_code = (league_meta or {}).get('league_type', '').upper() or ''
         stat_display = stat.title()
+        
+        # Get first place player's team for logo
+        first_place_team = leaderboard_data[0].get('team_code', '') if leaderboard_data else ''
+        files, thumbnail = build_team_logo_payload(first_place_team) if first_place_team else ([], None)
+        
         embed = discord.Embed(
-            title=f"Leaderboard — {stat_display}",
-            color=discord.Color.red(),
+            title=f"🏆 Leaderboard — {stat_display}",
+            color=discord.Color.gold(),
         )
-        embed.add_field(name="Season League", value=season_league_display, inline=True)
         embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
+        embed.add_field(name="League", value=season_league_display, inline=True)
+        embed.add_field(name="Top Entries", value=str(min(limit, len(leaderboard_data))), inline=True)
 
-        # Add leaderboard rows
+        # Add leaderboard rows with medal emojis
+        medals = ["🥇", "🥈", "🥉"]
         for rank, entry in enumerate(leaderboard_data[:limit], 1):
             player_name = entry.get('player_name', 'Unknown')
             value = entry.get('value', 0)
+            team_code = entry.get('team_code', '')
 
             if isinstance(value, float):
                 value_str = f"{value:.2f}"
             else:
                 value_str = str(value)
 
+            medal = medals[rank - 1] if rank <= 3 else f"#{rank}"
+            team_display = f" ({team_code})" if team_code else ""
+
             embed.add_field(
-                name=f"#{rank}",
-                value=f"{player_name}: **{value_str}**",
+                name=f"{medal} Rank {rank}",
+                value=f"**{player_name}** {team_display}: {value_str}",
                 inline=False,
             )
 
         embed.timestamp = datetime.utcnow()
         embed.set_footer(text="From recorded matches")
+        
+        # Add styling
+        if thumbnail:
+            target_thumbnail(embed, thumbnail)
+        if first_place_team:
+            apply_league_badge(embed, league_code)
+        elif league_code:
+            apply_league_badge(embed, league_code)
 
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, files=files or None)
 
 
 async def setup(bot: commands.Bot) -> None:

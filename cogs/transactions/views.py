@@ -73,7 +73,7 @@ class PendingSigningView(discord.ui.View):
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
         if self.message:
-            attachments = list(self.message.attachments) if self.message.attachments else None
+            attachments = list(self.message.attachments) if self.message.attachments else []
             await self.message.edit(embed=embed, view=self, attachments=attachments)
 
     async def _already_resolved(self, interaction: discord.Interaction) -> None:

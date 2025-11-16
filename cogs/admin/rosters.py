@@ -16,6 +16,12 @@ from cogs.admin.common import LazyInitView
 from cogs.admin.base import AdminBaseManager
 from utils.team_player_cache import TeamPlayerCache
 from utils.config_manager import get_config_manager
+from utils.embed_assets import (
+    apply_league_badge,
+    apply_team_badge,
+    build_team_logo_payload,
+    target_thumbnail,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -398,14 +404,29 @@ class ForceSignView(discord.ui.View):
                     try:
                         channel = self.bot.get_channel(int(channel_id))
                         if channel:
+                            files, thumbnail = build_team_logo_payload(self._selected_team.get('code'))
+                            league_display = self._selected_team.get('league_name', 'Unknown League')
+                            league_code = self._selected_team.get('league_type', '').upper()
+                            
                             embed = discord.Embed(
-                                title="✍️ Force Sign",
-                                description=f"**{player['display_name']}** signed to **{self._selected_team.get('name')}**",
+                                title="✍️ Admin Force Sign",
+                                description=f"**{player['display_name']}** has been signed to **{self._selected_team.get('name')}**",
                                 color=discord.Color.green(),
                             )
-                            embed.add_field(name="Season", value=season.get('name'), inline=False)
+                            embed.add_field(name="Team", value=f"{self._selected_team.get('name')} (`{self._selected_team.get('code')}`)", inline=True)
+                            embed.add_field(name="League", value=league_display, inline=True)
+                            embed.add_field(name="Season", value=season.get('name'), inline=True)
+                            embed.add_field(name="Player", value=player['display_name'], inline=False)
                             embed.add_field(name="Executed by", value=interaction.user.mention, inline=False)
-                            await channel.send(embed=embed)
+                            embed.timestamp = datetime.utcnow()
+                            embed.set_footer(text="This was an admin force sign (no confirmation needed)")
+                            
+                            if thumbnail:
+                                target_thumbnail(embed, thumbnail)
+                            apply_team_badge(embed, self._selected_team.get('code'))
+                            apply_league_badge(embed, league_code)
+                            
+                            await channel.send(embed=embed, files=files or None)
                     except Exception as channel_error:
                         logger.warning("Failed to post to transaction channel: %s", channel_error)
 
@@ -530,13 +551,30 @@ class ForceReleaseView(LazyInitView):
                                 try:
                                     channel = self.parent_view.bot.get_channel(int(channel_id))
                                     if channel and isinstance(channel, discord.TextChannel):
+                                        # Get team and league info for styling
+                                        team_info = cache.get_team_by_code(team_code) if (cache := TeamPlayerCache()).get_team_by_code(team_code) else {}
+                                        league_display = team_info.get('league_name', 'Unknown League')
+                                        league_code = team_info.get('league_type', '').upper()
+                                        files, thumbnail = build_team_logo_payload(team_code)
+                                        
                                         embed = discord.Embed(
-                                            title="🔐 Admin Release",
-                                            description=f"Player **{player_name}** was force-released from **{team_code}**",
+                                            title="� Admin Force Release",
+                                            description=f"**{player_name}** has been released from **{team_code}**",
                                             color=discord.Color.orange(),
                                         )
-                                        embed.add_field(name="Admin", value=f"<@{confirm_interaction.user.id}>", inline=True)
-                                        await channel.send(embed=embed)
+                                        embed.add_field(name="Team", value=team_code, inline=True)
+                                        embed.add_field(name="League", value=league_display, inline=True)
+                                        embed.add_field(name="Player", value=player_name, inline=False)
+                                        embed.add_field(name="Executed by", value=confirm_interaction.user.mention, inline=False)
+                                        embed.timestamp = datetime.utcnow()
+                                        embed.set_footer(text="This was an admin force release (no confirmation needed)")
+                                        
+                                        if thumbnail:
+                                            target_thumbnail(embed, thumbnail)
+                                        apply_team_badge(embed, team_code)
+                                        apply_league_badge(embed, league_code)
+                                        
+                                        await channel.send(embed=embed, files=files or None)
                                 except Exception as e:
                                     logger.warning(f"Failed to post admin release to transactions channel: {e}")
                             
@@ -735,15 +773,33 @@ class ForceTransferView(LazyInitView):
                                 try:
                                     channel = self.parent_view.bot.get_channel(int(channel_id))
                                     if channel and isinstance(channel, discord.TextChannel):
+                                        # Get team info for styling
+                                        cache = TeamPlayerCache()
+                                        source_team = cache.get_team_by_code(current_code)
+                                        dest_team = cache.get_team_by_code(dest_code)
+                                        league_display = dest_team.get('league_name', 'Unknown League') if dest_team else 'Unknown'
+                                        league_code = dest_team.get('league_type', '').upper() if dest_team else ''
+                                        files, thumbnail = build_team_logo_payload(dest_code)
+                                        
                                         embed = discord.Embed(
-                                            title="🔐 Admin Transfer",
-                                            description=f"Player **{player_name}** was force-transferred from **{current_code}** to **{dest_code}**",
-                                            color=discord.Color.orange(),
+                                            title="� Admin Force Transfer",
+                                            description=f"**{player_name}** has been transferred from **{current_code}** to **{dest_code}**",
+                                            color=discord.Color.blurple(),
                                         )
                                         embed.add_field(name="From Team", value=current_code, inline=True)
                                         embed.add_field(name="To Team", value=dest_code, inline=True)
-                                        embed.add_field(name="Admin", value=f"<@{confirm_interaction.user.id}>", inline=True)
-                                        await channel.send(embed=embed)
+                                        embed.add_field(name="League", value=league_display, inline=True)
+                                        embed.add_field(name="Player", value=player_name, inline=False)
+                                        embed.add_field(name="Executed by", value=confirm_interaction.user.mention, inline=False)
+                                        embed.timestamp = datetime.utcnow()
+                                        embed.set_footer(text="This was an admin force transfer (no confirmation needed)")
+                                        
+                                        if thumbnail:
+                                            target_thumbnail(embed, thumbnail)
+                                        apply_team_badge(embed, dest_code)
+                                        apply_league_badge(embed, league_code)
+                                        
+                                        await channel.send(embed=embed, files=files or None)
                                 except Exception as e:
                                     logger.warning(f"Failed to post admin transfer to transactions channel: {e}")
                             

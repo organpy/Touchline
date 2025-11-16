@@ -19,6 +19,12 @@ from cogs.stats.autocomplete import (
     _league_autocomplete,
     _season_autocomplete,
 )
+from utils.embed_assets import (
+    apply_league_badge,
+    apply_team_badge,
+    build_team_logo_payload,
+    target_thumbnail,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,17 +115,24 @@ class PlayerCompareCog(StatsCogBase):
             )
             return
 
-        # Build comparison embed
+        # Build comparison embed with styling
         season_league_display = self._format_league_display(league_meta)
+        league_code = (league_meta or {}).get('league_type', '').upper() or ''
+        
+        # Get first player's team for logo
+        membership_a = self._select_player_membership(player_a, season_row.get('id'))
+        team_code_a = (membership_a or {}).get('team_code', '')
+        files, thumbnail = build_team_logo_payload(team_code_a) if team_code_a else ([], None)
+        
         embed = discord.Embed(
-            title=f"Player Comparison — {season_row.get('name')}",
+            title=f"⚖️ Player Comparison — {season_row.get('name')}",
             color=discord.Color.purple(),
         )
-        embed.add_field(name="Season League", value=season_league_display, inline=True)
+        embed.add_field(name="League", value=season_league_display, inline=True)
         embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
 
         # Stats rows
-        stats_headers = ["Stat", player_a.get('display_name', player_1), player_b.get('display_name', player_2)]
+        stats_headers = [player_a.get('display_name', player_1), player_b.get('display_name', player_2)]
 
         stats_to_show = [
             ("Games Played", "games_played"),
@@ -158,8 +171,16 @@ class PlayerCompareCog(StatsCogBase):
 
         embed.timestamp = datetime.utcnow()
         embed.set_footer(text="Bold indicates higher stat. Stats from recorded matches.")
+        
+        # Add styling
+        if thumbnail:
+            target_thumbnail(embed, thumbnail)
+        if team_code_a:
+            apply_team_badge(embed, team_code_a)
+        if league_code:
+            apply_league_badge(embed, league_code)
 
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, files=files or None)
 
 
 async def setup(bot: commands.Bot) -> None:
