@@ -6,7 +6,9 @@ All helper methods extracted from StatsCog for reusability.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional, Tuple
+import json
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple, Set
 
 import discord
 from discord.ext import commands
@@ -26,6 +28,9 @@ class StatsCogBase(commands.Cog):
         self._league_cache: Dict[str, Dict[str, Any]] = {}
         self._division_cache: Dict[str, Dict[str, Any]] = {}
         self._division_by_league_code: Dict[str, Dict[str, Any]] = {}
+        self._team_lookup_loaded: bool = False
+        self._team_alias_map: Dict[str, Dict[str, Any]] = {}
+        self._teams_file = Path(__file__).resolve().parents[2] / "teams.json"
 
     # ------------------------------------------------------------------
     # Shared Helpers
@@ -351,3 +356,93 @@ class StatsCogBase(commands.Cog):
         
         # Verify season belongs to team's division
         return team_division == season_division
+
+    # ------------------------------------------------------------------
+    # Team helpers (teams.json powered)
+    # ------------------------------------------------------------------
+
+    def _ensure_team_index(self) -> None:
+        if self._team_lookup_loaded:
+            return
+
+        self._team_lookup_loaded = True
+        self._team_alias_map = {}
+
+        try:
+            with self._teams_file.open('r', encoding='utf-8') as handle:
+                raw = json.load(handle)
+        except FileNotFoundError:
+            logger.warning("teams.json missing; team lookups disabled")
+            return
+        except json.JSONDecodeError as exc:
+            logger.error("Failed to parse teams.json: %s", exc)
+            return
+
+        for region_key, teams in (raw or {}).items():
+            if not isinstance(teams, dict):
+                continue
+            league_code = (region_key.split('_', 1)[0] if region_key else '').upper()
+            division_name = region_key.replace('_', ' ').title() if region_key else None
+            for display_name, meta in teams.items():
+                if not isinstance(meta, dict):
+                    continue
+                code = (meta.get('code') or display_name).upper()
+                entry = {
+                    'name': display_name,
+                    'code': code,
+                    'emoji': meta.get('emoji'),
+                    'league_code': league_code,
+                    'division_name': division_name,
+                    'region': region_key,
+                }
+                aliases: Set[str] = {
+                    code.lower(),
+                    display_name.lower(),
+                    display_name.lower().replace(' ', '-'),
+                }
+                for alias in aliases:
+                    if alias:
+                        self._team_alias_map.setdefault(alias, entry)
+
+    def _lookup_team_metadata(self, identifier: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not identifier:
+            return None
+        self._ensure_team_index()
+        return self._team_alias_map.get(identifier.strip().lower())
+
+    async def _resolve_team(self, identifier: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not identifier:
+            return None
+
+        identifier = identifier.strip()
+        if not identifier:
+            return None
+
+        metadata = self._lookup_team_metadata(identifier)
+        candidate_codes = []
+        if metadata:
+            candidate_codes.append(metadata['code'])
+        candidate_codes.extend([identifier, identifier.upper(), identifier.lower()])
+
+        tried: Set[str] = set()
+        for code in candidate_codes:
+            if not code:
+                continue
+            normalized = code.upper()
+            if normalized in tried:
+                continue
+            tried.add(normalized)
+            team_row = await queries.get_team_by_code(self.supabase, normalized)
+            if not team_row and code != normalized:
+                team_row = await queries.get_team_by_code(self.supabase, code)
+            if team_row:
+                enriched = dict(team_row)
+                if metadata:
+                    enriched.setdefault('display_name', metadata['name'])
+                    enriched['emoji'] = metadata.get('emoji')
+                    enriched['league_code'] = metadata.get('league_code')
+                    enriched['division_name'] = metadata.get('division_name')
+                    enriched['static_metadata'] = metadata
+                enriched.setdefault('display_name', enriched.get('name'))
+                return enriched
+        return None

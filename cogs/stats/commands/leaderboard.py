@@ -102,6 +102,7 @@ class LeaderboardCog(StatsCogBase):
         # Get first place player's team for logo
         first_place_team = leaderboard_data[0].get('team_code', '') if leaderboard_data else ''
         files, thumbnail = build_team_logo_payload(first_place_team) if first_place_team else ([], None)
+        files = files or []
         
         embed = discord.Embed(
             title=f"🏆 Leaderboard — {stat_display}",
@@ -138,12 +139,9 @@ class LeaderboardCog(StatsCogBase):
         # Add styling
         if thumbnail:
             target_thumbnail(embed, thumbnail)
-        if first_place_team:
-            apply_league_badge(embed, league_code)
-        elif league_code:
-            apply_league_badge(embed, league_code)
+        apply_league_badge(embed, league_code)
 
-        await interaction.followup.send(embed=embed, files=files or None)
+        await interaction.followup.send(embed=embed, files=files)
 
 
 async def setup(bot: commands.Bot) -> None:

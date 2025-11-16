@@ -68,6 +68,12 @@ class TeamStatsCog(StatsCogBase):
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
+        if not league_meta and team_row.get('league_code'):
+            league_meta = await self._fetch_league_metadata(team_row['league_code'])
+
+        if not league_meta and team_row.get('league_code'):
+            league_meta = await self._fetch_league_metadata(team_row['league_code'])
+
         # Validate team in season
         team_in_season = await self._validate_team_in_season(team_row, season_row)
         if not team_in_season:
@@ -96,17 +102,26 @@ class TeamStatsCog(StatsCogBase):
 
         # Build embed with styling
         season_league_display = self._format_league_display(league_meta)
-        league_code = (league_meta or {}).get('league_type', '').upper() or ''
+        league_code = ((league_meta or {}).get('code') or team_row.get('league_code') or '').upper()
         team_code = team_row.get('code', '')
+        team_display = team_row.get('display_name') or team_row.get('name', team)
+        team_label = f"**{team_display}**"
+        emoji = team_row.get('emoji')
+        if emoji:
+            team_label = f"{emoji} {team_label}"
         
         # Get team logo
         files, thumbnail = build_team_logo_payload(team_code)
+        files = files or []
         
         embed = discord.Embed(
-            title=f"🏀 Team Stats — {team_row.get('name', team)}",
+            title=f"🏀 Team Stats — {team_display}",
             color=discord.Color.green(),
         )
-        embed.add_field(name="Team", value=f"**{team_row.get('name')}** (`{team_code}`)", inline=True)
+        team_value = team_label
+        if team_code:
+            team_value = f"{team_value} (`{team_code}`)"
+        embed.add_field(name="Team", value=team_value, inline=True)
         embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
         embed.add_field(name="League", value=season_league_display, inline=True)
 
@@ -132,7 +147,7 @@ class TeamStatsCog(StatsCogBase):
         if league_code:
             apply_league_badge(embed, league_code)
 
-        await interaction.followup.send(embed=embed, files=files or None)
+        await interaction.followup.send(embed=embed, files=files)
 
     @app_commands.command(name="team-average", description="[STATS] Show average per-game stats for a team")
     @app_commands.describe(
@@ -198,17 +213,26 @@ class TeamStatsCog(StatsCogBase):
 
         # Build embed with styling
         season_league_display = self._format_league_display(league_meta)
-        league_code = (league_meta or {}).get('league_type', '').upper() or ''
+        league_code = ((league_meta or {}).get('code') or team_row.get('league_code') or '').upper()
         team_code = team_row.get('code', '')
-        
+        team_display = team_row.get('display_name') or team_row.get('name', team)
+        team_label = f"**{team_display}**"
+        emoji = team_row.get('emoji')
+        if emoji:
+            team_label = f"{emoji} {team_label}"
+
         # Get team logo
         files, thumbnail = build_team_logo_payload(team_code)
-        
+        files = files or []
+
         embed = discord.Embed(
-            title=f"📊 Team Per-Game Averages — {team_row.get('name', team)}",
+            title=f"📊 Team Per-Game Averages — {team_display}",
             color=discord.Color.blue(),
         )
-        embed.add_field(name="Team", value=f"**{team_row.get('name')}** (`{team_code}`)", inline=True)
+        team_value = team_label
+        if team_code:
+            team_value = f"{team_value} (`{team_code}`)"
+        embed.add_field(name="Team", value=team_value, inline=True)
         embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
         embed.add_field(name="League", value=season_league_display, inline=True)
         embed.add_field(name="Games Played", value=str(team_avg.get('games_played', 0)), inline=False)
@@ -235,7 +259,7 @@ class TeamStatsCog(StatsCogBase):
         if league_code:
             apply_league_badge(embed, league_code)
 
-        await interaction.followup.send(embed=embed, files=files or None)
+        await interaction.followup.send(embed=embed, files=files)
 
 
 async def setup(bot: commands.Bot) -> None:
