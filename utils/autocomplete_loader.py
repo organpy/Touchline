@@ -93,3 +93,13 @@ def get_stat_field_display(metric: str) -> str:
     data = load_autocomplete_data()
     stat_fields = data.get("stat_fields", {})
     return stat_fields.get(metric, metric.title().replace("_", " "))
+
+
+def get_team_codes() -> List[str]:
+    """Get list of all valid team codes (flat list)."""
+    data = load_autocomplete_data()
+    team_codes_by_division = data.get("team_codes", {})
+    all_codes = []
+    for division_codes in team_codes_by_division.values():
+        all_codes.extend(division_codes)
+    return sorted(all_codes)

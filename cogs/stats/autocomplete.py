@@ -12,7 +12,7 @@ import discord
 from discord import app_commands
 
 from db import get_supabase
-from utils.autocomplete_loader import get_metrics
+from utils.autocomplete_loader import get_metrics, get_team_codes
 from utils.team_player_cache import TeamPlayerCache
 
 logger = logging.getLogger(__name__)
@@ -141,21 +141,33 @@ async def _team_autocomplete(
     interaction: discord.Interaction,
     current: str,
 ) -> List[app_commands.Choice[str]]:
-    """Autocomplete for team names/codes (module-level coroutine required by discord)."""
+    """Autocomplete for team names/codes using centralized team code list."""
+    # Get cached teams for name lookups
     cache = TeamPlayerCache()
     teams = cache.get_all_teams()
+    
+    # Get centralized team codes
+    valid_codes = set(get_team_codes())
+    
     current_lower = current.lower()
-
     suggestions = []
+    
     for team in teams:
         code = (team.get('code') or '').upper()
         name = team.get('name') or code
+        
+        # Only include teams that are in the valid code list
+        if code.lower() not in valid_codes:
+            continue
+        
         label = f"{name} ({code})" if name and code and name.upper() != code else name or code
         if current_lower and current_lower not in label.lower() and current_lower not in code.lower():
             continue
+        
         suggestions.append(app_commands.Choice(name=label[:100], value=code or name))
         if len(suggestions) >= 25:
             break
+    
     return suggestions
 
 

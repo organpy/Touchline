@@ -86,5 +86,13 @@
     "player": "Player display name",
     "limit": "Number of results to show (default 10, max 25)",
     "league_filter": "League code or name (defaults to active season league)"
+  },
+  "team_codes": {
+    "nbl_east": ["titans", "the-herd", "opo", "ice-breakers"],
+    "nbl_west": ["beef-negative", "wind-chargers", "frost-falcons", "phantom-hornets"],
+    "mbl_east": ["the-warriors", "the-pack", "opo-dragons", "icebergs"],
+    "mbl_west": ["venison-x", "the-breeze", "blue-ballers", "ghosts"],
+    "ncba_east": ["south-point-sharks", "eastside-tigers", "east-bay-seagulls"],
+    "ncba_west": ["west-bay-devils", "north-central-hawks", "northside-bobcats"]
   }
 }
