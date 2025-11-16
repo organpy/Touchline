@@ -1,4 +1,4 @@
-"""Discord cog scaffolding for transaction management."""
+﻿"""Discord cog scaffolding for transaction management."""
 
 from __future__ import annotations
 
