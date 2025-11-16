@@ -2,7 +2,7 @@
 
 import logging
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +181,7 @@ class TeamPlayerCache:
                 if display_name:
                     cls._players_by_name[display_name.lower()] = player
             
-            cls._last_refresh = datetime.utcnow()
+            cls._last_refresh = datetime.now(timezone.utc)
             total_teams = len(cls._teams)
             total_players = len(cls._players)
             logger.info(
