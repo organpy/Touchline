@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import discord
@@ -28,26 +30,64 @@ from .history import fetch_filtered_transactions, build_history_embed
 
 logger = logging.getLogger(__name__)
 
+# Load teams.json at module level
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent
+TEAMS_FILE = ROOT_DIR / "teams.json"
 
+_TEAMS_DATA: Dict[str, Dict[str, Any]] = {}
 
-# ==================== AUTOCOMPLETE FUNCTIONS ====================
+def _load_teams_data() -> Dict[str, Dict[str, Any]]:
+    """Load and cache teams data from teams.json."""
+    global _TEAMS_DATA
+    if _TEAMS_DATA:
+        return _TEAMS_DATA
+    
+    try:
+        with TEAMS_FILE.open("r", encoding="utf-8") as fh:
+            raw = json.load(fh)
+    except Exception as e:
+        logger.warning(f"Failed to load teams.json: {e}")
+        return {}
+    
+    # Flatten structure: {region: {team_name: {code, emoji}}} -> {code: {name, emoji}}
+    teams = {}
+    for region, region_teams in (raw or {}).items():
+        for team_name, team_data in (region_teams or {}).items():
+            code = team_data.get("code", "").lower()
+            if code:
+                teams[code] = {
+                    "name": team_name,
+                    "emoji": team_data.get("emoji"),
+                    "region": region,
+                }
+    
+    _TEAMS_DATA = teams
+    return teams
+
 
 async def autocomplete_team_code(
     interaction: discord.Interaction,
     current: str,
 ) -> list[app_commands.Choice[str]]:
-    """Autocomplete team codes from cache."""
-    cache = TeamPlayerCache()
-    all_codes = cache.get_team_codes()
+    """Autocomplete team codes from teams.json, showing team name."""
+    teams = _load_teams_data()
     
-    # Filter to matching codes
-    filtered = [code for code in all_codes if current.upper() in code]
-    
-    # Return as choices (max 25)
-    return [
-        app_commands.Choice(name=code, value=code)
-        for code in filtered[:25]
+    current_lower = current.lower()
+    filtered = [
+        (code, data) for code, data in teams.items()
+        if current_lower in code or current_lower in data["name"].lower()
     ]
+    
+    # Sort by code and return as choices with team name as display name
+    choices = [
+        app_commands.Choice(
+            name=f"{data['name']} ({code})",
+            value=code
+        )
+        for code, data in sorted(filtered, key=lambda x: x[0])[:25]
+    ]
+    
+    return choices
 
 
 async def autocomplete_team_player(
@@ -410,6 +450,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         team_code="Team code (e.g., PANDAS)",
         player="Discord member to sign"
     )
+    @app_commands.autocomplete(team_code=autocomplete_team_code)
     @app_commands.checks.has_permissions(administrator=True)
     async def admin_force_sign(
         self,
@@ -633,6 +674,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     # ------------------------------------------------------------------
     @app_commands.command(name="picks", description="[MEMBERS] Show draft pick ownership for the active season")
     @app_commands.describe(team_code="Optional team code to filter by current owner")
+    @app_commands.autocomplete(team_code=autocomplete_team_code)
     async def picks(self, interaction: discord.Interaction, team_code: Optional[str] = None):
         await interaction.response.defer(ephemeral=True)
 
@@ -722,6 +764,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     # ------------------------------------------------------------------
     @app_commands.command(name="trade", description="[TEAM OWNER] Propose a multi-asset trade with another team")
     @app_commands.describe(counterparty_team="Team code (e.g., 'pandas') to trade with")
+    @app_commands.autocomplete(counterparty_team=autocomplete_team_code)
     async def trade(self, interaction: discord.Interaction, counterparty_team: str):
         """Initiate a trade proposal with multi-asset selection modal."""
         await interaction.response.defer(ephemeral=True)
@@ -783,6 +826,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     # ------------------------------------------------------------------
     @app_commands.command(name="roster", description="[MEMBERS] View a team's roster for the active season")
     @app_commands.describe(team_code="Team code (e.g., PANDAS)")
+    @app_commands.autocomplete(team_code=autocomplete_team_code)
     async def view_roster(self, interaction: discord.Interaction, team_code: str):
         """Display a team's current roster including owner and all active players."""
         await interaction.response.defer(ephemeral=True)
