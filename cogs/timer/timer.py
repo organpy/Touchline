@@ -9,6 +9,9 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict
 
+from utils.rate_limiter import timer_requests_limiter
+from utils.error_embeds import rate_limit_embed
+
 logger = logging.getLogger(__name__)
 
 
@@ -197,6 +200,14 @@ class TimerCog(commands.Cog):
     @app_commands.describe(minutes="Duration in minutes (default: 10)")
     async def start_timer(self, interaction: discord.Interaction, minutes: int = 10):
         """Start a new match timer"""
+        
+        # Rate limit check (1 timer start per 5 seconds per guild)
+        guild_key = f"timer_start_{interaction.guild_id}"
+        if not timer_requests_limiter.allow(guild_key):
+            retry_after = timer_requests_limiter.get_retry_after(guild_key)
+            embed = rate_limit_embed(int(retry_after) + 1)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
         
         await interaction.response.defer(ephemeral=False)
         

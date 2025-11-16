@@ -1,10 +1,12 @@
 """
 Autocomplete functions for stats commands.
 All autocomplete handlers are at module level (required by Discord.py).
+Uses memoization to cache results and reduce repeated database queries.
 """
 
 from __future__ import annotations
 
+import functools
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -14,15 +16,56 @@ from discord import app_commands
 from db import get_supabase
 from utils.autocomplete_loader import get_metrics, get_team_codes
 from utils.team_player_cache import TeamPlayerCache
+from utils.caching import season_cache
 
 logger = logging.getLogger(__name__)
 
 
+def _memoize_autocomplete(ttl_seconds: int = 120):
+    """
+    Decorator to cache autocomplete results for a TTL period.
+    Reduces repeated database queries during rapid autocomplete requests.
+    """
+
+    def decorator(func):
+        cache = {}
+        last_clear = [0]  # Mutable container for timestamp
+
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            import time
+
+            now = time.time()
+            # Clear cache every TTL seconds
+            if now - last_clear[0] > ttl_seconds:
+                cache.clear()
+                last_clear[0] = now
+
+            # Generate cache key from args (skip interaction object)
+            try:
+                current = kwargs.get("current", "")
+                cache_key = (args[0].user.id if args else "unknown", current[:20])
+            except:
+                cache_key = ("unknown", str(args)[:50])
+
+            if cache_key in cache:
+                return cache[cache_key]
+
+            result = await func(*args, **kwargs)
+            cache[cache_key] = result
+            return result
+
+        return wrapper
+
+    return decorator
+
+
+@_memoize_autocomplete(ttl_seconds=120)
 async def _player_name_autocomplete(
     interaction: discord.Interaction,
     current: str,
 ) -> List[app_commands.Choice[str]]:
-    """Return player name suggestions from the TeamPlayerCache."""
+    """Return player name suggestions from the TeamPlayerCache (cached)."""
     cache = TeamPlayerCache()
     namespace = getattr(interaction, 'namespace', None)
     team_input = getattr(namespace, 'team', None) if namespace else None
