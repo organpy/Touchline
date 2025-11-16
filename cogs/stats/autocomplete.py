@@ -184,27 +184,30 @@ async def _team_autocomplete(
     interaction: discord.Interaction,
     current: str,
 ) -> List[app_commands.Choice[str]]:
-    """Autocomplete for team names/codes using centralized team code list."""
-    # Get cached teams for name lookups
-    cache = TeamPlayerCache()
-    teams = cache.get_all_teams()
-    
-    # Get centralized team codes
-    valid_codes = set(get_team_codes())
-    
+    """Autocomplete for team names/codes using teams.json (autocomplete_data.json as source)."""
     current_lower = current.lower()
     suggestions = []
     
-    for team in teams:
-        code = (team.get('code') or '').lower()
-        name = team.get('name') or code
+    # Get team codes from autocomplete data (clean source of truth)
+    valid_codes = set(get_team_codes())
+    
+    # Also get teams from cache for name matching
+    cache = TeamPlayerCache()
+    cache_teams_by_code = {t.get('code', '').lower(): t for t in cache.get_all_teams() if t.get('code')}
+    
+    # Build suggestions from centralized team codes list
+    for code in sorted(valid_codes):
+        team_from_cache = cache_teams_by_code.get(code.lower())
+        name = team_from_cache.get('name', '') if team_from_cache else code.upper()
         
-        # Only include teams that are in the valid code list
-        if code not in valid_codes:
-            continue
-        
+        # Build display label
         display_code = code.upper()
-        label = f"{name} ({display_code})" if name and code and name.upper() != display_code else name or display_code
+        if name and name.upper() != display_code:
+            label = f"{name} ({display_code})"
+        else:
+            label = display_code
+        
+        # Filter based on current input
         if current_lower and current_lower not in label.lower() and current_lower not in code.lower():
             continue
         

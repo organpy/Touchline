@@ -58,11 +58,13 @@ class TeamStatsCog(StatsCogBase):
             await interaction.followup.send(f"❌ Team `{team}` was not found.")
             return
 
+        # When only team is given, use its division's active season
+        default_league_code = team_row.get('league_type') if not league else None
         season_row, league_meta = await self._resolve_season_context(
             league_input=league,
             season_input=season,
             default_season_id=None,
-            default_league_code=None,
+            default_league_code=default_league_code,
         )
         if not season_row:
             await interaction.followup.send("❌ Could not locate a season matching your request.")
@@ -175,11 +177,13 @@ class TeamStatsCog(StatsCogBase):
             await interaction.followup.send(f"❌ Team `{team}` was not found.")
             return
 
+        # When only team is given, use its division's active season
+        default_league_code = team_row.get('league_type') if not league else None
         season_row, league_meta = await self._resolve_season_context(
             league_input=league,
             season_input=season,
             default_season_id=None,
-            default_league_code=None,
+            default_league_code=default_league_code,
         )
         if not season_row:
             await interaction.followup.send("❌ Could not locate a season matching your request.")
