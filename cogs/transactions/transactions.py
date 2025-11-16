@@ -15,12 +15,19 @@ from db import get_supabase, queries
 from db.transactions_repository import TransactionsRepository
 from utils.config_manager import get_config_manager
 from utils.team_player_cache import TeamPlayerCache
+from utils.embed_assets import (
+    apply_league_badge,
+    apply_team_badge,
+    build_team_logo_payload,
+    target_thumbnail,
+)
 
 from .views import PendingSigningView, ReleaseConfirmationModal
 from .trade_views import TradeAssetModal
 from .history import fetch_filtered_transactions, build_history_embed
 
 logger = logging.getLogger(__name__)
+
 
 
 # ==================== AUTOCOMPLETE FUNCTIONS ====================
@@ -249,6 +256,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             return
 
         league_display, league_code = self._get_league_display(season)
+        files, thumbnail = build_team_logo_payload(team['code'])
         # Compose announcement details.
         expiry_text = utils.format_dt(expires_at, style='R')
         embed = discord.Embed(
@@ -264,6 +272,10 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         embed.add_field(name="Expires", value=expiry_text, inline=False)
         embed.timestamp = datetime.utcnow()
         embed.set_footer(text="Respond with the buttons below to confirm or decline the offer.")
+        if thumbnail:
+            target_thumbnail(embed, thumbnail)
+        apply_team_badge(embed, team['code'])
+        apply_league_badge(embed, league_code)
 
         view = PendingSigningView(self, pending, player, team, season, league_display, league_code)
 
@@ -288,7 +300,8 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                 content=f"{player.mention} you have a new signing offer!",
                 embed=embed,
                 view=view,
-                allowed_mentions=discord.AllowedMentions(users=[player])
+                allowed_mentions=discord.AllowedMentions(users=[player]),
+                files=files,
             )
         except discord.Forbidden:
             self.repo.delete_pending_signing(pending['id'])

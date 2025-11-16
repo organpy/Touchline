@@ -10,6 +10,12 @@ import discord
 
 from cogs.score.roster_cache import RosterCache
 from utils.team_player_cache import TeamPlayerCache
+from utils.embed_assets import (
+    apply_league_badge,
+    apply_team_badge,
+    build_team_logo_payload,
+    target_thumbnail,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - hints only
     from .transactions import TransactionsCog
@@ -367,6 +373,12 @@ class ReleaseConfirmationModal(discord.ui.Modal):
             embed.add_field(name="Reason", value=reason, inline=False)
         embed.timestamp = datetime.utcnow()
 
+        files, thumbnail = build_team_logo_payload(self.team.get('code'))
+        if thumbnail:
+            target_thumbnail(embed, thumbnail)
+        apply_team_badge(embed, self.team.get('code'))
+        apply_league_badge(embed, self.league_code)
+
         logger.info("🔄 Invalidating roster cache for release")
 
         announcement_error = False
@@ -374,7 +386,7 @@ class ReleaseConfirmationModal(discord.ui.Modal):
             channel = interaction.guild.get_channel(self.channel_id)
             if isinstance(channel, discord.TextChannel):
                 try:
-                    await channel.send(embed=embed)
+                    await channel.send(embed=embed, files=files or None)
                 except discord.Forbidden:
                     logger.warning(
                         "Missing permissions to post release announcement in channel %s",
