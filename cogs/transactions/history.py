@@ -162,19 +162,19 @@ async def fetch_filtered_transactions(
 
         # Client-side filtering for team and player
         if team_code or player_name:
-            team_code_upper = team_code.upper() if team_code else None
+            team_code_lower = team_code.lower() if team_code else None
             player_name_lower = player_name.lower() if player_name else None
 
             filtered = []
             for txn in transactions:
                 # Team filter
-                if team_code_upper:
+                if team_code_lower:
                     from_team = txn.get('from_team', {}) or {}
                     to_team = txn.get('to_team', {}) or {}
-                    from_code = from_team.get('code', '').upper() if from_team else ''
-                    to_code = to_team.get('code', '').upper() if to_team else ''
+                    from_code = from_team.get('code', '').lower() if from_team else ''
+                    to_code = to_team.get('code', '').lower() if to_team else ''
 
-                    if team_code_upper not in (from_code, to_code):
+                    if team_code_lower not in (from_code, to_code):
                         continue
 
                 # Player filter

@@ -72,7 +72,7 @@ async def _player_name_autocomplete(
 
     if team_input:
         # Filter players by team
-        team = cache.get_team_by_code(team_input.strip().upper())
+        team = cache.get_team_by_code(team_input.strip().lower())
         if team:
             players = cache.get_team_players(team['id'])
         else:
@@ -196,18 +196,19 @@ async def _team_autocomplete(
     suggestions = []
     
     for team in teams:
-        code = (team.get('code') or '').upper()
+        code = (team.get('code') or '').lower()
         name = team.get('name') or code
         
         # Only include teams that are in the valid code list
-        if code.lower() not in valid_codes:
+        if code not in valid_codes:
             continue
         
-        label = f"{name} ({code})" if name and code and name.upper() != code else name or code
+        display_code = code.upper()
+        label = f"{name} ({display_code})" if name and code and name.upper() != display_code else name or display_code
         if current_lower and current_lower not in label.lower() and current_lower not in code.lower():
             continue
         
-        suggestions.append(app_commands.Choice(name=label[:100], value=code or name))
+        suggestions.append(app_commands.Choice(name=label[:100], value=code))
         if len(suggestions) >= 25:
             break
     

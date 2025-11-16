@@ -80,7 +80,7 @@ class TeamPlayerCache:
 
                 code = team.get('code')
                 if code:
-                    cls._teams_by_code[code.upper()] = team
+                    cls._teams_by_code[code.lower()] = team
             
             # Load players
             players_response = cls._supabase.table('players').select('*').execute()
@@ -213,7 +213,7 @@ class TeamPlayerCache:
     @classmethod
     def get_team_by_code(cls, team_code: str) -> Optional[dict]:
         """Get team by code (case-insensitive)."""
-        return cls._teams_by_code.get(team_code.upper())
+        return cls._teams_by_code.get(team_code.lower())
 
     @classmethod
     def get_all_teams(cls) -> List[dict]:

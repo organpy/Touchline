@@ -428,7 +428,7 @@ class StatsCogBase(commands.Cog):
         for code in candidate_codes:
             if not code:
                 continue
-            normalized = code.upper()
+            normalized = code.lower()
             if normalized in tried:
                 continue
             tried.add(normalized)

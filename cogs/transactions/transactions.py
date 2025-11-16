@@ -735,11 +735,11 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
 
         teams = await queries.get_all_teams(self.supabase, season['division_id'])
         team_by_id = {team['id']: team for team in teams}
-        team_by_code = {team['code'].upper(): team for team in teams}
+        team_by_code = {team['code'].lower(): team for team in teams}
 
         target_team = None
         if team_code:
-            target_team = team_by_code.get(team_code.upper())
+            target_team = team_by_code.get(team_code.lower())
             if not target_team:
                 await interaction.followup.send(
                     f"❌ Unknown team code `{team_code}` for the active division.",
