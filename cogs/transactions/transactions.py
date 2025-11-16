@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import asyncio
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 import discord
 from discord import app_commands, utils
@@ -125,6 +126,10 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         self.repo = TransactionsRepository(self.supabase)
         self.config = get_config_manager()
 
+        # Lock + tracking for preventing duplicate game recording (matches inspiration/cogs/score/report_score.py)
+        self._recording_lock: asyncio.Lock = asyncio.Lock()
+        self.active_recordings: Set[str] = set()  # Set of "team1_vs_team2" keys to prevent double-recording
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -164,7 +169,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         return display, league_code
 
     async def cog_load(self) -> None:
-        """Recover pending offers on cog load (bot restart)."""
+        """Recover pending offers on cog load (bot restart) and re-attach views so they're interactive."""
         logger.info("🔄 Recovering pending signing offers from database...")
         try:
             result = self.supabase.table('pending_signings').select('*').execute()
@@ -183,12 +188,13 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                     message_id = offer.get('message_id')
                     player_id = offer.get('player_id')
                     team_id = offer.get('team_id')
+                    signing_id = offer.get('id')
                     
-                    if not all([guild_id, channel_id, message_id, player_id, team_id]):
+                    if not all([guild_id, channel_id, message_id, player_id, team_id, signing_id]):
                         logger.warning(f"⚠️ Incomplete pending offer record: {offer['id']}")
                         continue
                     
-                    # Attempt to fetch the message
+                    # Attempt to fetch the message and re-attach the view
                     try:
                         guild = self.bot.get_guild(guild_id)
                         if not guild:
@@ -201,6 +207,21 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                             continue
                         
                         message = await channel.fetch_message(message_id)
+
+                        # Re-attach the view so the buttons work again
+                        view = PendingSigningView(
+                            repo=self.repo,
+                            signing_id=signing_id,
+                            player_id=player_id,
+                            team_id=team_id,
+                            guild_id=guild_id,
+                        )
+                        try:
+                            await message.edit(view=view)
+                            logger.info(f"✅ Recovered and re-attached view to pending offer message {message_id} in {channel.mention}")
+                        except discord.HTTPException as e:
+                            logger.warning(f"⚠️ Failed to edit message with new view: {e}. Message may still be readable.")
+
                         logger.info(f"✅ Recovered pending offer message {message_id} in {channel.mention}")
                     except discord.NotFound:
                         logger.warning(f"⚠️ Message {message_id} no longer exists for offer {offer['id']}")
@@ -213,6 +234,30 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                     logger.error(f"❌ Error recovering offer {offer.get('id')}: {exc}")
         except Exception as exc:  # pragma: no cover - network path
             logger.error(f"❌ Failed to recover pending offers: {exc}")
+
+    def _get_matchup_key(self, team1_code: str, team2_code: str) -> str:
+        """Generate a unique, order-independent key for a matchup (prevents duplicate recording)."""
+        teams = sorted([team1_code.lower(), team2_code.lower()])
+        key = f"{teams[0]}_vs_{teams[1]}"
+        logger.debug(f"Generated matchup key: {key} from teams {team1_code} and {team2_code}")
+        return key
+
+    async def acquire_recording_lock(self, team1: str, team2: str) -> Optional[str]:
+        """Attempt to acquire recording lock for a matchup. Returns matchup_key if successful, None if already recording."""
+        matchup_key = self._get_matchup_key(team1, team2)
+        async with self._recording_lock:
+            if matchup_key in self.active_recordings:
+                logger.warning(f"Recording already in progress for matchup {matchup_key}")
+                return None
+            self.active_recordings.add(matchup_key)
+            logger.info(f"✅ Acquired recording lock for matchup {matchup_key}. Active: {self.active_recordings}")
+            return matchup_key
+
+    async def release_recording_lock(self, matchup_key: str) -> None:
+        """Release recording lock for a matchup."""
+        async with self._recording_lock:
+            self.active_recordings.discard(matchup_key)
+            logger.info(f"✅ Released recording lock for matchup {matchup_key}. Remaining active: {self.active_recordings}")
 
     # ------------------------------------------------------------------
     # Signings
