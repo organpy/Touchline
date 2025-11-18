@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 IMAGES_DIR = ROOT_DIR / "images"
+FONTS_DIR = ROOT_DIR / "fonts"
 
 BASE_THEME = {
     "canvas_gradient": ((6, 10, 22), (27, 8, 35)),
@@ -36,20 +37,20 @@ BASE_THEME = {
 
 LEAGUE_THEME_OVERRIDES = {
     "NBL": {
-        "canvas_gradient": ((255, 247, 223), (247, 208, 128)),
-        "card_bg": (255, 252, 245, 255),
-        "card_border": (240, 200, 132, 255),
-        "header_gradient": ((255, 212, 124), (255, 166, 74)),
-        "text_primary": (48, 32, 12, 255),
-        "text_muted": (122, 95, 54, 255),
-        "text_stats": (94, 68, 32, 255),
-        "row_primary": (255, 242, 214, 255),
-        "row_alt": (255, 235, 198, 255),
-        "row_divider": (233, 198, 142, 255),
+        "canvas_gradient": ((45, 30, 18), (95, 60, 28)),
+        "card_bg": (52, 35, 20, 255),
+        "card_border": (111, 74, 38, 255),
+        "header_gradient": ((255, 247, 223), (255, 212, 124)),
+        "text_primary": (255, 250, 240, 255),
+        "text_muted": (236, 210, 160, 255),
+        "text_stats": (234, 199, 141, 255),
+        "row_primary": (64, 44, 24, 255),
+        "row_alt": (55, 36, 20, 255),
+        "row_divider": (122, 86, 44, 255),
         "rank_accent": {
-            1: (255, 210, 92, 255),
-            2: (212, 198, 182, 255),
-            3: (245, 182, 109, 255),
+            1: (255, 234, 173, 255),
+            2: (200, 175, 150, 255),
+            3: (248, 203, 129, 255),
         },
     },
     "MBL": {
@@ -145,10 +146,18 @@ def _find_logo_path(*candidates: Optional[str]) -> Optional[Path]:
 def _load_logo(path: Path, size: int) -> Optional[Image.Image]:
     try:
         image = Image.open(path).convert("RGBA")
-        return image.resize((size, size), Image.LANCZOS)
+        return _prepare_logo_image(image, size)
     except Exception:
         logger.warning("Failed to load logo %s", path)
         return None
+
+
+def _prepare_logo_image(image: Image.Image, size: int) -> Image.Image:
+    image.thumbnail((size, size), Image.LANCZOS)
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    offset = ((size - image.width) // 2, (size - image.height) // 2)
+    canvas.paste(image, offset, image)
+    return canvas
 
 
 def _draw_vertical_gradient(draw: ImageDraw.ImageDraw, bbox: Tuple[int, int, int, int], start_color, end_color):
@@ -164,10 +173,10 @@ def _draw_vertical_gradient(draw: ImageDraw.ImageDraw, bbox: Tuple[int, int, int
 
 def _load_fonts():
     try:
-        title_font = ImageFont.truetype("arial.ttf", 28)
-        subtitle_font = ImageFont.truetype("arial.ttf", 16)
-        header_font = ImageFont.truetype("arial.ttf", 14)
-        body_font = ImageFont.truetype("arial.ttf", 13)
+        title_font = ImageFont.truetype(FONTS_DIR / "Poppins-Bold.ttf", 28)
+        subtitle_font = ImageFont.truetype(FONTS_DIR / "Poppins-Regular.ttf", 16)
+        header_font = ImageFont.truetype(FONTS_DIR / "Poppins-Regular.ttf", 14)
+        body_font = ImageFont.truetype(FONTS_DIR / "Poppins-Regular.ttf", 13)
     except Exception:
         title_font = ImageFont.load_default()
         subtitle_font = ImageFont.load_default()

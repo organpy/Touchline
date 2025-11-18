@@ -94,5 +94,15 @@
     "mbl_west": ["venison-x", "the-breeze", "blue-ballers", "ghosts"],
     "ncba_east": ["south-point-sharks", "eastside-tigers", "east-bay-seagulls"],
     "ncba_west": ["west-bay-devils", "north-central-hawks", "northside-bobcats"]
+  },
+  "leagues_codes": {
+    "NBL": "NBL",
+    "MBL": "MBL",
+    "NCBA": "NCBA"
+  },
+  "leagues_full_names": {
+    "NBL": "National Bobble League",
+    "MBL": "Minor Bobble League",
+    "NCBA": "National College Bobble Association"
   }
 }
