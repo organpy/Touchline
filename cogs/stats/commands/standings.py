@@ -19,6 +19,7 @@ from cogs.stats.autocomplete import (
     _season_autocomplete,
 )
 from utils.embed_builder import EmbedBuilder
+from utils.standings_image_generator import generate_standings_image
 
 logger = logging.getLogger(__name__)
 
@@ -76,32 +77,45 @@ class StandingsCog(StatsCogBase):
             color=discord.Color.orange(),
         )
         builder.add_league_field("League", season_league_display, league_code)
-
-        # Build standings table
-        table_lines = ["```\nRk  Team              W  L  D  PF   PA   Diff"]
-        table_lines.append("-" * 55)
-
-        for rank, team in enumerate(standings_data, 1):
-            team_name = team.get('team_name', 'Unknown')[:15].ljust(15)
-            wins = str(team.get('wins', 0)).rjust(2)
-            losses = str(team.get('losses', 0)).rjust(2)
-            draws = str(team.get('draws', 0)).rjust(2)
-            pf = str(team.get('points_for', 0)).rjust(4)
-            pa = str(team.get('points_against', 0)).rjust(4)
-            diff = str(team.get('points_diff', 0)).rjust(5)
-
-            line = f"{rank:<2} {team_name}  {wins}  {losses}  {draws}  {pf}  {pa}  {diff}"
-            table_lines.append(line)
-
-        table_lines.append("```")
-        table_str = "\n".join(table_lines)
-
-        builder.add_field("Standings", table_str, inline=False)
         builder.add_timestamp()
         builder.set_footer_text("W = Wins, L = Losses, D = Draws, PF = Points For, PA = Points Against, Diff = Difference")
 
+        # Generate standings image
+        standings_image = generate_standings_image(
+            standings_data,
+            season_row.get('name', 'Unknown'),
+            season_league_display,
+        )
+
+        # Send response with image
         embed = builder.build()
-        await interaction.followup.send(embed=embed)
+        
+        if standings_image:
+            standings_file = discord.File(standings_image, filename="standings.png")
+            embed.set_image(url="attachment://standings.png")
+            await interaction.followup.send(embed=embed, file=standings_file)
+        else:
+            # Fallback to text table if image generation fails
+            table_lines = ["```\nRk  Team              W  L  D  PF   PA   Diff"]
+            table_lines.append("-" * 55)
+
+            for rank, team in enumerate(standings_data, 1):
+                team_name = team.get('team_name', 'Unknown')[:15].ljust(15)
+                wins = str(team.get('wins', 0)).rjust(2)
+                losses = str(team.get('losses', 0)).rjust(2)
+                draws = str(team.get('draws', 0)).rjust(2)
+                pf = str(team.get('points_for', 0)).rjust(4)
+                pa = str(team.get('points_against', 0)).rjust(4)
+                diff = str(team.get('points_diff', 0)).rjust(5)
+
+                line = f"{rank:<2} {team_name}  {wins}  {losses}  {draws}  {pf}  {pa}  {diff}"
+                table_lines.append(line)
+
+            table_lines.append("```")
+            table_str = "\n".join(table_lines)
+            builder.add_field("Standings", table_str, inline=False)
+            embed = builder.build()
+            await interaction.followup.send(embed=embed)
 
 
 async def setup(bot: commands.Bot) -> None:
