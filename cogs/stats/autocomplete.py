@@ -18,7 +18,6 @@ from db import get_supabase
 from utils.autocomplete_loader import get_metrics, get_team_codes
 from utils.team_player_cache import TeamPlayerCache
 from utils.autocomplete_helper import AutocompleteHelper
-from utils.caching import season_cache
 
 logger = logging.getLogger(__name__)
 

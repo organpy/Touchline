@@ -103,3 +103,38 @@ def get_team_codes() -> List[str]:
     for division_codes in team_codes_by_division.values():
         all_codes.extend(division_codes)
     return sorted(all_codes)
+
+
+def get_league_entries() -> List[Dict[str, str]]:
+    """Get league codes/names from autocomplete data."""
+    data = load_autocomplete_data()
+    codes_map = data.get("leagues_codes", {}) or {}
+    full_names = data.get("leagues_full_names", {}) or {}
+
+    entries: List[Dict[str, str]] = []
+    seen_codes = set()
+
+    for key, raw_code in codes_map.items():
+        code = (raw_code or key).upper()
+        seen_codes.add(code)
+        entries.append({
+            "code": code,
+            "name": full_names.get(key) or full_names.get(code) or code,
+        })
+
+    for key, name in full_names.items():
+        code = codes_map.get(key) or key
+        normalized = (code or key).upper()
+        if normalized in seen_codes:
+            continue
+        seen_codes.add(normalized)
+        entries.append({"code": normalized, "name": name})
+
+    special_all = (data.get("special_options", {}) or {}).get("all_leagues")
+    if special_all:
+        entries.append({
+            "code": special_all.get("value", "all").lower(),
+            "name": special_all.get("description") or special_all.get("name") or "All Leagues",
+        })
+
+    return entries

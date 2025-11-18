@@ -13,6 +13,7 @@ from db import queries, get_supabase
 from cogs.admin.base import AdminBaseManager, AdminUIView
 from cogs.admin.common import LazyInitView
 from utils.team_player_cache import TeamPlayerCache
+from utils.season_cache import SeasonCache
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -153,6 +154,7 @@ class CreateSeasonModal(discord.ui.Modal, title="Create New Season"):
                 # Refresh cache
                 try:
                     await TeamPlayerCache.refresh()
+                    await SeasonCache.refresh()
                 except Exception as cache_error:
                     logger.warning(f"Failed to refresh cache after creating season: {cache_error}")
 
@@ -235,6 +237,7 @@ class ActivateSeasonSelect(discord.ui.Select):
                 # Refresh cache
                 try:
                     await TeamPlayerCache.refresh()
+                    await SeasonCache.refresh()
                 except Exception as cache_error:
                     logger.warning(f"Failed to refresh cache after activating season: {cache_error}")
 

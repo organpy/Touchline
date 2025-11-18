@@ -22,6 +22,11 @@ BASE_THEME = {
     "card_bg": (26, 33, 49, 255),
     "card_border": (58, 74, 108, 255),
     "header_gradient": ((90, 134, 255), (176, 92, 255)),
+    "header_overlay": None,
+    "header_title_color": (245, 248, 255, 255),
+    "header_title_shadow": None,
+    "header_subtitle_color": (173, 187, 212, 255),
+    "header_subtitle_shadow": None,
     "text_primary": (245, 248, 255, 255),
     "text_muted": (173, 187, 212, 255),
     "text_stats": (223, 233, 255, 255),
@@ -40,7 +45,12 @@ LEAGUE_THEME_OVERRIDES = {
         "canvas_gradient": ((45, 30, 18), (95, 60, 28)),
         "card_bg": (52, 35, 20, 255),
         "card_border": (111, 74, 38, 255),
-        "header_gradient": ((255, 247, 223), (255, 212, 124)),
+        "header_gradient": ((192, 142, 86), (126, 74, 33)),
+        "header_overlay": (0, 0, 0, 120),
+        "header_title_color": (255, 250, 240, 255),
+        "header_title_shadow": (0, 0, 0, 160),
+        "header_subtitle_color": (255, 227, 176, 255),
+        "header_subtitle_shadow": (0, 0, 0, 140),
         "text_primary": (255, 250, 240, 255),
         "text_muted": (236, 210, 160, 255),
         "text_stats": (234, 199, 141, 255),
@@ -260,6 +270,9 @@ def generate_standings_image(
 
         header_bbox = (24, 24, card_width - 24, HEADER_BLOCK_HEIGHT)
         _draw_vertical_gradient(card_draw, header_bbox, *theme["header_gradient"])
+        header_overlay = theme.get("header_overlay")
+        if header_overlay:
+            card_draw.rectangle(header_bbox, fill=header_overlay)
 
         league_logo = _find_logo_path(league_code, league_name)
         logo_y = 24 + (HEADER_BLOCK_HEIGHT - LEAGUE_LOGO_SIZE) // 2
@@ -282,8 +295,22 @@ def generate_standings_image(
             )
 
         text_x = 40 + LEAGUE_LOGO_SIZE + 28
-        card_draw.text((text_x, logo_y + 10), league_name, fill=theme["text_primary"], font=title_font)
-        card_draw.text((text_x, logo_y + 58), f"Season {season_name}", fill=theme["text_muted"], font=subtitle_font)
+        title_color = theme.get("header_title_color", theme["text_primary"])
+        subtitle_color = theme.get("header_subtitle_color", theme["text_muted"])
+        title_shadow = theme.get("header_title_shadow")
+        subtitle_shadow = theme.get("header_subtitle_shadow")
+
+        title_position = (text_x, logo_y + 10)
+        subtitle_position = (text_x, logo_y + 58)
+
+        if title_shadow:
+            card_draw.text((title_position[0] + 2, title_position[1] + 2), league_name, fill=title_shadow, font=title_font)
+        card_draw.text(title_position, league_name, fill=title_color, font=title_font)
+
+        subtitle_text = f"Season {season_name}"
+        if subtitle_shadow:
+            card_draw.text((subtitle_position[0] + 1, subtitle_position[1] + 1), subtitle_text, fill=subtitle_shadow, font=subtitle_font)
+        card_draw.text(subtitle_position, subtitle_text, fill=subtitle_color, font=subtitle_font)
 
         table_x = INNER_MARGIN_X
         table_y = HEADER_BLOCK_HEIGHT + TABLE_MARGIN_TOP

@@ -12,8 +12,9 @@ from discord import app_commands
 
 from db import get_supabase, queries
 from utils.team_player_cache import TeamPlayerCache
-from utils.autocomplete_loader import load_autocomplete_data
+from utils.autocomplete_loader import load_autocomplete_data, get_league_entries
 from utils.team_data_provider import TeamDataProvider
+from utils.season_cache import SeasonCache
 
 logger = logging.getLogger(__name__)
 
@@ -182,25 +183,52 @@ class AutocompleteHelper:
     @staticmethod
     async def season_name_choices(current: str) -> List[app_commands.Choice[str]]:
         """Get season name choices (S10, S11, etc.)."""
-        supabase = get_supabase()
-
         try:
-            response = supabase.table("seasons").select("name, id").execute()
-            seasons = response.data or []
-        except Exception as e:
-            logger.error(f"Failed to fetch seasons: {e}")
+            seasons = await SeasonCache.ensure_ready()
+        except Exception as exc:
+            logger.error("Failed to load seasons for autocomplete: %s", exc, exc_info=True)
+            seasons = []
+
+        if not seasons:
             return []
 
         current_lower = current.lower()
-        filtered = [
-            s for s in seasons
-            if current_lower in s.get("name", "").lower()
-        ]
+        filtered = []
+        for season in seasons:
+            name = season.get("name", "")
+            if not name:
+                continue
+
+            division = season.get("division") or {}
+            league_code = (season.get("league_type") or division.get("league_type") or "").upper()
+            division_name = division.get("name") or season.get("division_name") or ""
+            search_blob = " ".join(filter(None, [name, league_code, division_name])).lower()
+            if current_lower and current_lower not in search_blob:
+                continue
+
+            filtered.append({
+                "name": name,
+                "league_code": league_code,
+                "division_name": division_name,
+                "active": season.get("active"),
+            })
+
+        if not filtered:
+            filtered = [
+                {
+                    "name": season.get("name", ""),
+                    "league_code": (season.get("league_type") or "").upper(),
+                    "division_name": (season.get("division") or {}).get("name", ""),
+                    "active": season.get("active"),
+                }
+                for season in seasons
+                if season.get("name")
+            ]
 
         return [
             app_commands.Choice(
-                name=s.get("name", ""),
-                value=s.get("id", "")
+                name=f"{'🟢' if s.get('active') else '⚪'} {s['name']} — {(s.get('division_name') or s.get('league_code') or 'League')}"[:100],
+                value=s["name"],
             )
             for s in filtered[:25]
         ]
@@ -210,26 +238,23 @@ class AutocompleteHelper:
     @staticmethod
     async def league_choices(current: str) -> List[app_commands.Choice[str]]:
         """Get league/division choices."""
-        supabase = get_supabase()
-
-        try:
-            response = supabase.table("divisions").select("league_type, name").execute()
-            divisions = response.data or []
-        except Exception as e:
-            logger.error(f"Failed to fetch divisions: {e}")
+        league_entries = get_league_entries()
+        if not league_entries:
             return []
 
         current_lower = current.lower()
         filtered = [
-            d for d in divisions
-            if current_lower in d.get("league_type", "").lower()
-            or current_lower in d.get("name", "").lower()
+            entry for entry in league_entries
+            if not current_lower
+            or current_lower in entry.get("code", "").lower()
+            or current_lower in entry.get("name", "").lower()
         ]
 
         return [
             app_commands.Choice(
-                name=f"{d.get('name', '')} ({d.get('league_type', '').upper()})",
-                value=d.get("league_type", "").upper()
+                name=f"{entry.get('name', 'Unknown')} ({entry.get('code', '').upper()})"[:100],
+                value=entry.get("code", ""),
             )
-            for d in filtered[:25]
+            for entry in filtered[:25]
+            if entry.get("code")
         ]

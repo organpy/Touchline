@@ -19,6 +19,7 @@ load_dotenv()
 from db import get_supabase
 from utils.config_manager import init_config_manager
 from utils.team_player_cache import TeamPlayerCache
+from utils.season_cache import SeasonCache
 
 # ============================================================================
 # CONFIG
@@ -110,6 +111,14 @@ class NBLBot(commands.Bot):
             logger.info("✅ TeamPlayerCache initialized")
         except Exception as e:
             logger.error(f"❌ Failed to initialize TeamPlayerCache: {e}", exc_info=True)
+
+        logger.info("🔄 Initializing SeasonCache...")
+        try:
+            SeasonCache.set_supabase(self.supabase)
+            await SeasonCache.refresh()
+            logger.info("✅ SeasonCache initialized")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize SeasonCache: {e}", exc_info=True)
         
         logger.info("🔄 Discovering cogs...")
         extensions = self.discover_cogs()
