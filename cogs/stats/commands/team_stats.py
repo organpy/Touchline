@@ -5,7 +5,6 @@ Team stats cogs: /team-stats, /team-average
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import Optional
 
 import discord
@@ -68,9 +67,6 @@ class TeamStatsCog(StatsCogBase):
         if not league_meta and team_row.get('league_code'):
             league_meta = await self._fetch_league_metadata(team_row['league_code'])
 
-        if not league_meta and team_row.get('league_code'):
-            league_meta = await self._fetch_league_metadata(team_row['league_code'])
-
         # Validate team in season
         team_in_season = await self._validate_team_in_season(team_row, season_row)
         if not team_in_season:
@@ -107,9 +103,11 @@ class TeamStatsCog(StatsCogBase):
             title=f"🏀 Team Stats — {team_display}",
             color=discord.Color.green(),
         )
-        builder.add_team_field("Team", team_display, team_code)
-        builder.add_field("Season", season_row.get('name', 'Unknown'), inline=True)
-        builder.add_league_field("League", season_league_display, league_code)
+        builder.add_team_badge(team_code)
+        builder.add_league_badge(league_code)
+        builder.add_team_field(team_code, fallback_name=team_display)
+        builder.add_season_field(season_row.get('name', 'Unknown'))
+        builder.add_league_field(league_code, league_name=season_league_display)
 
         totals_lines = [
             f"**Total Points**: {team_totals.get('total_points', 0)}",
@@ -123,7 +121,8 @@ class TeamStatsCog(StatsCogBase):
         builder.add_field("Season Totals", "\n".join(totals_lines), inline=False)
         builder.add_timestamp()
         builder.set_footer_text("Stats from all recorded team matches")
-        builder.add_team_image(team_code, as_thumbnail=True)
+        builder.add_team_image(team_code, position="thumbnail")
+        builder.add_league_image(league_code, position="image")
 
         embed, files = builder.build_with_files()
         await interaction.followup.send(embed=embed, files=files or None)
@@ -166,6 +165,9 @@ class TeamStatsCog(StatsCogBase):
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
+        if not league_meta and team_row.get('league_code'):
+            league_meta = await self._fetch_league_metadata(team_row['league_code'])
+
         # Validate team in season
         team_in_season = await self._validate_team_in_season(team_row, season_row)
         if not team_in_season:
@@ -202,9 +204,11 @@ class TeamStatsCog(StatsCogBase):
             title=f"📊 Team Per-Game Averages — {team_display}",
             color=discord.Color.blue(),
         )
-        builder.add_team_field("Team", team_display, team_code)
-        builder.add_field("Season", season_row.get('name', 'Unknown'), inline=True)
-        builder.add_league_field("League", season_league_display, league_code)
+        builder.add_team_badge(team_code)
+        builder.add_league_badge(league_code)
+        builder.add_team_field(team_code, fallback_name=team_display)
+        builder.add_season_field(season_row.get('name', 'Unknown'))
+        builder.add_league_field(league_code, league_name=season_league_display)
         builder.add_field("Games Played", str(team_avg.get('games_played', 0)), inline=False)
 
         avg_lines = [
@@ -219,7 +223,8 @@ class TeamStatsCog(StatsCogBase):
         builder.add_field("Per Game Averages", "\n".join(avg_lines), inline=False)
         builder.add_timestamp()
         builder.set_footer_text("Stats from all recorded team matches")
-        builder.add_team_image(team_code, as_thumbnail=True)
+        builder.add_team_image(team_code, position="thumbnail")
+        builder.add_league_image(league_code, position="image")
 
         embed, files = builder.build_with_files()
         await interaction.followup.send(embed=embed, files=files or None)

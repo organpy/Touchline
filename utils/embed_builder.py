@@ -15,8 +15,6 @@ from utils.embed_assets import (
     get_team_logo_file,
     get_league_logo_file,
     get_league_emoji,
-    build_team_logo_payload,
-    build_league_logo_payload,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,6 +69,12 @@ class EmbedBuilder:
 
         return self
 
+    def set_footer_text(self, text: str, icon_url: Optional[str] = None) -> "EmbedBuilder":
+        """Set footer text with optional icon."""
+        if text:
+            self.embed.set_footer(text=text, icon_url=icon_url)
+        return self
+
     def add_timestamp(self) -> "EmbedBuilder":
         """Add current timestamp to embed."""
         self.embed.timestamp = datetime.utcnow()
@@ -93,18 +97,33 @@ class EmbedBuilder:
         team_code: Optional[str],
         label: str = "Team",
         inline: bool = True,
+        fallback_name: Optional[str] = None,
     ) -> "EmbedBuilder":
         """Add formatted team field with code and emoji."""
-        if not team_code:
-            return self
-
         provider = TeamDataProvider()
-        team_name = provider.get_team_name(team_code)
-        if not team_name:
+        team = provider.get_team(team_code) if team_code else None
+
+        display_name = (team or {}).get("display_name") or fallback_name
+        code_value = (team or {}).get("code") or team_code
+        emoji = (team or {}).get("emoji")
+
+        if not display_name and not code_value:
             return self
 
-        emoji = provider.get_team_emoji(team_code)
-        value = f"{emoji} {team_name} (`{team_code.upper()}`)" if emoji else f"{team_name} (`{team_code.upper()}`)"
+        value_parts = []
+        if emoji:
+            value_parts.append(emoji)
+
+        if display_name and code_value:
+            value_parts.append(f"{display_name} (`{code_value.upper()}`)")
+        elif display_name:
+            value_parts.append(display_name)
+        elif code_value:
+            value_parts.append(f"(`{code_value.upper()}`)")
+
+        value = " ".join(value_parts) if value_parts else None
+        if not value:
+            return self
 
         return self.add_field(label, value, inline=inline)
 
@@ -116,11 +135,12 @@ class EmbedBuilder:
         inline: bool = True,
     ) -> "EmbedBuilder":
         """Add formatted league field with code and emoji."""
-        if not league_code:
+        display = league_name or (league_code.upper() if league_code else None)
+        if not display:
             return self
 
-        emoji = get_league_emoji(league_code)
-        value = f"{emoji} {league_name or league_code.upper()}" if emoji else (league_name or league_code.upper())
+        emoji = get_league_emoji(league_code) if league_code else None
+        value = f"{emoji} {display}" if emoji else display
 
         return self.add_field(label, value, inline=inline)
 
@@ -165,13 +185,9 @@ class EmbedBuilder:
     def add_team_image(
         self,
         team_code: Optional[str],
-        as_thumbnail: bool = True,
+        position: str = "thumbnail",
     ) -> "EmbedBuilder":
-        """
-        Add team image.
-        If as_thumbnail=True, sets as thumbnail.
-        Otherwise, adds to files list.
-        """
+        """Attach a team image as thumbnail or full image."""
         if not team_code:
             return self
 
@@ -181,20 +197,22 @@ class EmbedBuilder:
 
         self.files.append(file)
 
-        if as_thumbnail and file.filename:
+        if not file.filename:
+            return self
+
+        if position == "thumbnail":
             self.embed.set_thumbnail(url=f"attachment://{file.filename}")
+        elif position == "image":
+            self.embed.set_image(url=f"attachment://{file.filename}")
 
         return self
 
     def add_league_image(
         self,
         league_code: Optional[str],
-        as_thumbnail: bool = False,
+        position: str = "image",
     ) -> "EmbedBuilder":
-        """
-        Add league image.
-        If as_thumbnail=True, sets as thumbnail.
-        """
+        """Attach a league image as thumbnail or main image."""
         if not league_code:
             return self
 
@@ -204,8 +222,13 @@ class EmbedBuilder:
 
         self.files.append(file)
 
-        if as_thumbnail and file.filename:
+        if not file.filename:
+            return self
+
+        if position == "thumbnail":
             self.embed.set_thumbnail(url=f"attachment://{file.filename}")
+        else:
+            self.embed.set_image(url=f"attachment://{file.filename}")
 
         return self
 
@@ -241,11 +264,10 @@ class EmbedBuilder:
 
         if league_code:
             builder.add_league_badge(league_code)
+            builder.add_league_field(league_code, league_name)
+            builder.add_league_image(league_code, position="image")
 
         builder.add_season_field(season_name)
-
-        if league_code and league_name:
-            builder.add_league_field(league_code, league_name)
 
         builder.add_timestamp()
 
@@ -281,6 +303,8 @@ class EmbedBuilder:
         team1_code: Optional[str] = None,
         team2_code: Optional[str] = None,
         season_name: Optional[str] = None,
+        league_code: Optional[str] = None,
+        league_name: Optional[str] = None,
     ) -> "EmbedBuilder":
         """Create a player comparison embed."""
         title = f"⚔️ {player1_name} vs {player2_name}"
@@ -289,6 +313,11 @@ class EmbedBuilder:
             title=title,
             color=discord.Color.purple(),
         )
+
+        if league_code:
+            builder.add_league_badge(league_code)
+            builder.add_league_field(league_code, league_name)
+            builder.add_league_image(league_code, position="image")
 
         if season_name:
             builder.add_season_field(season_name)

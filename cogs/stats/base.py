@@ -264,6 +264,9 @@ class StatsCogBase(commands.Cog):
         try:
             player = await queries.get_player_by_name(self.supabase, player_name)
             if player:
+                cached_by_id = cache.get_player(player.get('id')) if player.get('id') else None
+                if cached_by_id:
+                    return cached_by_id
                 return player
         except Exception as exc:  # pragma: no cover - network failure path
             logger.error("Failed to resolve player %s: %s", player_name, exc)
@@ -282,6 +285,19 @@ class StatsCogBase(commands.Cog):
         active_memberships = player.get('active_memberships') or []
         if active_memberships:
             return active_memberships[0]
+
+        # Fallback to synthetic membership using current_* hints when available
+        current_membership = {
+            'team_id': player.get('current_team_id'),
+            'team_code': player.get('current_team_code'),
+            'team_name': player.get('current_team_name'),
+            'season_id': player.get('current_season_id'),
+            'season_name': player.get('current_season_name'),
+            'league_type': player.get('current_league_type'),
+            'league_name': player.get('current_league_name'),
+        }
+        if any(current_membership.values()):
+            return current_membership
 
         return None
 
@@ -444,5 +460,14 @@ class StatsCogBase(commands.Cog):
                     enriched['division_name'] = metadata.get('division_name')
                     enriched['static_metadata'] = metadata
                 enriched.setdefault('display_name', enriched.get('name'))
+
+                cache = TeamPlayerCache()
+                cache_team = cache.get_team_by_code(enriched.get('code', '')) if enriched.get('code') else None
+                if cache_team:
+                    enriched.setdefault('league_type', cache_team.get('league_type'))
+                    enriched.setdefault('league_name', cache_team.get('league_name'))
+                    enriched.setdefault('active_season_id', cache_team.get('active_season_id'))
+                    enriched.setdefault('active_season_name', cache_team.get('active_season_name'))
+
                 return enriched
         return None

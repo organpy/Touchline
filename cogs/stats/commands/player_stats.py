@@ -104,18 +104,23 @@ class PlayerStatsCog(StatsCogBase):
             league_meta = membership_league_meta or league_meta
         player_league_display = self._format_league_display(membership_league_meta)
         season_league_display = self._format_league_display(league_meta)
+        league_code = ((league_meta or {}).get('code') or (league_meta or {}).get('league_type') or '').upper()
         team_code = (membership or {}).get('team_code') or ''
         team_display = (membership or {}).get('team_name') or averages.get('team_name', 'Free Agent')
-        league_code = (league_meta or {}).get('league_type', '').upper() or ''
 
         # Build embed with EmbedBuilder
         builder = EmbedBuilder(
             title=f"📊 Season Averages — {player.get('display_name', player_name)}",
             color=discord.Color.blue(),
         )
-        builder.add_team_field("Team", team_display, team_code)
-        builder.add_field("Season", season_row.get('name', 'Unknown'), inline=True)
-        builder.add_league_field("League", season_league_display, league_code)
+        if team_code:
+            builder.add_team_badge(team_code)
+        if league_code:
+            builder.add_league_badge(league_code)
+
+        builder.add_team_field(team_code or None, fallback_name=team_display)
+        builder.add_season_field(season_row.get('name', 'Unknown'))
+        builder.add_league_field(league_code, league_name=season_league_display)
         builder.add_field("Games Played", str(averages.get('games_played', 0)), inline=True)
 
         production_lines = [
@@ -130,9 +135,9 @@ class PlayerStatsCog(StatsCogBase):
         builder.add_field("Per Game Stats", "\n".join(production_lines), inline=False)
         builder.add_timestamp()
         builder.set_footer_text("Stats sourced from recorded match data")
-        
+
         if team_code:
-            builder.add_team_image(team_code, as_thumbnail=True)
+            builder.add_team_image(team_code, position="thumbnail")
 
         embed, files = builder.build_with_files()
         await interaction.followup.send(embed=embed, files=files or None)
@@ -215,16 +220,21 @@ class PlayerStatsCog(StatsCogBase):
         season_league_display = self._format_league_display(league_meta)
         team_display = (membership or {}).get('team_name') or totals.get('team_name', 'Free Agent')
         team_code = (membership or {}).get('team_code') or ''
-        league_code = (league_meta or {}).get('league_type', '').upper() or ''
+        league_code = ((league_meta or {}).get('code') or (league_meta or {}).get('league_type') or '').upper()
 
         builder = EmbedBuilder(
             title=f"📈 Season Totals — {player.get('display_name', player_name)}",
             color=discord.Color.gold(),
         )
+        if team_code:
+            builder.add_team_badge(team_code)
+        if league_code:
+            builder.add_league_badge(league_code)
+
         builder.add_field("Player League", player_league_display, inline=True)
-        builder.add_field("Season", season_row.get('name', 'Unknown'), inline=True)
-        builder.add_league_field("Season League", season_league_display, league_code)
-        builder.add_team_field("Team", team_display, team_code)
+        builder.add_season_field(season_row.get('name', 'Unknown'),)
+        builder.add_league_field(league_code, league_name=season_league_display, label="Season League")
+        builder.add_team_field(team_code or None, fallback_name=team_display)
         builder.add_field("Games Played", str(totals.get('games_played', 0)), inline=True)
 
         totals_lines = [
@@ -239,9 +249,9 @@ class PlayerStatsCog(StatsCogBase):
         builder.add_field("Totals", "\n".join(totals_lines), inline=False)
         builder.add_timestamp()
         builder.set_footer_text("Stats sourced from recorded match data")
-        
+
         if team_code:
-            builder.add_team_image(team_code, as_thumbnail=True)
+            builder.add_team_image(team_code, position="thumbnail")
 
         embed, files = builder.build_with_files()
         await interaction.followup.send(embed=embed, files=files or None)
@@ -322,17 +332,22 @@ class PlayerStatsCog(StatsCogBase):
         season_league_display = self._format_league_display(league_meta)
         team_display = (membership or {}).get('team_name')
         team_code = (membership or {}).get('team_code') or ''
-        league_code = (league_meta or {}).get('league_type', '').upper() or ''
+        league_code = ((league_meta or {}).get('code') or (league_meta or {}).get('league_type') or '').upper()
 
         builder = EmbedBuilder(
             title=f"📋 Match History — {player.get('display_name', player_name)}",
             color=discord.Color.teal(),
         )
+        if team_code:
+            builder.add_team_badge(team_code)
+        if league_code:
+            builder.add_league_badge(league_code)
+
         builder.add_field("Player League", player_league_display, inline=True)
-        builder.add_field("Season", season_row.get('name', 'Unknown'), inline=True)
-        builder.add_league_field("Season League", season_league_display, league_code)
+        builder.add_season_field(season_row.get('name', 'Unknown'))
+        builder.add_league_field(league_code, league_name=season_league_display, label="Season League")
         if team_display:
-            builder.add_team_field("Team", team_display, team_code)
+            builder.add_team_field(team_code or None, fallback_name=team_display)
         builder.add_timestamp()
 
         for match in history[:limit]:
@@ -369,9 +384,9 @@ class PlayerStatsCog(StatsCogBase):
             builder.add_field("\u200b", line, inline=False)
 
         builder.set_footer_text("Most recent matches shown first")
-        
+
         if team_code:
-            builder.add_team_image(team_code, as_thumbnail=True)
+            builder.add_team_image(team_code, position="thumbnail")
 
         embed, files = builder.build_with_files()
         await interaction.followup.send(embed=embed, files=files or None)
