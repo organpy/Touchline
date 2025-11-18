@@ -122,7 +122,6 @@ class TeamStatsCog(StatsCogBase):
         builder.add_timestamp()
         builder.set_footer_text("Stats from all recorded team matches")
         builder.add_team_image(team_code, position="thumbnail")
-        builder.add_league_image(league_code, position="image")
 
         embed, files = builder.build_with_files()
         await interaction.followup.send(embed=embed, files=files or None)
@@ -224,7 +223,6 @@ class TeamStatsCog(StatsCogBase):
         builder.add_timestamp()
         builder.set_footer_text("Stats from all recorded team matches")
         builder.add_team_image(team_code, position="thumbnail")
-        builder.add_league_image(league_code, position="image")
 
         embed, files = builder.build_with_files()
         await interaction.followup.send(embed=embed, files=files or None)

@@ -26,6 +26,7 @@ class CachedTeam:
     code: str
     name: str
     emoji: Optional[str] = None
+    division_id: Optional[str] = None
     active_players: List[CachedPlayer] = None
 
     def __post_init__(self):
@@ -52,14 +53,15 @@ class RosterCache:
         """Load all teams and active rosters from Supabase at startup"""
         logger.info("🔄 Loading roster cache...")
         try:
-            # Get all teams across all divisions
-            teams_response = supabase_client.table('teams').select('*').execute()
+            # Get all teams across all divisions with division_id for league validation
+            teams_response = supabase_client.table('teams').select('id, code, name, emoji, division_id').execute()
             for team_row in teams_response.data:
                 team = CachedTeam(
                     team_id=team_row['id'],
                     code=team_row['code'],
                     name=team_row['name'],
-                    emoji=team_row.get('emoji')
+                    emoji=team_row.get('emoji'),
+                    division_id=team_row.get('division_id')
                 )
                 self.teams[team_row['code']] = team
                 logger.debug(f"  Cached team: {team_row['code']}")
@@ -113,6 +115,19 @@ class RosterCache:
     def get_team_by_code(self, code: str) -> Optional[CachedTeam]:
         """Get team by code"""
         return self.teams.get(code)
+
+    def teams_in_same_league(self, team_code1: str, team_code2: str) -> bool:
+        """Check if two teams are in the same league (division)"""
+        team1 = self.teams.get(team_code1)
+        team2 = self.teams.get(team_code2)
+        
+        if not team1 or not team2:
+            return False
+        
+        if not team1.division_id or not team2.division_id:
+            return False
+        
+        return team1.division_id == team2.division_id
 
     def get_all_teams(self) -> List[CachedTeam]:
         """Get all cached teams"""

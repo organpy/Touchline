@@ -75,6 +75,15 @@ class StatRegistrationCog(commands.Cog):
                 )
                 return
 
+            # Validate both teams are in the same league
+            if not self.roster_cache.teams_in_same_league(team1_code, team2_code):
+                await team_select_interaction.response.send_message(
+                    f"❌ **{team1_data.name}** and **{team2_data.name}** are in different leagues. "
+                    "Both teams must be from the same league.",
+                    ephemeral=True
+                )
+                return
+
             # Step 2: Show score entry modal
             async def on_scores_entered(team1_score: int, team2_score: int, score_interaction: discord.Interaction):
                 # Initialize match entry
