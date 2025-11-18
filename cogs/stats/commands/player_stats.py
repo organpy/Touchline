@@ -19,6 +19,7 @@ from cogs.stats.autocomplete import (
     _team_autocomplete,
     _league_autocomplete,
     _season_autocomplete,
+    _limit_autocomplete,
 )
 from utils.embed_builder import EmbedBuilder
 
@@ -40,6 +41,7 @@ class PlayerStatsCog(StatsCogBase):
         team=_team_autocomplete,
         league=_league_autocomplete,
         season=_season_autocomplete,
+        limit=_limit_autocomplete,
     )
     async def average(
         self,

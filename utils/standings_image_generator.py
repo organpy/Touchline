@@ -108,6 +108,8 @@ def _get_theme(league_code: Optional[str]) -> Dict[str, Any]:
 CANVAS_PADDING = 48
 CARD_CORNER_RADIUS = 36
 HEADER_BLOCK_HEIGHT = 150
+HEADER_TOP_PADDING = 32
+HEADER_SIDE_PADDING = 32
 ROW_HEIGHT = 68
 HEADER_HEIGHT = 56
 INNER_MARGIN_X = 70
@@ -224,6 +226,35 @@ def _measure_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFon
     return width, height
 
 
+def _truncate_text_to_width(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.ImageFont,
+    max_width: int,
+) -> str:
+    if not text:
+        return ""
+
+    clean_text = text.strip()
+    if not clean_text:
+        return ""
+
+    width, _ = _measure_text(draw, clean_text, font)
+    if width <= max_width:
+        return clean_text
+
+    ellipsis = "…"
+    trimmed = clean_text
+    while trimmed:
+        trimmed = trimmed[:-1]
+        candidate = f"{trimmed}{ellipsis}"
+        cand_width, _ = _measure_text(draw, candidate, font)
+        if cand_width <= max_width:
+            return candidate
+
+    return ellipsis
+
+
 def generate_standings_image(
     standings_data: List[Dict[str, Any]],
     season_name: str,
@@ -236,10 +267,19 @@ def generate_standings_image(
 
         theme = _get_theme(league_code)
 
+        team_column_width = COL_TEAM
+        if standings_data:
+            longest_name = max(len(team.get("name", "")) for team in standings_data)
+            # Scale roughly by character count but keep sensible bounds
+            team_column_width = min(max(COL_TEAM, longest_name * 12), 360)
+
+        if (league_code or "").upper() == "NCBA":
+            team_column_width = max(team_column_width, COL_TEAM + 40)
+
         table_width = (
             COL_RANK
             + COL_LOGO
-            + COL_TEAM
+            + team_column_width
             + COL_W
             + COL_L
             + COL_PF
@@ -248,7 +288,13 @@ def generate_standings_image(
         )
         table_height = HEADER_HEIGHT + ROW_HEIGHT * len(standings_data)
         card_width = table_width + (INNER_MARGIN_X * 2)
-        card_height = HEADER_BLOCK_HEIGHT + TABLE_MARGIN_TOP + table_height + TABLE_MARGIN_BOTTOM
+        card_height = (
+            HEADER_TOP_PADDING
+            + HEADER_BLOCK_HEIGHT
+            + TABLE_MARGIN_TOP
+            + table_height
+            + TABLE_MARGIN_BOTTOM
+        )
         canvas_width = card_width + CANVAS_PADDING * 2
         canvas_height = card_height + CANVAS_PADDING * 2
 
@@ -268,25 +314,47 @@ def generate_standings_image(
 
         title_font, subtitle_font, header_font, body_font = _load_fonts()
 
-        header_bbox = (24, 24, card_width - 24, HEADER_BLOCK_HEIGHT)
-        _draw_vertical_gradient(card_draw, header_bbox, *theme["header_gradient"])
+        header_width = card_width - (HEADER_SIDE_PADDING * 2)
+        header_x = HEADER_SIDE_PADDING
+        header_y = HEADER_TOP_PADDING
+        header_bbox = (0, 0, header_width, HEADER_BLOCK_HEIGHT)
+
+        header_layer = Image.new("RGBA", (header_width, HEADER_BLOCK_HEIGHT), (0, 0, 0, 0))
+        header_layer_draw = ImageDraw.Draw(header_layer)
+        _draw_vertical_gradient(header_layer_draw, header_bbox, *theme["header_gradient"])
+
         header_overlay = theme.get("header_overlay")
         if header_overlay:
-            card_draw.rectangle(header_bbox, fill=header_overlay)
+            header_layer_draw.rectangle(header_bbox, fill=header_overlay)
+
+        header_mask = Image.new("L", (header_width, HEADER_BLOCK_HEIGHT), 0)
+        mask_draw = ImageDraw.Draw(header_mask)
+        mask_draw.rounded_rectangle(
+            (0, 0, header_width, HEADER_BLOCK_HEIGHT + CARD_CORNER_RADIUS),
+            radius=CARD_CORNER_RADIUS,
+            fill=255,
+        )
+        mask_draw.rectangle(
+            (0, CARD_CORNER_RADIUS, header_width, HEADER_BLOCK_HEIGHT),
+            fill=255,
+        )
+
+        card.paste(header_layer, (header_x, header_y), header_mask)
 
         league_logo = _find_logo_path(league_code, league_name)
-        logo_y = 24 + (HEADER_BLOCK_HEIGHT - LEAGUE_LOGO_SIZE) // 2
+        logo_y = header_y + (HEADER_BLOCK_HEIGHT - LEAGUE_LOGO_SIZE) // 2
+        logo_x = header_x + 8
         if league_logo:
             logo_img = _load_logo(league_logo, LEAGUE_LOGO_SIZE)
         else:
             logo_img = None
 
         if logo_img:
-            card.paste(logo_img, (40, logo_y), logo_img)
+            card.paste(logo_img, (logo_x, logo_y), logo_img)
         else:
             _draw_circle_avatar(
                 card,
-                (40 + LEAGUE_LOGO_SIZE // 2, logo_y + LEAGUE_LOGO_SIZE // 2),
+                (logo_x + LEAGUE_LOGO_SIZE // 2, logo_y + LEAGUE_LOGO_SIZE // 2),
                 LEAGUE_LOGO_SIZE,
                 (league_code or "L")[:2].upper(),
                 fill_color=_to_rgba(theme["row_primary"]),
@@ -294,32 +362,35 @@ def generate_standings_image(
                 text_color=_to_rgba(theme["text_primary"]),
             )
 
-        text_x = 40 + LEAGUE_LOGO_SIZE + 28
+        text_x = logo_x + LEAGUE_LOGO_SIZE + 32
+        header_center_y = header_y + HEADER_BLOCK_HEIGHT // 2
         title_color = theme.get("header_title_color", theme["text_primary"])
         subtitle_color = theme.get("header_subtitle_color", theme["text_muted"])
         title_shadow = theme.get("header_title_shadow")
         subtitle_shadow = theme.get("header_subtitle_shadow")
 
-        title_position = (text_x, logo_y + 10)
-        subtitle_position = (text_x, logo_y + 58)
+        title_position = (text_x, header_center_y - 28)
+        subtitle_position = (text_x, header_center_y + 8)
 
         if title_shadow:
             card_draw.text((title_position[0] + 2, title_position[1] + 2), league_name, fill=title_shadow, font=title_font)
         card_draw.text(title_position, league_name, fill=title_color, font=title_font)
 
-        subtitle_text = f"Season {season_name}"
+        season_label = (season_name or "Season").upper()
+        clubs_text = f"{len(standings_data)} CLUBS" if standings_data else "STANDINGS"
+        subtitle_text = f"{season_label} • {clubs_text}"
         if subtitle_shadow:
             card_draw.text((subtitle_position[0] + 1, subtitle_position[1] + 1), subtitle_text, fill=subtitle_shadow, font=subtitle_font)
         card_draw.text(subtitle_position, subtitle_text, fill=subtitle_color, font=subtitle_font)
 
         table_x = INNER_MARGIN_X
-        table_y = HEADER_BLOCK_HEIGHT + TABLE_MARGIN_TOP
+        table_y = header_y + HEADER_BLOCK_HEIGHT + TABLE_MARGIN_TOP
         card_draw.rectangle((table_x, table_y, table_x + table_width, table_y + HEADER_HEIGHT), fill=theme["row_primary"])
 
         columns = [
             ("", COL_RANK),
             ("", COL_LOGO),
-            ("Team", COL_TEAM),
+            ("Team", team_column_width),
             ("W", COL_W),
             ("L", COL_L),
             ("PF", COL_PF),
@@ -390,8 +461,17 @@ def generate_standings_image(
                 )
             x += COL_LOGO
 
-            card_draw.text((x, row_top + ROW_HEIGHT / 2 - 12), team.get("name", "Unknown")[:24], fill=theme["text_primary"], font=body_font)
-            x += COL_TEAM
+            team_name = team.get("name", "Unknown")
+            team_display = _truncate_text_to_width(
+                card_draw,
+                team_name,
+                body_font,
+                max_width=team_column_width - 16,
+            ) or team_name[:24]
+            text_w, text_h = _measure_text(card_draw, team_display, body_font)
+            text_y = row_top + ROW_HEIGHT / 2 - text_h / 2
+            card_draw.text((x + 8, text_y), team_display, fill=theme["text_primary"], font=body_font)
+            x += team_column_width
 
             stats = [
                 str(team.get("wins", 0)),

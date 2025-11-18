@@ -102,3 +102,11 @@ async def _metric_autocomplete(
 ) -> List[app_commands.Choice[str]]:
     """Autocomplete for stat metrics (delegates to AutocompleteHelper)."""
     return await AutocompleteHelper.metric_choices(current)
+
+
+async def _limit_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> List[app_commands.Choice[int]]:
+    """Autocomplete for limit parameters (delegates to AutocompleteHelper)."""
+    return await AutocompleteHelper.limit_choices(current)

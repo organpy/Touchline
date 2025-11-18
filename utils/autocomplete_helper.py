@@ -46,8 +46,8 @@ class AutocompleteHelper:
         ]
 
     @staticmethod
-    async def limit_choices(current: str) -> List[app_commands.Choice[str]]:
-        """Get limit/result count choices (3, 5, 10, 15, 20, 25)."""
+    async def limit_choices(current: str) -> List[app_commands.Choice[int]]:
+        """Get limit/result count choices (3, 5, 10, 15, 20, 25) as integers."""
         data = load_autocomplete_data()
         limits = data.get("limits", [])
 
@@ -57,10 +57,22 @@ class AutocompleteHelper:
             if current_lower in l.get("name", "")
         ]
 
-        return [
-            app_commands.Choice(name=l.get("name", ""), value=l.get("value", ""))
-            for l in filtered[:25]
-        ]
+        choices: List[app_commands.Choice[int]] = []
+        for item in filtered[:25]:
+            raw_value = item.get("value") or item.get("name")
+            try:
+                int_value = int(str(raw_value))
+            except (TypeError, ValueError):
+                continue
+
+            choices.append(
+                app_commands.Choice(
+                    name=str(int_value),
+                    value=int_value,
+                )
+            )
+
+        return choices
 
     # ==================== TEAMS ====================
 

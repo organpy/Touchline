@@ -18,6 +18,7 @@ from cogs.stats.autocomplete import (
     _metric_autocomplete,
     _league_autocomplete,
     _season_autocomplete,
+    _limit_autocomplete,
 )
 from utils.embed_builder import EmbedBuilder
 
@@ -38,6 +39,7 @@ class LeaderboardCog(StatsCogBase):
         stat=_metric_autocomplete,
         league=_league_autocomplete,
         season=_season_autocomplete,
+        limit=_limit_autocomplete,
     )
     async def leaderboard(
         self,
