@@ -174,9 +174,18 @@ async def insert_player_stats_batch(supabase, stats_list: List[Dict[str, Any]]) 
 
 
 async def get_standings(supabase, season_id: str, league_type: str = 'NBL') -> List[Dict[str, Any]]:
-    """Get team standings from view_standings"""
+    """Get team standings from view_standings with team emoji"""
     try:
-        response = supabase.table('view_standings').select('*').eq('season_id', season_id).eq('league_type', league_type).execute()
+        response = supabase.table('view_standings').select(
+            '*, teams(emoji, code)'
+        ).eq('season_id', season_id).eq('league_type', league_type).execute()
+        
+        # Enrich standings data with team emoji from joined teams
+        if response.data:
+            for row in response.data:
+                if isinstance(row.get('teams'), dict):
+                    row['emoji'] = row['teams'].get('emoji', '')
+        
         return response.data if response.data else []
     except Exception as e:
         logger.error(f"Error fetching standings: {e}")

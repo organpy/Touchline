@@ -96,19 +96,19 @@ class StandingsCog(StatsCogBase):
             await interaction.followup.send(embed=embed, file=standings_file)
         else:
             # Fallback to text table if image generation fails
-            table_lines = ["```\nRk  Team              W  L  D  PF   PA   Diff"]
-            table_lines.append("-" * 55)
+            table_lines = ["```\nRk  Team              W  L  PF   PA   Diff"]
+            table_lines.append("-" * 50)
 
             for rank, team in enumerate(standings_data, 1):
-                team_name = team.get('team_name', 'Unknown')[:15].ljust(15)
+                emoji = team.get('emoji', '⚽')
+                team_name = team.get('name', 'Unknown')[:12].ljust(12)
                 wins = str(team.get('wins', 0)).rjust(2)
                 losses = str(team.get('losses', 0)).rjust(2)
-                draws = str(team.get('draws', 0)).rjust(2)
                 pf = str(team.get('points_for', 0)).rjust(4)
                 pa = str(team.get('points_against', 0)).rjust(4)
-                diff = str(team.get('points_diff', 0)).rjust(5)
+                diff = str(team.get('point_diff', 0)).rjust(5)
 
-                line = f"{rank:<2} {team_name}  {wins}  {losses}  {draws}  {pf}  {pa}  {diff}"
+                line = f"{rank:<2} {emoji} {team_name}  {wins}  {losses}  {pf}  {pa}  {diff}"
                 table_lines.append(line)
 
             table_lines.append("```")
