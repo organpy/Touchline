@@ -53,21 +53,27 @@ class StandingsCog(StatsCogBase):
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
+            league_code = (league_meta or {}).get('code') or season_row.get('league_type')
         # Fetch standings
         try:
-            standings_data = await queries.get_standings(self.supabase, season_row['id'])
+            standings_data = await queries.get_standings(
+                self.supabase,
+                season_row['id'],
+                league_type=(league_code or '').upper() or None,
+            )
         except Exception as exc:
             logger.error(f"Failed to fetch standings for season {season_row['id']}: {exc}")
             standings_data = None
 
         if not standings_data:
+            league_display = self._format_league_display(league_meta)
             await interaction.followup.send(
-                f"ℹ️ No standings data found for season `{season_row.get('name')}`."
+                f"ℹ️ No standings recorded for {league_display} — {season_row.get('name', 'Unknown')} yet."
             )
             return
 
         season_league_display = self._format_league_display(league_meta)
-        league_code = (league_meta or {}).get('code', '').upper() if league_meta else ''
+        league_code = (league_code or '').upper()
 
         # Generate standings image
         standings_image = generate_standings_image(

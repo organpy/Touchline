@@ -332,6 +332,16 @@ class StatsCogBase(commands.Cog):
             return f"{name} ({code})"
         return name or code or "Unknown"
 
+    @staticmethod
+    def _format_league_season_display(
+        league_meta: Optional[Dict[str, Any]],
+        season_row: Optional[Dict[str, Any]],
+    ) -> str:
+        """Combine league + season into a friendly display string."""
+        league_display = StatsCogBase._format_league_display(league_meta)
+        season_name = (season_row or {}).get('name', 'Unknown')
+        return f"{league_display} — {season_name}"
+
     async def _validate_player_in_season(self, player: Dict[str, Any], season: Dict[str, Any]) -> bool:
         """Check if player actually has a roster entry in this season."""
         if not player or not season:
