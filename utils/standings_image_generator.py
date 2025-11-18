@@ -402,8 +402,12 @@ def generate_standings_image(
         for text, width in columns:
             if text:
                 text_w, text_h = _measure_text(card_draw, text, header_font)
+                text_x = x + width / 2 - text_w / 2
+                if text.lower() == "team":
+                    text_x = x + 8
+
                 card_draw.text(
-                    (x + width / 2 - text_w / 2, table_y + HEADER_HEIGHT / 2 - text_h / 2),
+                    (text_x, table_y + HEADER_HEIGHT / 2 - text_h / 2),
                     text,
                     fill=theme["text_muted"],
                     font=header_font,

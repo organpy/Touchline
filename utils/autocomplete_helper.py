@@ -262,11 +262,15 @@ class AutocompleteHelper:
             or current_lower in entry.get("name", "").lower()
         ]
 
-        return [
-            app_commands.Choice(
-                name=f"{entry.get('name', 'Unknown')} ({entry.get('code', '').upper()})"[:100],
-                value=entry.get("code", ""),
-            )
-            for entry in filtered[:25]
-            if entry.get("code")
-        ]
+        choices: List[app_commands.Choice[str]] = []
+        for entry in filtered:
+            code = (entry.get("code") or "").strip()
+            if not code or code.lower() == "all":
+                continue
+
+            display = f"{entry.get('name', 'Unknown')} ({code.upper()})"[:100]
+            choices.append(app_commands.Choice(name=display, value=code))
+            if len(choices) >= 25:
+                break
+
+        return choices

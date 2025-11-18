@@ -130,11 +130,4 @@ def get_league_entries() -> List[Dict[str, str]]:
         seen_codes.add(normalized)
         entries.append({"code": normalized, "name": name})
 
-    special_all = (data.get("special_options", {}) or {}).get("all_leagues")
-    if special_all:
-        entries.append({
-            "code": special_all.get("value", "all").lower(),
-            "name": special_all.get("description") or special_all.get("name") or "All Leagues",
-        })
-
     return entries

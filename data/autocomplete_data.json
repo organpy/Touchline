@@ -62,13 +62,6 @@
       "value": "25"
     }
   ],
-  "special_options": {
-    "all_leagues": {
-      "name": "all",
-      "value": "all",
-      "description": "Show top players across all active leagues"
-    }
-  },
   "stat_fields": {
     "points": "Points",
     "assists": "Assists",
@@ -80,7 +73,7 @@
   },
   "descriptions": {
     "metric": "Stat to rank by (points, assists, goals, saves, blocks, own_goals, pp_plays)",
-    "league": "League code or name (use 'all' for cross-league rankings)",
+    "league": "League code or name (leave blank for all active leagues)",
     "season": "Season name (e.g., S10). Defaults to active season",
     "team": "Team name or code (optional filter)",
     "player": "Player display name",
