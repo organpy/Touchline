@@ -5,20 +5,18 @@ Standings cog: /standings command
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import Optional
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from db import get_supabase, queries
+from db import queries
 from cogs.stats.base import StatsCogBase
 from cogs.stats.autocomplete import (
     _league_autocomplete,
     _season_autocomplete,
 )
-from utils.embed_builder import EmbedBuilder
 from utils.standings_image_generator import generate_standings_image
 
 logger = logging.getLogger(__name__)
@@ -68,17 +66,8 @@ class StandingsCog(StatsCogBase):
             )
             return
 
-        # Build embed
         season_league_display = self._format_league_display(league_meta)
         league_code = (league_meta or {}).get('code', '').upper() if league_meta else ''
-        
-        builder = EmbedBuilder(
-            title=f"🏆 Standings — {season_row.get('name')}",
-            color=discord.Color.orange(),
-        )
-        builder.add_league_field("League", season_league_display, league_code)
-        builder.add_timestamp()
-        builder.set_footer_text("W = Wins, L = Losses, D = Draws, PF = Points For, PA = Points Against, Diff = Difference")
 
         # Generate standings image
         standings_image = generate_standings_image(
@@ -88,16 +77,13 @@ class StandingsCog(StatsCogBase):
             league_code=league_code,
         )
 
-        # Send response with image
-        embed = builder.build()
-        
         if standings_image:
             standings_file = discord.File(standings_image, filename="standings.png")
-            embed.set_image(url="attachment://standings.png")
-            await interaction.followup.send(embed=embed, file=standings_file)
+            await interaction.followup.send(file=standings_file)
         else:
             # Fallback to text table if image generation fails
-            table_lines = ["```\nRk  Team              W  L  PF   PA   Diff"]
+            header = f"Standings — {season_league_display} ({season_row.get('name', 'Unknown')})"
+            table_lines = [header, "```", "Rk  Team              W  L  PF   PA   Diff"]
             table_lines.append("-" * 50)
 
             for rank, team in enumerate(standings_data, 1):
@@ -113,10 +99,7 @@ class StandingsCog(StatsCogBase):
                 table_lines.append(line)
 
             table_lines.append("```")
-            table_str = "\n".join(table_lines)
-            builder.add_field("Standings", table_str, inline=False)
-            embed = builder.build()
-            await interaction.followup.send(embed=embed)
+            await interaction.followup.send("\n".join(table_lines))
 
 
 async def setup(bot: commands.Bot) -> None:
