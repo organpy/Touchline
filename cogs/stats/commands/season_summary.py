@@ -18,6 +18,7 @@ from cogs.stats.autocomplete import (
     _league_autocomplete,
     _season_autocomplete,
 )
+from utils.embed_builder import EmbedBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -80,17 +81,19 @@ class SeasonSummaryCog(StatsCogBase):
 
         # Build embed
         season_league_display = self._format_league_display(league_meta)
-        embed = discord.Embed(
-            title=f"Season Summary — {season_row.get('name')}",
+        league_code = (league_meta or {}).get('code', '').upper() if league_meta else ''
+        
+        builder = EmbedBuilder(
+            title=f"🎯 Season Summary — {season_row.get('name')}",
             color=discord.Color.gold(),
         )
-        embed.add_field(name="League", value=season_league_display, inline=True)
-        embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
-        embed.add_field(name="Total Matches Played", value=str(total_matches), inline=True)
+        builder.add_league_field("League", season_league_display, league_code)
+        builder.add_field("Season", season_row.get('name', 'Unknown'), inline=True)
+        builder.add_field("Total Matches Played", str(total_matches), inline=True)
 
         # Quick stats
         total_teams = len(standings_data)
-        embed.add_field(name="Total Teams", value=str(total_teams), inline=True)
+        builder.add_field("Total Teams", str(total_teams), inline=True)
 
         # Top teams
         if standings_data and len(standings_data) >= 3:
@@ -99,19 +102,20 @@ class SeasonSummaryCog(StatsCogBase):
                 f"{idx+1}. {team.get('team_name', 'Unknown')} ({team.get('wins', 0)}-{team.get('losses', 0)}-{team.get('draws', 0)})"
                 for idx, team in enumerate(top_3)
             )
-            embed.add_field(name="Top 3 Teams (by Wins)", value=top_teams_str, inline=False)
+            builder.add_field("Top 3 Teams (by Wins)", top_teams_str, inline=False)
 
         # Top scorer
         if top_scorer:
-            embed.add_field(
-                name="Top Scorer",
-                value=f"{top_scorer.get('player_name', 'Unknown')}: {top_scorer.get('value', 0)} points",
+            builder.add_field(
+                "Top Scorer",
+                f"{top_scorer.get('player_name', 'Unknown')}: {top_scorer.get('value', 0)} points",
                 inline=False,
             )
 
-        embed.timestamp = datetime.utcnow()
-        embed.set_footer(text="Season overview from recorded data")
+        builder.add_timestamp()
+        builder.set_footer_text("Season overview from recorded data")
 
+        embed = builder.build()
         await interaction.followup.send(embed=embed)
 
 

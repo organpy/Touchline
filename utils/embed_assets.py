@@ -167,3 +167,28 @@ def build_team_logo_payload(team_code: Optional[str], suffix: str = "logo") -> t
     if file:
         return [file], file.filename
     return [], None
+
+
+def build_league_logo_payload(league_code: Optional[str], suffix: str = "logo") -> tuple[list[discord.File], Optional[str]]:
+    """Build payload for league logo (file + filename for attachments)."""
+    if not league_code:
+        return [], None
+    filename = f"{league_code.upper()}_{suffix}.png"
+    file = get_league_logo_file(league_code, filename=filename)
+    if file:
+        return [file], file.filename
+    return [], None
+
+
+def get_all_team_codes() -> list[str]:
+    """Get all team codes (flat list, sorted)."""
+    _load_teams()
+    return sorted(_teams_by_code.keys())
+
+
+def get_team_full_info(team_code: Optional[str]) -> Optional[dict]:
+    """Get complete team info including code, display name, emoji, region."""
+    if not team_code:
+        return None
+    _load_teams()
+    return _teams_by_code.get(team_code.lower())

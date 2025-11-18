@@ -19,11 +19,7 @@ from cogs.stats.autocomplete import (
     _league_autocomplete,
     _season_autocomplete,
 )
-from utils.embed_assets import (
-    apply_league_badge,
-    build_team_logo_payload,
-    target_thumbnail,
-)
+from utils.embed_builder import EmbedBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -94,23 +90,21 @@ class LeaderboardCog(StatsCogBase):
             )
             return
 
-        # Build embed with styling
+        # Build embed with EmbedBuilder for consistency and styling
         season_league_display = self._format_league_display(league_meta)
         league_code = (league_meta or {}).get('league_type', '').upper() or ''
-        stat_display = stat.title()
+        stat_display = stat.title().replace("_", " ")
         
-        # Get first place player's team for logo
-        first_place_team = leaderboard_data[0].get('team_code', '') if leaderboard_data else ''
-        files, thumbnail = build_team_logo_payload(first_place_team) if first_place_team else ([], None)
-        files = files or []
-        
-        embed = discord.Embed(
-            title=f"🏆 Leaderboard — {stat_display}",
-            color=discord.Color.gold(),
+        # Create leaderboard embed using EmbedBuilder factory
+        builder = EmbedBuilder.leaderboard(
+            stat_name=stat_display,
+            season_name=season_row.get('name', 'Unknown'),
+            league_code=league_code,
+            league_name=season_league_display,
         )
-        embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
-        embed.add_field(name="League", value=season_league_display, inline=True)
-        embed.add_field(name="Top Entries", value=str(min(limit, len(leaderboard_data))), inline=True)
+        
+        # Add top entries count
+        builder.add_field("Top Entries", str(min(limit, len(leaderboard_data))), inline=True)
 
         # Add leaderboard rows with medal emojis
         medals = ["🥇", "🥈", "🥉"]
@@ -125,22 +119,20 @@ class LeaderboardCog(StatsCogBase):
                 value_str = str(value)
 
             medal = medals[rank - 1] if rank <= 3 else f"#{rank}"
-            team_display = f" ({team_code})" if team_code else ""
+            team_display = f" ({team_code.upper()})" if team_code else ""
 
-            embed.add_field(
-                name=f"{medal} Rank {rank}",
-                value=f"**{player_name}** {team_display}: {value_str}",
-                inline=False,
+            builder.add_stat_field(
+                f"**{player_name}**{team_display}",
+                value_str,
+                rank=rank,
             )
 
-        embed.timestamp = datetime.utcnow()
-        embed.set_footer(text="From recorded matches")
-        
-        # Add styling
-        if thumbnail:
-            target_thumbnail(embed, thumbnail)
-        apply_league_badge(embed, league_code)
+        # Get first place player's team for logo and add team image if available
+        first_place_team = leaderboard_data[0].get('team_code', '') if leaderboard_data else ''
+        if first_place_team:
+            builder.add_team_image(first_place_team, as_thumbnail=True)
 
+        embed, files = builder.build_with_files()
         await interaction.followup.send(embed=embed, files=files)
 
 

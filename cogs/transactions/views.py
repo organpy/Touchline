@@ -10,12 +10,7 @@ import discord
 
 from cogs.score.roster_cache import RosterCache
 from utils.team_player_cache import TeamPlayerCache
-from utils.embed_assets import (
-    apply_league_badge,
-    apply_team_badge,
-    build_team_logo_payload,
-    target_thumbnail,
-)
+from utils.embed_builder import EmbedBuilder
 
 if TYPE_CHECKING:  # pragma: no cover - hints only
     from .transactions import TransactionsCog
@@ -61,10 +56,23 @@ class PendingSigningView(discord.ui.View):
         self.pending_signing = pending
 
     def _decorate_embed(self, embed: discord.Embed) -> None:
-        if self.team_logo_filename:
-            target_thumbnail(embed, self.team_logo_filename)
-        apply_team_badge(embed, self.team.get('code'))
-        apply_league_badge(embed, self.league_code)
+        """Add team and league branding to embed."""
+        # Add team emoji to title
+        from utils.team_data_provider import TeamDataProvider
+        provider = TeamDataProvider()
+        emoji = provider.get_team_emoji(self.team.get('code'))
+        if emoji and embed.title:
+            embed.title = f"{emoji} {embed.title}"
+        
+        # Add league emoji to footer
+        from utils.embed_assets import get_league_emoji
+        league_emoji = get_league_emoji(self.league_code)
+        if league_emoji:
+            footer_text = getattr(embed.footer, "text", "") or ""
+            if footer_text:
+                embed.set_footer(text=f"{league_emoji} {footer_text}")
+            else:
+                embed.set_footer(text=league_emoji)
 
     async def _finalize(self, embed: discord.Embed) -> None:
         self._decorate_embed(embed)
@@ -368,29 +376,24 @@ class ReleaseConfirmationModal(discord.ui.Modal):
         logger.info("🔄 Invalidating team player cache for release")
         await TeamPlayerCache.refresh()
 
-        embed = discord.Embed(
+        # Build embed with EmbedBuilder
+        league_value = self.league_display or (self.league_code or self.season.get('league_type') or 'Unknown League')
+        builder = EmbedBuilder(
             title="Player Released",
             description=f"{self.player_member.mention} has been released from **{self.team['name']}**.",
             color=discord.Color.orange()
         )
-        league_value = self.league_display or (self.league_code or self.season.get('league_type') or 'Unknown League')
-        embed.add_field(name="League", value=league_value, inline=True)
-        embed.add_field(name="Season", value=self.season_name, inline=True)
-        embed.add_field(name="Player", value=str(self.player_member), inline=True)
-        embed.add_field(name="Team", value=f"{self.team['name']} (`{self.team['code']}`)", inline=True)
-        embed.add_field(name="Released By", value=interaction.user.mention, inline=True)
+        builder.add_team_field("Team", self.team.get('name'), self.team.get('code'))
+        builder.add_league_field("League", league_value, self.league_code)
+        builder.add_field("Season", self.season_name, inline=True)
+        builder.add_field("Player", str(self.player_member), inline=True)
+        builder.add_field("Released By", interaction.user.mention, inline=True)
         if reason:
-            embed.add_field(name="Reason", value=reason, inline=False)
-        embed.timestamp = datetime.utcnow()
-
-        files, thumbnail = build_team_logo_payload(self.team.get('code'))
-        if thumbnail:
-            target_thumbnail(embed, thumbnail)
-        apply_team_badge(embed, self.team.get('code'))
-        apply_league_badge(embed, self.league_code)
-
-        logger.info("🔄 Invalidating roster cache for release")
-
+            builder.add_field("Reason", reason, inline=False)
+        builder.add_timestamp()
+        builder.add_team_image(self.team.get('code'), as_thumbnail=True)
+        
+        embed, files = builder.build_with_files()        
         announcement_error = False
         if self.channel_id:
             channel = interaction.guild.get_channel(self.channel_id)

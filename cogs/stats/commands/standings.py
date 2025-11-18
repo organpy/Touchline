@@ -18,6 +18,7 @@ from cogs.stats.autocomplete import (
     _league_autocomplete,
     _season_autocomplete,
 )
+from utils.embed_builder import EmbedBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +69,13 @@ class StandingsCog(StatsCogBase):
 
         # Build embed
         season_league_display = self._format_league_display(league_meta)
-        embed = discord.Embed(
-            title=f"Standings — {season_row.get('name')}",
+        league_code = (league_meta or {}).get('code', '').upper() if league_meta else ''
+        
+        builder = EmbedBuilder(
+            title=f"🏆 Standings — {season_row.get('name')}",
             color=discord.Color.orange(),
         )
-        embed.add_field(name="League", value=season_league_display, inline=True)
+        builder.add_league_field("League", season_league_display, league_code)
 
         # Build standings table
         table_lines = ["```\nRk  Team              W  L  D  PF   PA   Diff"]
@@ -93,10 +96,11 @@ class StandingsCog(StatsCogBase):
         table_lines.append("```")
         table_str = "\n".join(table_lines)
 
-        embed.add_field(name="Standings", value=table_str, inline=False)
-        embed.timestamp = datetime.utcnow()
-        embed.set_footer(text="W = Wins, L = Losses, D = Draws, PF = Points For, PA = Points Against, Diff = Difference")
+        builder.add_field("Standings", table_str, inline=False)
+        builder.add_timestamp()
+        builder.set_footer_text("W = Wins, L = Losses, D = Draws, PF = Points For, PA = Points Against, Diff = Difference")
 
+        embed = builder.build()
         await interaction.followup.send(embed=embed)
 
 

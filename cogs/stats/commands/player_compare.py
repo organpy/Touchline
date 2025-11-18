@@ -19,6 +19,7 @@ from cogs.stats.autocomplete import (
     _league_autocomplete,
     _season_autocomplete,
 )
+from utils.embed_builder import EmbedBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -109,14 +110,20 @@ class PlayerCompareCog(StatsCogBase):
             )
             return
 
-        # Build comparison embed
+        # Build comparison embed using EmbedBuilder
         season_league_display = self._format_league_display(league_meta)
-        embed = discord.Embed(
-            title=f"Player Comparison — {season_row.get('name')}",
-            color=discord.Color.purple(),
+        player_a_name = player_a.get('display_name', player_1)
+        player_b_name = player_b.get('display_name', player_2)
+        
+        builder = EmbedBuilder.comparison(
+            player_a_name,
+            player_b_name,
+            season_name=season_row.get('name', 'Unknown'),
         )
-        embed.add_field(name="Season League", value=season_league_display, inline=True)
-        embed.add_field(name="Season", value=season_row.get('name', 'Unknown'), inline=True)
+        builder.add_league_field(
+            (league_meta or {}).get('league_type', '').upper(),
+            season_league_display,
+        )
 
         stats_to_show = [
             ("Games Played", "games_played"),
@@ -144,10 +151,10 @@ class PlayerCompareCog(StatsCogBase):
 
             rows.append(f"{stat_name}: {val_a_str} vs {val_b_str}")
 
-        embed.add_field(name="Per Game Stats", value="\n".join(rows), inline=False)
-        embed.timestamp = datetime.utcnow()
-        embed.set_footer(text="Bold indicates higher stat. Stats from recorded matches.")
-
+        builder.add_field("Per Game Stats", "\n".join(rows), inline=False)
+        builder.embed.set_footer(text="Bold indicates higher stat. Stats from recorded matches.")
+        
+        embed = builder.build()
         await interaction.followup.send(embed=embed)
 
 

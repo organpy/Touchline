@@ -18,6 +18,7 @@ from db import get_supabase, queries
 from db.transactions_repository import TransactionsRepository
 from utils.config_manager import get_config_manager
 from utils.team_player_cache import TeamPlayerCache
+from utils.autocomplete_helper import AutocompleteHelper
 from utils.embed_assets import (
     apply_league_badge,
     apply_team_badge,
@@ -31,90 +32,21 @@ from .history import fetch_filtered_transactions, build_history_embed
 
 logger = logging.getLogger(__name__)
 
-# Load teams.json at module level
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent
-TEAMS_FILE = ROOT_DIR / "teams.json"
-
-_TEAMS_DATA: Dict[str, Dict[str, Any]] = {}
-
-def _load_teams_data() -> Dict[str, Dict[str, Any]]:
-    """Load and cache teams data from teams.json."""
-    global _TEAMS_DATA
-    if _TEAMS_DATA:
-        return _TEAMS_DATA
-    
-    try:
-        with TEAMS_FILE.open("r", encoding="utf-8") as fh:
-            raw = json.load(fh)
-    except Exception as e:
-        logger.warning(f"Failed to load teams.json: {e}")
-        return {}
-    
-    # Flatten structure: {region: {team_name: {code, emoji}}} -> {code: {name, emoji}}
-    teams = {}
-    for region, region_teams in (raw or {}).items():
-        for team_name, team_data in (region_teams or {}).items():
-            code = team_data.get("code", "").lower()
-            if code:
-                teams[code] = {
-                    "name": team_name,
-                    "emoji": team_data.get("emoji"),
-                    "region": region,
-                }
-    
-    _TEAMS_DATA = teams
-    return teams
-
 
 async def autocomplete_team_code(
     interaction: discord.Interaction,
     current: str,
 ) -> list[app_commands.Choice[str]]:
-    """Autocomplete team codes from teams.json, showing team name."""
-    teams = _load_teams_data()
-    
-    current_lower = current.lower()
-    filtered = [
-        (code, data) for code, data in teams.items()
-        if current_lower in code or current_lower in data["name"].lower()
-    ]
-    
-    # Sort by code and return as choices with team name as display name
-    choices = [
-        app_commands.Choice(
-            name=f"{data['name']} ({code})",
-            value=code
-        )
-        for code, data in sorted(filtered, key=lambda x: x[0])[:25]
-    ]
-    
-    return choices
+    """Autocomplete team codes (delegates to AutocompleteHelper)."""
+    return await AutocompleteHelper.team_code_choices(current)
 
 
 async def autocomplete_team_player(
     interaction: discord.Interaction,
     current: str,
 ) -> list[app_commands.Choice[str]]:
-    """Autocomplete player names on user's team."""
-    cache = TeamPlayerCache()
-    supabase = get_supabase()
-    
-    # Get user's team
-    team = await queries.get_team_by_owner(supabase, interaction.user.id)
-    if not team:
-        return []
-    
-    # Get players on that team
-    player_names = cache.get_team_player_names(team['id'])
-    
-    # Filter to matching names
-    filtered = [name for name in player_names if current.lower() in name.lower()]
-    
-    # Return as choices (max 25)
-    return [
-        app_commands.Choice(name=name, value=name)
-        for name in filtered[:25]
-    ]
+    """Autocomplete player names on user's team (delegates to AutocompleteHelper)."""
+    return await AutocompleteHelper.player_on_team_choices(interaction, current)
 
 
 class TransactionsCog(commands.GroupCog, name="transactions"):
