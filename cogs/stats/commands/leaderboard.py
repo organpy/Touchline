@@ -130,7 +130,7 @@ class LeaderboardCog(StatsCogBase):
         # Get first place player's team for logo and add team image if available
         first_place_team = leaderboard_data[0].get('team_code', '') if leaderboard_data else ''
         if first_place_team:
-            builder.add_team_image(first_place_team, as_thumbnail=True)
+            builder.add_team_image(first_place_team, position="thumbnail")
 
         embed, files = builder.build_with_files()
         await interaction.followup.send(embed=embed, files=files)

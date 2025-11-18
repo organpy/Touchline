@@ -265,7 +265,6 @@ class EmbedBuilder:
         if league_code:
             builder.add_league_badge(league_code)
             builder.add_league_field(league_code, league_name)
-            builder.add_league_image(league_code, position="image")
 
         builder.add_season_field(season_name)
 
@@ -317,7 +316,6 @@ class EmbedBuilder:
         if league_code:
             builder.add_league_badge(league_code)
             builder.add_league_field(league_code, league_name)
-            builder.add_league_image(league_code, position="image")
 
         if season_name:
             builder.add_season_field(season_name)

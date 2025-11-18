@@ -112,6 +112,7 @@ class PlayerCompareCog(StatsCogBase):
 
         # Build comparison embed using EmbedBuilder
         season_league_display = self._format_league_display(league_meta)
+        league_code = (league_meta or {}).get('code', '').upper() or ''
         player_a_name = player_a.get('display_name', player_1)
         player_b_name = player_b.get('display_name', player_2)
         
@@ -119,10 +120,8 @@ class PlayerCompareCog(StatsCogBase):
             player_a_name,
             player_b_name,
             season_name=season_row.get('name', 'Unknown'),
-        )
-        builder.add_league_field(
-            (league_meta or {}).get('league_type', '').upper(),
-            season_league_display,
+            league_code=league_code,
+            league_name=season_league_display,
         )
 
         stats_to_show = [
