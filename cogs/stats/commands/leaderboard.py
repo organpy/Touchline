@@ -60,6 +60,8 @@ class LeaderboardCog(StatsCogBase):
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
+        league_season_display = self._format_league_season_display(league_meta, season_row)
+
         # Validate stat
         valid_stats = [
             'points', 'assists', 'blocks', 'goals', 'saves', 'own_goals',
@@ -86,7 +88,7 @@ class LeaderboardCog(StatsCogBase):
 
         if not leaderboard_data:
             await interaction.followup.send(
-                f"ℹ️ No leaderboard data found for **{stat}** in season `{season_row.get('name')}`."
+                f"ℹ️ No leaderboard data found for **{stat}** in {league_season_display}."
             )
             return
 

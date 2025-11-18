@@ -67,6 +67,8 @@ class PlayerStatsCog(StatsCogBase):
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
+        league_season_display = self._format_league_season_display(league_meta, season_row)
+
         # Validate player plays in this season
         player_in_season = await self._validate_player_in_season(player, season_row)
         if not player_in_season:
@@ -94,7 +96,7 @@ class PlayerStatsCog(StatsCogBase):
 
         if not averages:
             await interaction.followup.send(
-                f"ℹ️ No recorded stats for **{player.get('display_name', player_name)}** in season `{season_row.get('name')}`."
+                f"ℹ️ No recorded stats for **{player.get('display_name', player_name)}** in {league_season_display}."
             )
             return
 
@@ -181,6 +183,8 @@ class PlayerStatsCog(StatsCogBase):
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
+        league_season_display = self._format_league_season_display(league_meta, season_row)
+
         # Validate player plays in this season
         player_in_season = await self._validate_player_in_season(player, season_row)
         if not player_in_season:
@@ -208,7 +212,7 @@ class PlayerStatsCog(StatsCogBase):
 
         if not totals:
             await interaction.followup.send(
-                f"ℹ️ No recorded stats for **{player.get('display_name', player_name)}** in season `{season_row.get('name')}`."
+                f"ℹ️ No recorded stats for **{player.get('display_name', player_name)}** in {league_season_display}."
             )
             return
 
@@ -297,6 +301,8 @@ class PlayerStatsCog(StatsCogBase):
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
+        league_season_display = self._format_league_season_display(league_meta, season_row)
+
         # Validate player plays in this season
         player_in_season = await self._validate_player_in_season(player, season_row)
         if not player_in_season:
@@ -320,7 +326,7 @@ class PlayerStatsCog(StatsCogBase):
 
         if not history:
             await interaction.followup.send(
-                f"ℹ️ No recorded match history for **{player.get('display_name', player_name)}** in season `{season_row.get('name')}`."
+                f"ℹ️ No recorded match history for **{player.get('display_name', player_name)}** in {league_season_display}."
             )
             return
 

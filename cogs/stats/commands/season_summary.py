@@ -54,6 +54,8 @@ class SeasonSummaryCog(StatsCogBase):
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
+        league_season_display = self._format_league_season_display(league_meta, season_row)
+
         # Fetch basic season stats
         try:
             standings_data = await queries.get_standings(self.supabase, season_row['id'])
@@ -75,7 +77,7 @@ class SeasonSummaryCog(StatsCogBase):
 
         if not standings_data:
             await interaction.followup.send(
-                f"ℹ️ No summary data found for season `{season_row.get('name')}`."
+                f"ℹ️ No summary data found for {league_season_display}."
             )
             return
 

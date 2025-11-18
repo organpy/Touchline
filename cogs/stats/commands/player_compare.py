@@ -77,6 +77,8 @@ class PlayerCompareCog(StatsCogBase):
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
+        league_season_display = self._format_league_season_display(league_meta, season_row)
+
         # Validate both players in season
         player_a_in_season = await self._validate_player_in_season(player_a, season_row)
         player_b_in_season = await self._validate_player_in_season(player_b, season_row)
@@ -106,7 +108,7 @@ class PlayerCompareCog(StatsCogBase):
 
         if not avg_a or not avg_b:
             await interaction.followup.send(
-                "ℹ️ One or both players have no recorded stats in this season."
+                f"ℹ️ One or both players have no recorded stats in {league_season_display}."
             )
             return
 

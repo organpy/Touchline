@@ -67,6 +67,8 @@ class TeamStatsCog(StatsCogBase):
         if not league_meta and team_row.get('league_code'):
             league_meta = await self._fetch_league_metadata(team_row['league_code'])
 
+        league_season_display = self._format_league_season_display(league_meta, season_row)
+
         # Validate team in season
         team_in_season = await self._validate_team_in_season(team_row, season_row)
         if not team_in_season:
@@ -89,7 +91,7 @@ class TeamStatsCog(StatsCogBase):
 
         if not team_totals:
             await interaction.followup.send(
-                f"ℹ️ No recorded stats for **{team_row.get('name', team)}** in season `{season_row.get('name')}`."
+                f"ℹ️ No recorded stats for **{team_row.get('name', team)}** in {league_season_display}."
             )
             return
 
@@ -167,6 +169,8 @@ class TeamStatsCog(StatsCogBase):
         if not league_meta and team_row.get('league_code'):
             league_meta = await self._fetch_league_metadata(team_row['league_code'])
 
+        league_season_display = self._format_league_season_display(league_meta, season_row)
+
         # Validate team in season
         team_in_season = await self._validate_team_in_season(team_row, season_row)
         if not team_in_season:
@@ -189,7 +193,7 @@ class TeamStatsCog(StatsCogBase):
 
         if not team_avg:
             await interaction.followup.send(
-                f"ℹ️ No recorded stats for **{team_row.get('name', team)}** in season `{season_row.get('name')}`."
+                f"ℹ️ No recorded stats for **{team_row.get('name', team)}** in {league_season_display}."
             )
             return
 
