@@ -35,22 +35,38 @@ BASE_THEME = {
 }
 
 LEAGUE_THEME_OVERRIDES = {
-    "NBL": {},  # base colors already tuned for NBL
-    "MBL": {
-        "canvas_gradient": ((5, 24, 24), (9, 58, 70)),
-        "header_gradient": ((0, 173, 181), (0, 119, 182)),
-        "row_primary": (16, 46, 60, 255),
-        "row_alt": (18, 54, 70, 255),
-        "card_bg": (14, 34, 44, 255),
-        "card_border": (22, 64, 78, 255),
+    "NBL": {
+        "canvas_gradient": ((255, 247, 223), (247, 208, 128)),
+        "card_bg": (255, 252, 245, 255),
+        "card_border": (240, 200, 132, 255),
+        "header_gradient": ((255, 212, 124), (255, 166, 74)),
+        "text_primary": (48, 32, 12, 255),
+        "text_muted": (122, 95, 54, 255),
+        "text_stats": (94, 68, 32, 255),
+        "row_primary": (255, 242, 214, 255),
+        "row_alt": (255, 235, 198, 255),
+        "row_divider": (233, 198, 142, 255),
+        "rank_accent": {
+            1: (255, 210, 92, 255),
+            2: (212, 198, 182, 255),
+            3: (245, 182, 109, 255),
+        },
     },
-    "NCBA": {
+    "MBL": {
         "canvas_gradient": ((29, 6, 6), (70, 21, 2)),
         "header_gradient": ((255, 93, 32), (168, 48, 13)),
         "row_primary": (58, 34, 25, 255),
         "row_alt": (64, 38, 28, 255),
         "card_bg": (42, 24, 18, 255),
         "card_border": (84, 47, 34, 255),
+    },
+    "NCBA": {
+        "canvas_gradient": ((5, 24, 24), (9, 58, 70)),
+        "header_gradient": ((0, 173, 181), (0, 119, 182)),
+        "row_primary": (16, 46, 60, 255),
+        "row_alt": (18, 54, 70, 255),
+        "card_bg": (14, 34, 44, 255),
+        "card_border": (22, 64, 78, 255),
     },
 }
 

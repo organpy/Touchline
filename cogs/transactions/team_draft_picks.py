@@ -30,6 +30,23 @@ class TeamDraftPicksCog(commands.Cog):
         self.supabase = get_supabase()
         self.repo = TransactionsRepository(self.supabase)
 
+    @staticmethod
+    def _format_league_season(season: Optional[Dict[str, Any]]) -> str:
+        """Return "League — Season" label for messaging."""
+        if not season:
+            return "Unknown League — Unknown Season"
+
+        season_name = season.get('name') or "Unknown Season"
+        league_name = (season.get('league_name') or '').strip()
+        league_code = (season.get('league_type') or '').upper()
+
+        if league_name and league_code and league_name.upper() != league_code:
+            league_display = f"{league_name} ({league_code})"
+        else:
+            league_display = league_name or league_code or "Unknown League"
+
+        return f"{league_display} — {season_name}"
+
     async def autocomplete_available_players(
         self, interaction: discord.Interaction, current: str
     ) -> List[app_commands.Choice[str]]:
@@ -178,8 +195,9 @@ class TeamDraftPicksCog(commands.Cog):
                 ).is_('selected_player_id', 'null').order('overall', desc=False).limit(1).execute()
                 
                 if not picks_response.data:
+                    league_season_display = self._format_league_season(season)
                     await interaction.followup.send(
-                        f"❌ {team['code']} has no available picks in {season['name']}.",
+                        f"❌ {team['code']} has no available picks in {league_season_display}.",
                         ephemeral=True,
                     )
                     return
@@ -459,8 +477,9 @@ class TeamDraftPicksCog(commands.Cog):
                     ).limit(1).execute()
                     
                     if not pick_response.data:
+                        league_season_display = self._format_league_season(season)
                         await interaction.followup.send(
-                            f"❌ Pick #{pick_number} not found in {season['name']}.",
+                            f"❌ Pick #{pick_number} not found in {league_season_display}.",
                             ephemeral=True,
                         )
                         return
@@ -476,8 +495,9 @@ class TeamDraftPicksCog(commands.Cog):
                     ).order('overall', desc=False).limit(1).execute()
                     
                     if not pick_response.data:
+                        league_season_display = self._format_league_season(season)
                         await interaction.followup.send(
-                            f"❌ {team['code']} has no available picks in {season['name']}.",
+                            f"❌ {team['code']} has no available picks in {league_season_display}.",
                             ephemeral=True,
                         )
                         return

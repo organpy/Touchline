@@ -660,9 +660,15 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
             return
 
+        league_display, _ = self._get_league_display(season)
+        league_season_display = f"{league_display} — {season.get('name', 'Unknown Season')}"
+
         picks = self.repo.list_draft_picks(season['id'])
         if not picks:
-            await interaction.followup.send("ℹ️ No draft picks found for the active season.", ephemeral=True)
+            await interaction.followup.send(
+                f"ℹ️ No draft picks found for {league_season_display}.",
+                ephemeral=True,
+            )
             return
 
         teams = await queries.get_all_teams(self.supabase, season['division_id'])
@@ -695,7 +701,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
 
         if target_team and not grouped:
             await interaction.followup.send(
-                f"ℹ️ {target_team['name']} does not currently own any picks.",
+                f"ℹ️ {target_team['name']} does not currently own any picks in {league_season_display}.",
                 ephemeral=True,
             )
             return
