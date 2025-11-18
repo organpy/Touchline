@@ -85,6 +85,7 @@ class StandingsCog(StatsCogBase):
             standings_data,
             season_row.get('name', 'Unknown'),
             season_league_display,
+            league_code=league_code,
         )
 
         # Send response with image

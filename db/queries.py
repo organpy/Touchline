@@ -183,8 +183,10 @@ async def get_standings(supabase, season_id: str, league_type: str = 'NBL') -> L
         # Enrich standings data with team emoji from joined teams
         if response.data:
             for row in response.data:
-                if isinstance(row.get('teams'), dict):
-                    row['emoji'] = row['teams'].get('emoji', '')
+                teams_data = row.get('teams') if isinstance(row.get('teams'), dict) else None
+                if teams_data:
+                    row['emoji'] = teams_data.get('emoji', '')
+                    row.setdefault('code', teams_data.get('code'))
         
         return response.data if response.data else []
     except Exception as e:
