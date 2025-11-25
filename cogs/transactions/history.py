@@ -84,7 +84,8 @@ class TransactionHistoryPaginator:
 
         for txn in page_txns:
             timestamp = txn.get('created_at', '')
-            txn_type = txn.get('type', 'unknown').upper()
+            txn_type = txn.get('transaction_type', 'unknown').upper()
+            txn_id = txn.get('id', 'unknown')
             player_id = txn.get('player_id')
             from_team_id = txn.get('from_team_id')
             to_team_id = txn.get('to_team_id')
@@ -98,6 +99,9 @@ class TransactionHistoryPaginator:
                 player_name = player.get('display_name', '?')
 
             title = f"{txn_type}: {player_name}"
+            desc = f"From: **{from_team}** → To: **{to_team}**\nID: `{txn_id}`"
+            
+            builder.add_field(name=title, value=desc, inline=False)
             value = f"{from_team} → {to_team}\n{timestamp[:10]}"  # ISO date only
 
             builder.add_field(title, value, inline=False)

@@ -107,18 +107,21 @@ class HelpView(discord.ui.View):
     
     @discord.ui.button(label="📊 Stats", style=discord.ButtonStyle.primary)
     async def stats_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         self.current_category = CommandCategory.STATS
         self.current_page = 0
         await self.update_view(interaction)
     
     @discord.ui.button(label="👔 Team Owner", style=discord.ButtonStyle.primary)
     async def owner_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         self.current_category = CommandCategory.TEAM_OWNER
         self.current_page = 0
         await self.update_view(interaction)
     
     @discord.ui.button(label="👥 Members", style=discord.ButtonStyle.primary)
     async def members_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
         self.current_category = CommandCategory.MEMBERS
         self.current_page = 0
         await self.update_view(interaction)
@@ -199,7 +202,7 @@ class AdminHelpView(discord.ui.View):
     async def quick_ref_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         embed = self.get_admin_embed()
-        await interaction.response.edit_message(embed=embed)
+        await interaction.followup.edit_message(interaction.message.id, embed=embed)
     
     @discord.ui.button(label="📊 Dashboard Guide", style=discord.ButtonStyle.primary)
     async def dashboard_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -278,7 +281,7 @@ class AdminHelpView(discord.ui.View):
         )
         
         embed.set_footer(text="All admin actions are logged in audit trail")
-        await interaction.response.edit_message(embed=embed)
+        await interaction.followup.edit_message(interaction.message.id, embed=embed)
 
 
 class HelpCog(commands.Cog):

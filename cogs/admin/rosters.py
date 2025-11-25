@@ -22,6 +22,7 @@ from utils.embed_assets import (
     build_team_logo_payload,
     target_thumbnail,
 )
+from utils.team_colors import get_team_color
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -789,7 +790,7 @@ class ForceTransferView(LazyInitView):
                                         embed = discord.Embed(
                                             title="� Admin Force Transfer",
                                             description=f"**{player_name}** has been transferred from **{current_code}** to **{dest_code}**",
-                                            color=discord.Color.blurple(),
+                                            color=get_team_color(dest_code),
                                         )
                                         embed.add_field(name="From Team", value=current_code, inline=True)
                                         embed.add_field(name="To Team", value=dest_code, inline=True)

@@ -148,7 +148,7 @@ class ViewPendingOffersView(LazyInitView):
         try:
             response = (
                 self.supabase.table("pending_signings")
-                .select("*, players(id, display_name, discord_id), teams(id, name, code)")
+                .select("*, players!left(id, display_name, discord_id), teams!left(id, name, code)")
                 .eq("status", "pending")
                 .order("created_at", desc=True)
                 .execute()

@@ -202,6 +202,14 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         """Create a pending signing and prompt the player to accept or decline."""
         await interaction.response.defer(ephemeral=True)
 
+        # Prevent signing bots or self
+        if player.bot:
+            await interaction.followup.send("❌ You cannot sign a bot.", ephemeral=True)
+            return
+        if player.id == interaction.user.id:
+            await interaction.followup.send("❌ You cannot sign yourself.", ephemeral=True)
+            return
+
         # Fetch config defaults + validate expiry window.
         transactions_cfg = await self.config.get_transactions_config(interaction.guild_id)
         expiry_minutes = minutes_valid or transactions_cfg.get('default_expiry_minutes', 60)

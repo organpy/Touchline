@@ -11,6 +11,7 @@ import discord
 from cogs.score.roster_cache import RosterCache
 from utils.team_player_cache import TeamPlayerCache
 from utils.embed_builder import EmbedBuilder
+from cogs.transactions.persistent_views import SigningAcceptButton, SigningDeclineButton
 
 if TYPE_CHECKING:  # pragma: no cover - hints only
     from .transactions import TransactionsCog
@@ -45,6 +46,10 @@ class PendingSigningView(discord.ui.View):
         self.season_name = self.season.get('name', 'Unknown Season')
         self.resolved = False
         self.message: Optional[discord.Message] = None
+        
+        # Add persistent buttons
+        self.add_item(SigningAcceptButton(pending_signing['id']))
+        self.add_item(SigningDeclineButton(pending_signing['id']))
 
     # ------------------------------------------------------------------
     # Helpers
@@ -117,142 +122,8 @@ class PendingSigningView(discord.ui.View):
     # ------------------------------------------------------------------
     # Button callbacks
     # ------------------------------------------------------------------
-    @discord.ui.button(label="Accept Offer", style=discord.ButtonStyle.success)
-    async def accept_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.resolved:
-            await self._already_resolved(interaction)
-            return
+    # Callbacks are handled by persistent_views.py DynamicItems
 
-        await interaction.response.defer(ephemeral=True)
-
-        logger.info(
-            "🔍 Player %s accepting signing offer for %s (pending_id=%s)",
-            interaction.user.id,
-            self.team['code'],
-            self.pending_signing['id']
-        )
-
-        # Ensure offer not expired
-        expires_at = self.pending_signing.get('expires_at')
-        if expires_at:
-            try:
-                expiry_dt = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-                current = datetime.now(expiry_dt.tzinfo)
-                if expiry_dt < current:
-                    logger.warning("⏰ Signing offer %s expired", self.pending_signing['id'])
-                    await interaction.followup.send("⚠️ This offer has already expired.", ephemeral=True)
-                    return
-            except ValueError:
-                logger.error("⚠️ Could not parse expiry date: %s", expires_at)
-
-        # Prevent duplicate roster entries
-        roster_entry = self.cog.repo.get_active_roster_entry(
-            self.pending_signing['season_id'],
-            self.pending_signing['player_id']
-        )
-        if roster_entry and roster_entry.get('team_id') == self.pending_signing['team_id']:
-            logger.info(
-                "ℹ️ Player %s already on roster for %s, marking signing as accepted",
-                self.pending_signing['player_id'],
-                self.team['code']
-            )
-            await interaction.followup.send(
-                "ℹ️ You are already listed on this roster. No action taken.",
-                ephemeral=True,
-            )
-            self.cog.repo.update_pending_signing_status(self.pending_signing['id'], 'accepted')
-            embed, files = self._already_signed_embed()
-            await self._finalize(embed, files)
-            return
-        if roster_entry and roster_entry.get('team_id') != self.pending_signing['team_id']:
-            logger.warning(
-                "❌ Player %s cannot join %s, already on %s",
-                self.pending_signing['player_id'],
-                self.team['code'],
-                roster_entry.get('team_id')
-            )
-            await interaction.followup.send(
-                "❌ You are currently rostered on another team. Please request a release first.",
-                ephemeral=True,
-            )
-            self.cog.repo.update_pending_signing_status(self.pending_signing['id'], 'declined')
-            await self._finalize(self._decline_embed(interaction.user))
-            return
-
-        # Insert transaction row (trigger will update roster)
-        transaction = self.cog.repo.insert_transaction({
-            'season_id': self.pending_signing['season_id'],
-            'type': 'sign',
-            'player_id': self.pending_signing['player_id'],
-            'from_team_id': None,
-            'to_team_id': self.pending_signing['team_id'],
-            'executed_by': interaction.user.id,
-            'details': {
-                'accepted_at': datetime.utcnow().isoformat() + 'Z',
-                'initiated_by': self.pending_signing.get('created_by'),
-                'guild_id': self.pending_signing.get('guild_id')
-            }
-        })
-        if not transaction:
-            logger.error("❌ Failed to insert transaction for signing %s", self.pending_signing['id'])
-            await interaction.followup.send("❌ Failed to record transaction. Please contact staff.", ephemeral=True)
-            return
-
-        logger.info(
-            "✅ Transaction recorded: player %s signed to %s (signing_id=%s, txn_id=%s)",
-            self.pending_signing['player_id'],
-            self.team['code'],
-            self.pending_signing['id'],
-            transaction['id']
-        )
-
-        self.cog.repo.update_pending_signing_status(self.pending_signing['id'], 'accepted')
-        self.cog.repo.cancel_other_pending_signings(self.pending_signing['player_id'], keep_id=self.pending_signing['id'])
-
-        # Refresh roster cache so new signing appears immediately
-        logger.info("🔄 Invalidating roster cache for signing acceptance")
-        RosterCache().invalidate()
-        logger.info("🔄 Invalidating team player cache for signing acceptance - team %s", self.team['id'])
-        cache = TeamPlayerCache()
-        await cache.invalidate_team(self.team['id'])
-
-        builder = EmbedBuilder(
-            title="Signing Accepted",
-            description=f"{self.player.mention} has joined **{self.team['name']}**!",
-            force_color=0x57F287,  # Success green
-            team_code=self.team.get('code'),
-            division_code=self.league_code
-        )
-        builder.add_field("League", self._league_field_value(), inline=True)
-        builder.add_field("Season", self.season_name, inline=True)
-        builder.add_field("Player", str(self.player), inline=True)
-        builder.add_field("Team", f"{self.team['name']} (`{self.team['code']}`)", inline=True)
-        builder.add_field("Accepted By", interaction.user.mention, inline=True)
-        builder.add_timestamp()
-        if self.team.get('code'):
-            builder.add_team_image(self.team['code'], position="thumbnail")
-
-        embed, files = builder.build_with_files()
-        await self._finalize(embed, files)
-        await interaction.followup.send("✅ Offer accepted! Welcome to the team.", ephemeral=True)
-
-    @discord.ui.button(label="Decline Offer", style=discord.ButtonStyle.danger)
-    async def decline_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.resolved:
-            await self._already_resolved(interaction)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-        logger.info(
-            "🗂️ Player %s declining signing offer for %s",
-            interaction.user.id,
-            self.team['code']
-        )
-        self.cog.repo.update_pending_signing_status(self.pending_signing['id'], 'declined')
-
-        embed, files = self._decline_embed(interaction.user)
-        await self._finalize(embed, files)
-        await interaction.followup.send("🗂️ Offer declined.", ephemeral=True)
 
     # ------------------------------------------------------------------
     # Embed helpers

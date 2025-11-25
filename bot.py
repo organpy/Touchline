@@ -75,7 +75,7 @@ class NBLBot(commands.Bot):
             # Transaction helper modules (not standalone cogs)
             'history.py', 'history_view.py', 'trade_approval.py', 'trade_views.py',
             'views.py', 'pick_trading.py', 'configuration.py', 'picks_view.py',
-            'roster_transactions.py', 'trading.py',
+            'roster_transactions.py', 'trading.py', 'persistent_views.py',
             # Admin panel helper modules (deprecated/excluded)
             'admin_transactions_views_example.py', 'teams.py', 'rosters.py', 'picks.py', "common.py",
             # Stats helper modules (deprecated)
@@ -134,6 +134,14 @@ class NBLBot(commands.Bot):
                 logger.info(f"✅ Loaded: {extension}")
             except Exception as e:
                 logger.error(f"❌ Failed to load {extension}: {e}", exc_info=True)
+
+        # Register persistent views
+        try:
+            from cogs.transactions.persistent_views import SigningAcceptButton, SigningDeclineButton
+            self.add_dynamic_items(SigningAcceptButton, SigningDeclineButton)
+            logger.info("✅ Persistent views registered")
+        except Exception as e:
+            logger.error(f"❌ Failed to register persistent views: {e}", exc_info=True)
 
         # Sync app commands
         try:
