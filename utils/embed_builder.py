@@ -50,13 +50,8 @@ class EmbedBuilder:
         self.thumbnail_url: Optional[str] = None
 
         if apply_footer:
-            # Attach NBL logo for footer if available; keep separate from thumbnail usage.
-            league_footer_file = get_league_logo_file("NBL", filename="NBL_footer.png")
-            icon_url = None
-            if league_footer_file and league_footer_file.filename:
-                self.files.append(league_footer_file)
-                icon_url = f"attachment://{league_footer_file.filename}"
-            self.embed.set_footer(text="National Bobble League", icon_url=icon_url)
+            # Set footer text only (no attachment icon to avoid extra files)
+            self.embed.set_footer(text="National Bobble League")
 
     # ==================== STYLING ====================
 
