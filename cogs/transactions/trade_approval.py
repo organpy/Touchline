@@ -225,11 +225,14 @@ class TradeApprovalView(discord.ui.View):
             # Update trade status to executed
             self.cog.repo.update_trade_status(self.trade_proposal['id'], 'executed')
 
-            # Refresh cache
+            # Refresh cache for both teams involved in trade
             logger.info("🔄 Invalidating roster cache for trade execution")
             RosterCache().invalidate()
-            logger.info("🔄 Invalidating team player cache for trade execution")
-            await TeamPlayerCache.refresh()
+            logger.info("🔄 Invalidating team player cache for trade execution - teams %s, %s",
+                       self.initiating_team['id'], self.counterparty_team['id'])
+            cache = TeamPlayerCache()
+            await cache.invalidate_team(self.initiating_team['id'])
+            await cache.invalidate_team(self.counterparty_team['id'])
 
             logger.info(
                 "✅ Trade executed: %s → %s (proposal=%s)",

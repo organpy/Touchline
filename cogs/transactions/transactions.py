@@ -519,8 +519,9 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                 )
                 return
 
-            # Refresh cache
-            await TeamPlayerCache.refresh()
+            # Refresh cache for affected team
+            cache = TeamPlayerCache()
+            await cache.invalidate_team(team['id'])
 
             league_display, league_code = self._get_league_display(season)
 
@@ -601,8 +602,9 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                 reason=f"Admin force release by {interaction.user.name}#{interaction.user.discriminator}"
             )
 
-            # Refresh cache
-            await TeamPlayerCache.refresh()
+            # Refresh cache for affected team
+            cache = TeamPlayerCache()
+            await cache.invalidate_team(roster_entry['team_id'])
 
             # Get team info for the embed
             teams = await queries.get_all_teams(self.supabase, season['division_id'])

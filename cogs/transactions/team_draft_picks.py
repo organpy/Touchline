@@ -523,8 +523,9 @@ class TeamDraftPicksCog(commands.Cog):
                     )
                     return
 
-                # Refresh cache to reflect roster change
-                await TeamPlayerCache.refresh()
+                # Refresh cache for affected team
+                cache = TeamPlayerCache()
+                await cache.invalidate_team(team['id'])
 
                 # Log to audit trail
                 logger.info(

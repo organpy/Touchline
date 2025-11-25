@@ -212,8 +212,9 @@ class PendingSigningView(discord.ui.View):
         # Refresh roster cache so new signing appears immediately
         logger.info("🔄 Invalidating roster cache for signing acceptance")
         RosterCache().invalidate()
-        logger.info("🔄 Invalidating team player cache for signing acceptance")
-        await TeamPlayerCache.refresh()
+        logger.info("🔄 Invalidating team player cache for signing acceptance - team %s", self.team['id'])
+        cache = TeamPlayerCache()
+        await cache.invalidate_team(self.team['id'])
 
         builder = EmbedBuilder(
             title="Signing Accepted",
@@ -387,8 +388,9 @@ class ReleaseConfirmationModal(discord.ui.Modal):
 
         logger.info("🔄 Invalidating roster cache for release")
         RosterCache().invalidate()
-        logger.info("🔄 Invalidating team player cache for release")
-        await TeamPlayerCache.refresh()
+        logger.info("🔄 Invalidating team player cache for release - team %s", self.team['id'])
+        cache = TeamPlayerCache()
+        await cache.invalidate_team(self.team['id'])
 
         # Build embed with EmbedBuilder
         league_value = self.league_display or (self.league_code or self.season.get('league_type') or 'Unknown League')
