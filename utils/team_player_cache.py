@@ -32,6 +32,108 @@ class TeamPlayerCache:
         cls._supabase = supabase
 
     @classmethod
+    async def invalidate_team(cls, team_id: str) -> None:
+        """
+        Invalidate a single team's cache entry to avoid full refresh on roster mutations.
+        Use this after signing/releasing a player to a specific team.
+        """
+        if team_id not in cls._teams:
+            return
+
+        try:
+            logger.info("♻️ Invalidating team cache for %s", team_id)
+
+            # Reload just this team and its roster
+            team_response = cls._supabase.table("teams").select("*").eq("id", team_id).execute()
+            if not team_response.data:
+                logger.warning("Team %s not found in database", team_id)
+                return
+
+            raw_team = team_response.data[0]
+            division_id = raw_team.get("division_id")
+
+            # Reload division info
+            division_response = (
+                cls._supabase.table("divisions").select("id, league_type, name").eq("id", division_id).execute()
+            )
+            division = division_response.data[0] if division_response.data else {}
+
+            # Reload active season for this team's division
+            season_response = (
+                cls._supabase
+                .table("seasons")
+                .select("id, name, division_id")
+                .eq("division_id", division_id)
+                .eq("active", True)
+                .execute()
+            )
+            active_season = season_response.data[0] if season_response.data else {}
+
+            # Enrich team with metadata
+            team = dict(raw_team)
+            team["division"] = division
+            team["league_type"] = division.get("league_type")
+            team["league_name"] = division.get("name")
+            if active_season:
+                team["active_season_id"] = active_season.get("id")
+                team["active_season_name"] = active_season.get("name")
+
+            # Update team in all caches
+            cls._teams[team_id] = team
+            code = team.get("code")
+            if code:
+                cls._teams_by_code[code.lower()] = team
+
+            # Reload team roster
+            roster_response = cls._supabase.table("rosters").select(
+                "*, players(id, display_name, discord_id)"
+            ).eq("team_id", team_id).is_("left_at", None).execute()
+
+            cls._team_players[team_id] = []
+            for roster in roster_response.data or []:
+                player_data = roster.get("players") or {}
+                player_id = roster.get("player_id") or player_data.get("id")
+                player = cls._players.get(player_id)
+                if player and player not in cls._team_players[team_id]:
+                    cls._team_players[team_id].append(player)
+
+            logger.info("✅ Team cache invalidated for %s (%d players)", team_id, len(cls._team_players[team_id]))
+
+        except Exception as exc:
+            logger.error("Failed to invalidate team %s: %s", team_id, exc)
+
+    @classmethod
+    async def invalidate_season(cls, season_id: str) -> None:
+        """
+        Invalidate cache for all teams in a season.
+        Use this after bulk roster operations or season changes.
+        """
+        if not season_id:
+            return
+
+        try:
+            logger.info("♻️ Invalidating cache for season %s", season_id)
+
+            # Get all teams in this season's division
+            season_response = cls._supabase.table("seasons").select("division_id").eq("id", season_id).execute()
+            if not season_response.data:
+                logger.warning("Season %s not found", season_id)
+                return
+
+            division_id = season_response.data[0].get("division_id")
+
+            # Find all teams in this division
+            teams_response = cls._supabase.table("teams").select("id").eq("division_id", division_id).execute()
+
+            for team_data in teams_response.data or []:
+                await cls.invalidate_team(team_data["id"])
+
+            logger.info("✅ Season cache invalidated for %s", season_id)
+
+        except Exception as exc:
+            logger.error("Failed to invalidate season %s: %s", season_id, exc)
+
+    @classmethod
     async def refresh(cls, supabase=None):
         """Refresh all caches from database."""
         if supabase:

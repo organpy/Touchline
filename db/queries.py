@@ -263,13 +263,24 @@ async def get_team_averages(supabase, team_id: str, season_id: str) -> Optional[
         return None
 
 
-async def get_leaderboard(supabase, metric: str, season_id: str, limit: int = 10) -> List[Dict[str, Any]]:
-    """Get leaderboard for a specific metric"""
+async def get_leaderboard(supabase, metric: str, season_id: str, limit: int = 10, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Get leaderboard for a specific metric with pagination support.
+    
+    Args:
+        supabase: Supabase client
+        metric: Metric name (points, assists, goals, etc.)
+        season_id: Season ID filter
+        limit: Maximum results to return (default 10, max 100)
+        offset: Starting position for pagination (default 0)
+    """
     try:
+        limit = min(limit, 100)  # Cap at 100 per request
         response = supabase.rpc('get_leaderboard', {
             'p_metric': metric,
             'p_season_id': season_id,
-            'p_limit': limit
+            'p_limit': limit,
+            'p_offset': offset
         }).execute()
         return response.data if response.data else []
     except Exception as e:
@@ -277,13 +288,24 @@ async def get_leaderboard(supabase, metric: str, season_id: str, limit: int = 10
         return []
 
 
-async def get_player_history(supabase, player_id: str, season_id: str, limit: int = 50) -> List[Dict[str, Any]]:
-    """Get player game-by-game history for a season"""
+async def get_player_history(supabase, player_id: str, season_id: str, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+    """
+    Get player game-by-game history for a season with pagination support.
+    
+    Args:
+        supabase: Supabase client
+        player_id: Player ID to fetch history for
+        season_id: Season ID filter
+        limit: Maximum results to return (default 50, max 100)
+        offset: Starting position for pagination (default 0)
+    """
     try:
+        limit = min(limit, 100)  # Cap at 100 per request
         response = supabase.rpc('get_player_history', {
             'p_player_id': player_id,
             'p_season_id': season_id,
-            'p_limit': limit
+            'p_limit': limit,
+            'p_offset': offset
         }).execute()
         return response.data if response.data else []
     except Exception as e:

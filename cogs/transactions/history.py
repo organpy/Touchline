@@ -1,4 +1,4 @@
-"""Transaction history query and display."""
+"""Transaction history query and display with server-side pagination support."""
 
 from __future__ import annotations
 
@@ -19,17 +19,43 @@ logger = logging.getLogger(__name__)
 
 
 class TransactionHistoryPaginator:
-    """Paginate transaction history with filters."""
+    """Paginate transaction history with filters using server-side pagination."""
 
     def __init__(
         self,
         transactions: List[Dict[str, Any]],
         page_size: int = 10
     ):
+        """Initialize paginator with pre-fetched transactions (client-side) or offset for server-side."""
         self.transactions = transactions
         self.page_size = page_size
         self.current_page = 0
         self.total_pages = (len(transactions) + page_size - 1) // page_size
+
+    @classmethod
+    async def from_supabase(
+        cls,
+        supabase,
+        offset: int = 0,
+        limit: int = 10
+    ) -> tuple[List[Dict[str, Any]], int]:
+        """Fetch paginated transactions directly from Supabase (server-side pagination)."""
+        try:
+            logger.debug("Fetching transactions with offset=%d, limit=%d", offset, limit)
+            response = (
+                supabase
+                .table("transaction_events")
+                .select("*")
+                .order("created_at", desc=True)
+                .offset(offset)
+                .limit(limit)
+                .execute()
+            )
+            transactions = response.data or []
+            return transactions, offset + limit
+        except Exception as exc:
+            logger.error("Failed to fetch paginated transactions: %s", exc)
+            return [], offset
 
     def get_page(self, page_num: int = 0) -> tuple[List[Dict[str, Any]], int, int]:
         """Return transactions for a page and page info."""
