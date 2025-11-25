@@ -41,7 +41,6 @@ class PlayerStatsCog(StatsCogBase):
         team=_team_autocomplete,
         league=_league_autocomplete,
         season=_season_autocomplete,
-        limit=_limit_autocomplete,
     )
     async def average(
         self,

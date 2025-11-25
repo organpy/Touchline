@@ -315,3 +315,16 @@ async def get_season_summary(supabase, season_id: str) -> Optional[Dict[str, Any
     except Exception as e:
         logger.error(f"Error fetching season summary: {e}")
         return None
+
+
+async def get_roster_for_team_season(supabase, team_id: str, season_id: str) -> List[Dict[str, Any]]:
+    """Get roster for a specific team in a season (active or historical)"""
+    try:
+        response = supabase.table('rosters').select(
+            'id, player_id, team_id, season_id, joined_at, left_at, '
+            'players(id, display_name, discord_id)'
+        ).eq('team_id', team_id).eq('season_id', season_id).execute()
+        return response.data if response.data else []
+    except Exception as e:
+        logger.error(f"Error fetching roster for team {team_id} in season {season_id}: {e}")
+        return []
