@@ -1,8 +1,10 @@
-"""Modern standings rendering with PNG logos, dark canvas, and gradients."""
+"""Modern standings rendering with PNG logos, dark canvas, gradients, and caching."""
 
 from __future__ import annotations
 
+import hashlib
 import io
+import json
 import logging
 import re
 from functools import lru_cache
@@ -10,6 +12,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
+
+from utils.caching import TTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +85,8 @@ LEAGUE_THEME_OVERRIDES = {
     },
 }
 
+STANDINGS_CACHE_TTL_SECONDS = 120
+
 
 def _to_rgba(color: Tuple[int, ...]) -> Tuple[int, int, int, int]:
     if len(color) == 4:
@@ -142,6 +148,36 @@ def _image_index() -> Dict[str, Path]:
             continue
         index[_normalize_key(file_path.stem)] = file_path
     return index
+
+
+standings_image_cache = TTLCache(ttl_seconds=STANDINGS_CACHE_TTL_SECONDS, max_size=32)
+
+
+def clear_standings_image_cache() -> None:
+    """Clear cached standings images (mainly for tests)."""
+    standings_image_cache.clear()
+
+
+def _make_cache_key(
+    standings_data: List[Dict[str, Any]],
+    season_name: str,
+    league_name: str,
+    league_code: Optional[str],
+) -> str:
+    payload = {
+        "league_code": (league_code or "").upper(),
+        "league_name": league_name,
+        "season_name": season_name,
+        "standings": standings_data,
+    }
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _bytes_to_buffer(image_bytes: bytes) -> io.BytesIO:
+    buffer = io.BytesIO(image_bytes)
+    buffer.seek(0)
+    return buffer
 
 
 def _find_logo_path(*candidates: Optional[str]) -> Optional[Path]:
@@ -264,6 +300,12 @@ def generate_standings_image(
     try:
         if not standings_data:
             return None
+
+        cache_key = _make_cache_key(standings_data, season_name, league_name, league_code)
+        cached_image = standings_image_cache.get(cache_key)
+        if cached_image is not None:
+            logger.debug("Standings image cache hit for key %s", cache_key[:8])
+            return _bytes_to_buffer(cached_image)
 
         theme = _get_theme(league_code)
 
@@ -501,6 +543,8 @@ def generate_standings_image(
 
         buffer = io.BytesIO()
         canvas.convert("RGB").save(buffer, format="PNG")
+        image_bytes = buffer.getvalue()
+        standings_image_cache.set(cache_key, image_bytes)
         buffer.seek(0)
         return buffer
 

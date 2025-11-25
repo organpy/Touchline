@@ -5,9 +5,17 @@ Uses token bucket algorithm for fair rate limiting.
 
 import logging
 import time
+from dataclasses import dataclass
 from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _Bucket:
+    tokens: float
+    last_refill: float
+    last_access: float
 
 
 class RateLimiter:
@@ -16,7 +24,13 @@ class RateLimiter:
     Allows N requests per time period on a per-key basis (e.g., per guild).
     """
 
-    def __init__(self, max_tokens: int = 1, refill_rate: float = 1.0):
+    def __init__(
+        self,
+        max_tokens: int = 1,
+        refill_rate: float = 1.0,
+        *,
+        idle_ttl_seconds: float = 900.0,
+    ):
         """
         Initialize rate limiter.
 
@@ -26,23 +40,51 @@ class RateLimiter:
         """
         self.max_tokens = max_tokens
         self.refill_rate = refill_rate
-        self._buckets: Dict[str, tuple[float, float]] = {}  # key -> (tokens, last_refill_time)
+        self.idle_ttl_seconds = max(idle_ttl_seconds, 0.0)
+        self._buckets: Dict[str, _Bucket] = {}
+        self._last_prune_check = 0.0
+        self._prune_interval = max(30.0, min(self.idle_ttl_seconds or 30.0, 300.0))
 
-    def _get_bucket(self, key: str) -> tuple[float, float]:
+    def _get_bucket(self, key: str, *, now: Optional[float] = None) -> _Bucket:
         """Get or create bucket for key."""
-        if key not in self._buckets:
-            self._buckets[key] = (self.max_tokens, time.time())
-        return self._buckets[key]
+        now = now or time.time()
+        bucket = self._buckets.get(key)
+        if bucket is None:
+            bucket = _Bucket(tokens=float(self.max_tokens), last_refill=now, last_access=now)
+            self._buckets[key] = bucket
+        return bucket
 
-    def _refill(self, key: str) -> None:
+    def _refill(self, key: str, *, now: Optional[float] = None) -> _Bucket:
         """Refill tokens based on time elapsed since last refill."""
-        tokens, last_refill = self._get_bucket(key)
-        now = time.time()
-        elapsed = now - last_refill
+        now = now or time.time()
+        bucket = self._get_bucket(key, now=now)
+        elapsed = max(0.0, now - bucket.last_refill)
 
-        # Add tokens based on elapsed time
-        new_tokens = min(self.max_tokens, tokens + elapsed * self.refill_rate)
-        self._buckets[key] = (new_tokens, now)
+        if elapsed > 0 and bucket.tokens < self.max_tokens:
+            bucket.tokens = min(self.max_tokens, bucket.tokens + elapsed * self.refill_rate)
+            bucket.last_refill = now
+
+        bucket.last_access = now
+        self._maybe_prune(now)
+        return bucket
+
+    def _maybe_prune(self, now: float) -> None:
+        if not self.idle_ttl_seconds:
+            return
+
+        if now - self._last_prune_check < self._prune_interval:
+            return
+
+        self._last_prune_check = now
+        to_delete: list[tuple[str, float]] = []
+        for key, bucket in self._buckets.items():
+            idle_time = now - bucket.last_access
+            if idle_time >= self.idle_ttl_seconds and bucket.tokens >= (self.max_tokens - 0.01):
+                to_delete.append((key, idle_time))
+
+        for key, idle_time in to_delete:
+            logger.debug("RateLimiter pruning bucket %s after %.1fs idle", key, idle_time)
+            self._buckets.pop(key, None)
 
     def allow(self, key: str, cost: int = 1) -> bool:
         """
@@ -55,18 +97,18 @@ class RateLimiter:
         Returns:
             True if request allowed, False if rate limited
         """
-        self._refill(key)
-        tokens, last_refill = self._buckets[key]
+        bucket = self._refill(key)
 
-        if tokens >= cost:
-            self._buckets[key] = (tokens - cost, last_refill)
+        if bucket.tokens >= cost:
+            bucket.tokens -= cost
             return True
 
         return False
 
     def reset(self, key: str) -> None:
         """Reset rate limit for a key."""
-        self._buckets[key] = (self.max_tokens, time.time())
+        now = time.time()
+        self._buckets[key] = _Bucket(tokens=float(self.max_tokens), last_refill=now, last_access=now)
 
     def get_retry_after(self, key: str) -> float:
         """
@@ -78,14 +120,13 @@ class RateLimiter:
         Returns:
             Seconds to wait (0 if immediately available)
         """
-        self._refill(key)
-        tokens, _ = self._buckets[key]
+        bucket = self._refill(key)
 
-        if tokens >= 1:
+        if bucket.tokens >= 1:
             return 0.0
 
         # Calculate time needed to get 1 token
-        tokens_needed = 1 - tokens
+        tokens_needed = 1 - bucket.tokens
         return tokens_needed / self.refill_rate
 
 

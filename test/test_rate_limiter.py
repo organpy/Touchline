@@ -122,6 +122,40 @@ class TestRateLimiter:
         # 6th denied
         assert limiter.allow("key1") is False
 
+    def test_idle_bucket_pruned_when_full_and_expired(self):
+        """Buckets that sit idle past TTL should be removed to avoid leaks."""
+        limiter = RateLimiter(max_tokens=1, refill_rate=0.0, idle_ttl_seconds=0.5)
+
+        # Create bucket and ensure tokens restored to full state
+        assert limiter.allow("guild_1") is True
+        bucket = limiter._buckets["guild_1"]
+        bucket.tokens = float(limiter.max_tokens)
+
+        # Age bucket beyond TTL
+        bucket.last_access -= 5
+        bucket.last_refill -= 5
+        limiter._last_prune_check -= 60  # force next allow() to perform prune
+
+        # Trigger prune via another request
+        limiter.allow("other")
+
+        assert "guild_1" not in limiter._buckets
+
+    def test_active_bucket_not_pruned_if_tokens_spent(self):
+        """Buckets that are still mid-cooldown should not be pruned."""
+        limiter = RateLimiter(max_tokens=1, refill_rate=0.0, idle_ttl_seconds=0.5)
+
+        assert limiter.allow("guild_2") is True
+        bucket = limiter._buckets["guild_2"]
+        bucket.tokens = 0.0  # simulate in-use bucket
+        bucket.last_access -= 5
+        bucket.last_refill -= 5
+        limiter._last_prune_check -= 60
+
+        limiter.allow("other")
+
+        assert "guild_2" in limiter._buckets
+
 
 class TestRateLimiterIntegration:
     """Integration tests for rate limiting patterns."""

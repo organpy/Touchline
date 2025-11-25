@@ -5,35 +5,63 @@ Static data for autocomplete suggestions that rarely change.
 
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+AUTOCOMPLETE_CACHE_TTL_SECONDS = 600  # 10 minutes
+
 _AUTOCOMPLETE_DATA: Optional[Dict[str, Any]] = None
+_AUTOCOMPLETE_LAST_LOADED: Optional[float] = None
 
 
-def load_autocomplete_data() -> Dict[str, Any]:
-    """Load autocomplete data from JSON file (cached in memory)."""
-    global _AUTOCOMPLETE_DATA
-    
-    if _AUTOCOMPLETE_DATA is not None:
-        return _AUTOCOMPLETE_DATA
-    
+def load_autocomplete_data(force_reload: bool = False) -> Dict[str, Any]:
+    """Load autocomplete data from JSON file with TTL-based caching."""
+    global _AUTOCOMPLETE_DATA, _AUTOCOMPLETE_LAST_LOADED
+
+    if not force_reload and _AUTOCOMPLETE_DATA is not None:
+        if _AUTOCOMPLETE_LAST_LOADED and not _is_cache_expired():
+            return _AUTOCOMPLETE_DATA
+
+    data = _load_data_from_disk()
+    _AUTOCOMPLETE_DATA = data
+    _AUTOCOMPLETE_LAST_LOADED = time.time()
+    return data
+
+
+def _is_cache_expired() -> bool:
+    if _AUTOCOMPLETE_LAST_LOADED is None:
+        return True
+    return (time.time() - _AUTOCOMPLETE_LAST_LOADED) >= AUTOCOMPLETE_CACHE_TTL_SECONDS
+
+
+def _load_data_from_disk() -> Dict[str, Any]:
+    data_path = Path(__file__).parent.parent / "data" / "autocomplete_data.json"
     try:
-        data_path = Path(__file__).parent.parent / "data" / "autocomplete_data.json"
-        with open(data_path, "r") as f:
-            _AUTOCOMPLETE_DATA = json.load(f)
-        logger.info(f"Loaded autocomplete data from {data_path}")
-        return _AUTOCOMPLETE_DATA
+        with open(data_path, "r", encoding="utf-8") as file:
+            logger.debug("Loading autocomplete data from %s", data_path)
+            return json.load(file)
     except FileNotFoundError:
         logger.error("autocomplete_data.json not found. Using defaults.")
-        _AUTOCOMPLETE_DATA = get_default_autocomplete_data()
-        return _AUTOCOMPLETE_DATA
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse autocomplete_data.json: {e}")
-        _AUTOCOMPLETE_DATA = get_default_autocomplete_data()
-        return _AUTOCOMPLETE_DATA
+    except json.JSONDecodeError as exc:
+        logger.error("Failed to parse autocomplete_data.json: %s", exc)
+
+    # If we reach here we failed to load a valid file
+    return get_default_autocomplete_data()
+
+
+def refresh_autocomplete_cache() -> Dict[str, Any]:
+    """Force refresh autocomplete data regardless of TTL."""
+    return load_autocomplete_data(force_reload=True)
+
+
+def clear_autocomplete_cache() -> None:
+    """Clear cached autocomplete data (mainly for tests)."""
+    global _AUTOCOMPLETE_DATA, _AUTOCOMPLETE_LAST_LOADED
+    _AUTOCOMPLETE_DATA = None
+    _AUTOCOMPLETE_LAST_LOADED = None
 
 
 def get_default_autocomplete_data() -> Dict[str, Any]:
