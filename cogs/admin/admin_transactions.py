@@ -16,6 +16,7 @@ from cogs.admin.overrides import OverridesActionsView
 from cogs.admin.pending_offers import PendingOffersActionsView
 from cogs.admin.audit_reports import AuditReportsActionsView
 from utils.config_utility import ConfigUtility
+from utils.dashboard_metrics import DashboardMetricsView
 
 logger = logging.getLogger(__name__)
 
@@ -179,9 +180,9 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for pending offers: %s", exc)
 
-    @discord.ui.button(label="Audit & Reports", emoji="📊", style=discord.ButtonStyle.primary, row=1)
-    async def audit(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        """Open audit & reporting interface."""
+    @discord.ui.button(label="Audit & Reporting", emoji="📊", style=discord.ButtonStyle.primary, row=1)
+    async def audit_reporting(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        """Open audit and reporting interface."""
         if not await self._safe_defer(interaction):
             return
         view = AuditReportsActionsView(self.bot, interaction.guild.id, self.bot.supabase)
@@ -190,7 +191,17 @@ class AdminDashboardView(discord.ui.View):
         try:
             view.original_message = message
         except Exception as exc:  # pragma: no cover
-            logger.error("Unable to fetch original response for audit & reports: %s", exc)
+            logger.error("Unable to fetch original response for audit and reporting: %s", exc)
+
+    @discord.ui.button(label="📊 Metrics", emoji="📈", style=discord.ButtonStyle.success, row=2)
+    async def show_metrics(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        """Show league health metrics."""
+        if not await self._safe_defer(interaction):
+            return
+        view = DashboardMetricsView(interaction.guild.id, self.bot)
+        await view.fetch_metrics()
+        embed = view.get_metrics_embed()
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     @discord.ui.button(label="Close", emoji="❌", style=discord.ButtonStyle.secondary, row=2)
     async def close(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:

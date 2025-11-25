@@ -26,6 +26,7 @@ from utils.embed_assets import (
     build_team_logo_payload,
     target_thumbnail,
 )
+from utils.error_handler import ConfirmationView
 
 from .views import PendingSigningView, ReleaseConfirmationModal
 from .trade_views import TradeAssetModal
