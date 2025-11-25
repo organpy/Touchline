@@ -3,6 +3,7 @@
 import logging
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta, timezone
+from utils.team_colors import get_team_color
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,10 @@ class TeamPlayerCache:
 
                 code = team.get('code')
                 if code:
+                    # Attach color_primary from team_colors (may be None if not yet defined)
+                    color_val = get_team_color(code)
+                    if color_val is not None:
+                        team['color_primary'] = color_val
                     cls._teams_by_code[code.lower()] = team
             
             # Load players

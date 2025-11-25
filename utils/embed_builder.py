@@ -16,6 +16,7 @@ from utils.embed_assets import (
     get_league_logo_file,
     get_league_emoji,
 )
+from utils.team_colors import resolve_color, get_default_color
 
 logger = logging.getLogger(__name__)
 
@@ -28,15 +29,34 @@ class EmbedBuilder:
         title: str,
         description: Optional[str] = None,
         color: Optional[discord.Color] = None,
+        team_code: Optional[str] = None,
+        division_code: Optional[str] = None,
+        force_color: Optional[str] = None,
+        apply_footer: bool = True,
     ):
-        """Initialize embed with base properties."""
+        """Initialize embed with base properties and unified footer/logo theming.
+
+        Color priority: force_color -> team_code -> division_code -> global default.
+        Footer text always 'National Bobble League'. Footer icon uses NBL logo if available.
+        Thumbnail intentionally set separately via add_team_image/league methods.
+        """
+        resolved_int = resolve_color(team_code=team_code, division_code=division_code, force_color=force_color)
         self.embed = discord.Embed(
             title=title,
             description=description,
-            color=color or discord.Color.blue(),
+            color=discord.Color(resolved_int) if color is None else color,
         )
         self.files: List[discord.File] = []
         self.thumbnail_url: Optional[str] = None
+
+        if apply_footer:
+            # Attach NBL logo for footer if available; keep separate from thumbnail usage.
+            league_footer_file = get_league_logo_file("NBL", filename="NBL_footer.png")
+            icon_url = None
+            if league_footer_file and league_footer_file.filename:
+                self.files.append(league_footer_file)
+                icon_url = f"attachment://{league_footer_file.filename}"
+            self.embed.set_footer(text="National Bobble League", icon_url=icon_url)
 
     # ==================== STYLING ====================
 
@@ -160,7 +180,7 @@ class EmbedBuilder:
         inline: bool = True,
     ) -> "EmbedBuilder":
         """Add player field."""
-        return self.add_field(label=label, value=f"**{player_name}**", inline=inline)
+        return self.add_field(name=label, value=f"**{player_name}**", inline=inline)
 
     def add_stat_field(
         self,
@@ -243,6 +263,28 @@ class EmbedBuilder:
         """Return the built embed."""
         return self.embed
 
+    # ==================== THEMING HELPERS ====================
+
+    @staticmethod
+    def themed(
+        title: str,
+        description: Optional[str] = None,
+        team_code: Optional[str] = None,
+        division_code: Optional[str] = None,
+        force_color: Optional[str] = None,
+    ) -> "EmbedBuilder":
+        """Create a themed embed applying footer + color resolution.
+
+        Use this where no existing factory fits but theming is desired.
+        """
+        return EmbedBuilder(
+            title=title,
+            description=description,
+            team_code=team_code,
+            division_code=division_code,
+            force_color=force_color,
+        )
+
     def build_with_files(self) -> Tuple[discord.Embed, List[discord.File]]:
         """Return embed and files tuple."""
         return self.embed, self.files
@@ -260,6 +302,7 @@ class EmbedBuilder:
         builder = EmbedBuilder(
             title=f"🏆 Leaderboard — {stat_name.title()}",
             color=discord.Color.gold(),
+            division_code=league_code,
         )
 
         if league_code:
@@ -281,7 +324,7 @@ class EmbedBuilder:
         """Create a player stats embed."""
         builder = EmbedBuilder(
             title=f"📊 {player_name}",
-            color=discord.Color.blue(),
+            team_code=team_code,
         )
 
         if team_code:
@@ -310,7 +353,7 @@ class EmbedBuilder:
 
         builder = EmbedBuilder(
             title=title,
-            color=discord.Color.purple(),
+            division_code=league_code,
         )
 
         if league_code:
@@ -339,7 +382,7 @@ class EmbedBuilder:
         """Create a standings embed."""
         builder = EmbedBuilder(
             title="📋 Standings",
-            color=discord.Color.from_rgb(52, 152, 219),
+            division_code=league_code,
         )
 
         if league_code:
@@ -364,7 +407,8 @@ class EmbedBuilder:
         """Create a transaction confirmation embed."""
         builder = EmbedBuilder(
             title=f"✅ {action}",
-            color=discord.Color.green(),
+            team_code=team_code,
+            force_color="#57F287",  # Discord green success
         )
 
         builder.add_player_field(player_name)
@@ -388,7 +432,7 @@ class EmbedBuilder:
         return EmbedBuilder(
             title=title,
             description=description,
-            color=discord.Color.red(),
+            force_color="#ED4245",  # Discord red error
         ).add_timestamp()
 
     @staticmethod
@@ -400,5 +444,35 @@ class EmbedBuilder:
         return EmbedBuilder(
             title=title,
             description=description,
-            color=discord.Color.green(),
+            force_color="#57F287",
         ).add_timestamp()
+
+    @staticmethod
+    def warning(
+        title: str = "⚠️ Warning",
+        description: Optional[str] = None,
+    ) -> "EmbedBuilder":
+        """Create a warning embed with orange color."""
+        return EmbedBuilder(
+            title=title,
+            description=description,
+            force_color="#FAA61A",
+        ).add_timestamp()
+
+    @staticmethod
+    def generic(
+        title: str,
+        description: Optional[str] = None,
+        team_code: Optional[str] = None,
+        division_code: Optional[str] = None,
+        force_color: Optional[str] = None,
+    ) -> "EmbedBuilder":
+        """General purpose themed embed respecting color resolution chain."""
+        return EmbedBuilder(
+            title=title,
+            description=description,
+            team_code=team_code,
+            division_code=division_code,
+            force_color=force_color,
+        ).add_timestamp()
+

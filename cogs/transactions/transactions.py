@@ -274,25 +274,28 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
 
         league_display, league_code = self._get_league_display(season)
         files, thumbnail = build_team_logo_payload(team['code'])
-        # Compose announcement details.
         expiry_text = utils.format_dt(expires_at, style='R')
-        embed = discord.Embed(
+        from utils.embed_builder import EmbedBuilder  # local import to avoid circulars at module load
+        builder = EmbedBuilder.generic(
             title="Signing Offer",
             description=f"{player.mention}, **{team['name']}** would like to sign you!",
-            color=discord.Color.blurple()
+            team_code=team['code'],
+            division_code=league_code,
         )
-        embed.add_field(name="League", value=league_display, inline=True)
-        embed.add_field(name="Season", value=season.get('name', 'Unknown Season'), inline=True)
-        embed.add_field(name="Player", value=player.display_name, inline=True)
-        embed.add_field(name="Team", value=f"{team['name']} (`{team['code']}`)", inline=True)
-        embed.add_field(name="Coach", value=interaction.user.mention, inline=True)
-        embed.add_field(name="Expires", value=expiry_text, inline=False)
-        embed.timestamp = datetime.utcnow()
-        embed.set_footer(text="Respond with the buttons below to confirm or decline the offer.")
+        builder.add_field("League", league_display, inline=True)
+        builder.add_field("Season", season.get('name', 'Unknown Season'), inline=True)
+        builder.add_field("Player", player.display_name, inline=True)
+        builder.add_field("Team", f"{team['name']} (`{team['code']}`)", inline=True)
+        builder.add_field("Coach", interaction.user.mention, inline=True)
+        builder.add_field("Expires", expiry_text, inline=False)
+        # Provide instructional footer augmentation
+        footer_text = builder.embed.footer.text or "National Bobble League"
+        builder.set_footer_text(f"{footer_text} • Respond below to confirm or decline.", icon_url=getattr(builder.embed.footer, 'icon_url', None))
         if thumbnail:
-            target_thumbnail(embed, thumbnail)
-        apply_team_badge(embed, team['code'])
-        apply_league_badge(embed, league_code)
+            builder.set_thumbnail_url(thumbnail)
+        # Merge files (team logo + existing footer logo already in builder.files)
+        builder.files.extend(files)
+        embed, files = builder.build_with_files()
 
         view = PendingSigningView(
             self,

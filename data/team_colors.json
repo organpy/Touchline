@@ -1,0 +1,32 @@
+{
+  "division_colors": {
+    "NBL": "#F7AD44",
+    "MBL": "#FF9500",
+    "NCBA": "#7EC7FF"
+  },
+  "default": "#5865F2",
+  "teams": {
+    "titans": { "primary": "#FADF7F" },
+    "the-herd": { "primary": "#F99436" },
+    "opo": { "primary": "#619672" },
+    "ice-breakers": { "primary": "#2793B2" },
+    "beef-negative": { "primary": "#522C21" },
+    "wind-chargers": { "primary": "#0C153C" },
+    "frost-falcons": { "primary": "#73BBE1" },
+    "phantom-hornets": { "primary": "#B199FE" },
+    "the-warriors": { "primary": "#2F623D" },
+    "the-pack": { "primary": "#242F42" },
+    "opo-dragons": { "primary": "#2D4234" },
+    "icebergs": { "primary": "#27AAE1" },
+    "venison-x": { "primary": "#971F28" },
+    "the-breeze": { "primary": "#929EB3" },
+    "blue-ballers": { "primary": "#1B1464" },
+    "ghosts": { "primary": "#4D5764" },
+    "south-point-sharks": { "primary": "#FF3131" },
+    "eastside-tigers": { "primary": "#FAAF40" },
+    "east-bay-seagulls": { "primary": "#74CCF2" },
+    "west-bay-devils": { "primary": "#0049AC" },
+    "north-central-hawks": { "primary": "#5583C8" },
+    "northside-bobcats": { "primary": "#8C52FF" }
+  }
+}

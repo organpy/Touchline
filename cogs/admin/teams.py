@@ -31,13 +31,13 @@ class TeamActionsView(discord.ui.View):
         self.original_message: Optional[discord.Message] = None
 
     def create_embed(self) -> discord.Embed:
-        """Build team management embed."""
-        embed = discord.Embed(
+        """Build themed team management embed using unified builder."""
+        from utils.embed_builder import EmbedBuilder
+        builder = EmbedBuilder.generic(
             title="🏢 Team Management",
             description="Manage teams, owners, and team details.",
-            color=discord.Color.blue(),
         )
-        embed.add_field(
+        builder.add_field(
             name="Available Actions",
             value=(
                 "• ➕ **Add Team** - Create a new team\n"
@@ -48,8 +48,10 @@ class TeamActionsView(discord.ui.View):
             ),
             inline=False,
         )
-        embed.set_footer(text="Click a button below.")
-        return embed
+        # Augment footer with context
+        footer_text = builder.embed.footer.text + " • Click a button below." if builder.embed.footer.text else "Click a button below."
+        builder.set_footer_text(footer_text, icon_url=getattr(builder.embed.footer, 'icon_url', None))
+        return builder.build()
 
     async def update_display(self) -> None:
         """Refresh the embed message."""
@@ -69,36 +71,36 @@ class TeamActionsView(discord.ui.View):
     async def set_owner(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = SetTeamOwnerView(self.supabase, self)
         await view.prepare()
-        embed = discord.Embed(
+        from utils.embed_builder import EmbedBuilder
+        embed_builder = EmbedBuilder.generic(
             title="👑 Set Team Owner",
             description="Select a team, then select its new owner.",
-            color=discord.Color.blue(),
         )
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await interaction.response.send_message(embed=embed_builder.build(), view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
     @discord.ui.button(label="Edit Details", emoji="🏷️", style=discord.ButtonStyle.primary, row=0)
     async def edit_details(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = EditTeamDetailsView(self.supabase, self)
         await view.prepare()
-        embed = discord.Embed(
+        from utils.embed_builder import EmbedBuilder
+        embed_builder = EmbedBuilder.generic(
             title="🏷️ Edit Team Details",
             description="Select a team to edit.",
-            color=discord.Color.blue(),
         )
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await interaction.response.send_message(embed=embed_builder.build(), view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
     @discord.ui.button(label="Delete Team", emoji="🗑️", style=discord.ButtonStyle.danger, row=0)
     async def delete_team(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = DeleteTeamView(self.supabase, self)
         await view.prepare()
-        embed = discord.Embed(
+        from utils.embed_builder import EmbedBuilder
+        embed_builder = EmbedBuilder.error(
             title="🗑️ Delete Team",
             description="Select a team to delete (⚠️ **Cannot be undone**).",
-            color=discord.Color.red(),
         )
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await interaction.response.send_message(embed=embed_builder.build(), view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
     @discord.ui.button(label="View Teams", emoji="📋", style=discord.ButtonStyle.secondary, row=1)
@@ -113,21 +115,20 @@ class TeamActionsView(discord.ui.View):
                 await interaction.followup.send("ℹ️ No teams found.", ephemeral=True)
                 return
 
-            embed = discord.Embed(
+            from utils.embed_builder import EmbedBuilder
+            embed_builder = EmbedBuilder.generic(
                 title="📋 All Teams",
                 description=f"Total: {len(teams)} team(s)",
-                color=discord.Color.blue(),
             )
 
             for team in sorted(teams, key=lambda t: t.get('code', '')):
                 owner_mention = f"<@{team['owner_discord_id']}>" if team.get('owner_discord_id') else "Unassigned"
-                embed.add_field(
+                embed_builder.add_field(
                     name=f"{team.get('emoji', '🏀')} {team.get('name', 'Unknown')} (`{team.get('code', '?')}`)",
                     value=f"Owner: {owner_mention} | Division: {team.get('division_id', '?')}",
                     inline=False,
                 )
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.followup.send(embed=embed_builder.build(), ephemeral=True)
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to fetch teams: %s", exc)
             await interaction.followup.send(
