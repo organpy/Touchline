@@ -74,7 +74,7 @@ class PendingSigningView(discord.ui.View):
             else:
                 embed.set_footer(text=league_emoji)
 
-    async def _finalize(self, embed: discord.Embed) -> None:
+    async def _finalize(self, embed: discord.Embed, files: Optional[list] = None) -> None:
         self._decorate_embed(embed)
         self.resolved = True
         for child in self.children:
@@ -161,7 +161,8 @@ class PendingSigningView(discord.ui.View):
                 ephemeral=True,
             )
             self.cog.repo.update_pending_signing_status(self.pending_signing['id'], 'accepted')
-            await self._finalize(self._already_signed_embed())
+            embed, files = self._already_signed_embed()
+            await self._finalize(embed, files)
             return
         if roster_entry and roster_entry.get('team_id') != self.pending_signing['team_id']:
             logger.warning(
@@ -214,19 +215,24 @@ class PendingSigningView(discord.ui.View):
         logger.info("🔄 Invalidating team player cache for signing acceptance")
         await TeamPlayerCache.refresh()
 
-        embed = discord.Embed(
-            title="✅ Signing Accepted",
+        builder = EmbedBuilder(
+            title="Signing Accepted",
             description=f"{self.player.mention} has joined **{self.team['name']}**!",
-            color=discord.Color.green()
+            force_color=0x57F287,  # Success green
+            team_code=self.team.get('code'),
+            division_code=self.league_code
         )
-        embed.add_field(name="League", value=self._league_field_value(), inline=True)
-        embed.add_field(name="Season", value=self.season_name, inline=True)
-        embed.add_field(name="Player", value=str(self.player), inline=True)
-        embed.add_field(name="Team", value=f"{self.team['name']} (`{self.team['code']}`)", inline=True)
-        embed.add_field(name="Accepted By", value=interaction.user.mention, inline=True)
-        embed.timestamp = datetime.utcnow()
+        builder.add_field("League", self._league_field_value(), inline=True)
+        builder.add_field("Season", self.season_name, inline=True)
+        builder.add_field("Player", str(self.player), inline=True)
+        builder.add_field("Team", f"{self.team['name']} (`{self.team['code']}`)", inline=True)
+        builder.add_field("Accepted By", interaction.user.mention, inline=True)
+        builder.add_timestamp()
+        if self.team.get('code'):
+            builder.add_team_image(self.team['code'], position="thumbnail")
 
-        await self._finalize(embed)
+        embed, files = builder.build_with_files()
+        await self._finalize(embed, files)
         await interaction.followup.send("✅ Offer accepted! Welcome to the team.", ephemeral=True)
 
     @discord.ui.button(label="Decline Offer", style=discord.ButtonStyle.danger)
@@ -243,39 +249,47 @@ class PendingSigningView(discord.ui.View):
         )
         self.cog.repo.update_pending_signing_status(self.pending_signing['id'], 'declined')
 
-        embed = self._decline_embed(interaction.user)
-        await self._finalize(embed)
+        embed, files = self._decline_embed(interaction.user)
+        await self._finalize(embed, files)
         await interaction.followup.send("🗂️ Offer declined.", ephemeral=True)
 
     # ------------------------------------------------------------------
     # Embed helpers
     # ------------------------------------------------------------------
-    def _decline_embed(self, actor: discord.abc.User) -> discord.Embed:
-        embed = discord.Embed(
+    def _decline_embed(self, actor: discord.abc.User) -> tuple[discord.Embed, Optional[list]]:
+        builder = EmbedBuilder(
             title="Signing Declined",
             description=f"{self.player.mention} declined the offer from **{self.team['name']}**.",
-            color=discord.Color.red()
+            force_color=0xED4245,  # Error red
+            team_code=self.team.get('code'),
+            division_code=self.league_code
         )
-        embed.add_field(name="League", value=self._league_field_value(), inline=True)
-        embed.add_field(name="Season", value=self.season_name, inline=True)
-        embed.add_field(name="Player", value=str(self.player), inline=True)
-        embed.add_field(name="Team", value=f"{self.team['name']} (`{self.team['code']}`)", inline=True)
-        embed.add_field(name="Updated By", value=actor.mention, inline=True)
-        embed.timestamp = datetime.utcnow()
-        return embed
+        builder.add_field("League", self._league_field_value(), inline=True)
+        builder.add_field("Season", self.season_name, inline=True)
+        builder.add_field("Player", str(self.player), inline=True)
+        builder.add_field("Team", f"{self.team['name']} (`{self.team['code']}`)", inline=True)
+        builder.add_field("Updated By", actor.mention, inline=True)
+        builder.add_timestamp()
+        if self.team.get('code'):
+            builder.add_team_image(self.team['code'], position="thumbnail")
+        return builder.build_with_files()
 
-    def _already_signed_embed(self) -> discord.Embed:
-        embed = discord.Embed(
+    def _already_signed_embed(self) -> tuple[discord.Embed, Optional[list]]:
+        builder = EmbedBuilder(
             title="No Changes Needed",
             description=f"{self.player.mention} is already rostered on **{self.team['name']}**.",
-            color=discord.Color.gold()
+            force_color=0xFAA61A,  # Orange/warning color
+            team_code=self.team.get('code'),
+            division_code=self.league_code
         )
-        embed.add_field(name="League", value=self._league_field_value(), inline=True)
-        embed.add_field(name="Season", value=self.season_name, inline=True)
-        embed.add_field(name="Player", value=str(self.player), inline=True)
-        embed.add_field(name="Team", value=f"{self.team['name']} (`{self.team['code']}`)", inline=True)
-        embed.timestamp = datetime.utcnow()
-        return embed
+        builder.add_field("League", self._league_field_value(), inline=True)
+        builder.add_field("Season", self.season_name, inline=True)
+        builder.add_field("Player", str(self.player), inline=True)
+        builder.add_field("Team", f"{self.team['name']} (`{self.team['code']}`)", inline=True)
+        builder.add_timestamp()
+        if self.team.get('code'):
+            builder.add_team_image(self.team['code'], position="thumbnail")
+        return builder.build_with_files()
 
 
 class ReleaseConfirmationModal(discord.ui.Modal):

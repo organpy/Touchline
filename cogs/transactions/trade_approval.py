@@ -15,6 +15,7 @@ from utils.embed_assets import (
     apply_team_badge,
     target_thumbnail,
 )
+from utils.embed_builder import EmbedBuilder
 
 if TYPE_CHECKING:  # pragma: no cover - hints only
     from .transactions import TransactionsCog
@@ -57,7 +58,7 @@ class TradeApprovalView(discord.ui.View):
         apply_team_badge(embed, self.initiating_team.get('code'))
         apply_league_badge(embed, self.league_code)
 
-    async def _finalize(self, embed: discord.Embed) -> None:
+    async def _finalize(self, embed: discord.Embed, files: Optional[list] = None) -> None:
         self._decorate_embed(embed)
         self.resolved = True
         for child in self.children:
@@ -112,8 +113,8 @@ class TradeApprovalView(discord.ui.View):
             )
             return
 
-        embed = self._acceptance_embed()
-        await self._finalize(embed)
+        embed, files = self._acceptance_embed()
+        await self._finalize(embed, files)
         await interaction.followup.send("✅ Trade executed successfully!", ephemeral=True)
 
     @discord.ui.button(label="Decline Trade", style=discord.ButtonStyle.danger)
@@ -133,8 +134,8 @@ class TradeApprovalView(discord.ui.View):
 
         self.cog.repo.update_trade_status(self.trade_proposal['id'], 'declined')
 
-        embed = self._decline_embed(interaction.user)
-        await self._finalize(embed)
+        embed, files = self._decline_embed(interaction.user)
+        await self._finalize(embed, files)
         await interaction.followup.send("Trade declined.", ephemeral=True)
 
     async def _execute_trade(self, executor_id: int) -> bool:
@@ -243,11 +244,13 @@ class TradeApprovalView(discord.ui.View):
             logger.error("Error executing trade %s: %s", self.trade_proposal['id'], exc, exc_info=True)
             return False
 
-    def _acceptance_embed(self) -> discord.Embed:
-        embed = discord.Embed(
-            title="✅ Trade Executed",
+    def _acceptance_embed(self) -> tuple[discord.Embed, Optional[list]]:
+        builder = EmbedBuilder(
+            title="Trade Executed",
             description=f"**{self.initiating_team['name']}** ↔ **{self.counterparty_team['name']}**",
-            color=discord.Color.green()
+            force_color=0x57F287,  # Success green
+            team_code=self.initiating_team.get('code'),
+            division_code=self.league_code
         )
 
         outbound_assets = [a for a in self.trade_assets if a['direction'] == 'outbound']
@@ -261,9 +264,9 @@ class TradeApprovalView(discord.ui.View):
                 elif asset['asset_type'] == 'pick':
                     lines.append(f"📋 {asset.get('label', 'Unknown Pick')}")
             if lines:
-                embed.add_field(
-                    name=f"From {self.initiating_team['name']}",
-                    value="\n".join(lines),
+                builder.add_field(
+                    f"From {self.initiating_team['name']}",
+                    "\n".join(lines),
                     inline=False
                 )
 
@@ -275,22 +278,28 @@ class TradeApprovalView(discord.ui.View):
                 elif asset['asset_type'] == 'pick':
                     lines.append(f"📋 {asset.get('label', 'Unknown Pick')}")
             if lines:
-                embed.add_field(
-                    name=f"From {self.counterparty_team['name']}",
-                    value="\n".join(lines),
+                builder.add_field(
+                    f"From {self.counterparty_team['name']}",
+                    "\n".join(lines),
                     inline=False
                 )
 
-        embed.timestamp = datetime.utcnow()
-        return embed
+        builder.add_timestamp()
+        if self.initiating_team.get('code'):
+            builder.add_team_image(self.initiating_team['code'], position="thumbnail")
+        return builder.build_with_files()
 
-    def _decline_embed(self, actor: discord.abc.User) -> discord.Embed:
-        embed = discord.Embed(
+    def _decline_embed(self, actor: discord.abc.User) -> tuple[discord.Embed, Optional[list]]:
+        builder = EmbedBuilder(
             title="Trade Declined",
             description=f"**{self.counterparty_team['name']}** declined the trade proposal.",
-            color=discord.Color.red()
+            force_color=0xED4245,  # Error red
+            team_code=self.counterparty_team.get('code'),
+            division_code=self.league_code
         )
-        embed.add_field(name="Initiator", value=self.initiating_team['name'])
-        embed.add_field(name="Declined By", value=actor.mention, inline=False)
-        embed.timestamp = datetime.utcnow()
-        return embed
+        builder.add_field("Initiator", self.initiating_team['name'], inline=False)
+        builder.add_field("Declined By", actor.mention, inline=False)
+        builder.add_timestamp()
+        if self.counterparty_team.get('code'):
+            builder.add_team_image(self.counterparty_team['code'], position="thumbnail")
+        return builder.build_with_files()

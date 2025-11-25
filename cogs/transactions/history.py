@@ -10,6 +10,7 @@ import discord
 from discord import app_commands
 
 from db import queries
+from utils.embed_builder import EmbedBuilder
 
 if TYPE_CHECKING:  # pragma: no cover - hints only
     from .transactions import TransactionsCog
@@ -46,15 +47,14 @@ class TransactionHistoryPaginator:
         """Build an embed for a specific page."""
         page_txns, current, total = self.get_page(page_num)
 
-        embed = discord.Embed(
+        builder = EmbedBuilder(
             title="Transaction History",
-            description=f"Page {current + 1} of {total}",
-            color=discord.Color.blurple()
+            description=f"Page {current + 1} of {total}"
         )
 
         if not page_txns:
-            embed.description = "No transactions found."
-            return embed
+            builder.embed.description = "No transactions found."
+            return builder.embed
 
         for txn in page_txns:
             timestamp = txn.get('created_at', '')
@@ -74,10 +74,10 @@ class TransactionHistoryPaginator:
             title = f"{txn_type}: {player_name}"
             value = f"{from_team} → {to_team}\n{timestamp[:10]}"  # ISO date only
 
-            embed.add_field(name=title, value=value, inline=False)
+            builder.add_field(title, value, inline=False)
 
-        embed.set_footer(text=f"Total: {len(self.transactions)} transactions")
-        return embed
+        builder.set_footer_text(f"Total: {len(self.transactions)} transactions")
+        return builder.embed
 
 
 def build_history_embed(
@@ -86,14 +86,14 @@ def build_history_embed(
     player_by_id: Dict[str, Dict[str, Any]]
 ) -> discord.Embed:
     """Quick single-embed history summary (for small result sets)."""
-    embed = discord.Embed(
+    builder = EmbedBuilder(
         title="Recent Transactions",
-        color=discord.Color.blurple()
+        description=""
     )
 
     if not transactions:
-        embed.description = "No transactions found."
-        return embed
+        builder.embed.description = "No transactions found."
+        return builder.embed
 
     for txn in transactions[:5]:  # Show last 5
         txn_type = txn.get('type', 'unknown').upper()
@@ -112,10 +112,10 @@ def build_history_embed(
         title = f"{txn_type}: {player_name}"
         value = f"{from_team} → {to_team}"
 
-        embed.add_field(name=title, value=value, inline=False)
+        builder.add_field(title, value, inline=False)
 
-    embed.set_footer(text=f"Total: {len(transactions)} transaction(s)")
-    return embed
+    builder.set_footer_text(f"Total: {len(transactions)} transaction(s)")
+    return builder.embed
 
 
 async def fetch_filtered_transactions(

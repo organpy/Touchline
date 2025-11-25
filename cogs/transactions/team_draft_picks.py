@@ -18,6 +18,7 @@ from utils.embed_assets import (
     build_team_logo_payload,
     target_thumbnail,
 )
+from utils.embed_builder import EmbedBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -334,10 +335,12 @@ class TeamDraftPicksCog(commands.Cog):
                 )
                 return
 
-            embed = discord.Embed(
+            league_code = (season.get('league_type') or '').upper() or None
+            builder = EmbedBuilder(
                 title=f"📋 {team['code']} Draft Picks",
                 description=f"Season: **{season['name']}**",
-                color=discord.Color.blue(),
+                team_code=team.get('code'),
+                division_code=league_code
             )
 
             remaining = 0
@@ -354,28 +357,25 @@ class TeamDraftPicksCog(commands.Cog):
                     except Exception:
                         player_name = "Unknown"
                     
-                    embed.add_field(
-                        name=f"Round {pick.get('round')}, Pick #{pick.get('overall')} ✅",
-                        value=f"Selected: **{player_name}**",
+                    builder.add_field(
+                        f"Round {pick.get('round')}, Pick #{pick.get('overall')} ✅",
+                        f"Selected: **{player_name}**",
                         inline=False,
                     )
                     completed += 1
                 else:
-                    embed.add_field(
-                        name=f"Round {pick.get('round')}, Pick #{pick.get('overall')} ⏳",
-                        value="Not yet selected",
+                    builder.add_field(
+                        f"Round {pick.get('round')}, Pick #{pick.get('overall')} ⏳",
+                        "Not yet selected",
                         inline=False,
                     )
                     remaining += 1
 
-            embed.set_footer(text=f"Remaining: {remaining} | Completed: {completed}")
-            files, thumbnail = build_team_logo_payload(team['code'])
-            if thumbnail:
-                target_thumbnail(embed, thumbnail)
-            apply_team_badge(embed, team['code'])
-            league_code = (season.get('league_type') or '').upper() or None
-            apply_league_badge(embed, league_code)
+            builder.set_footer_text(f"Remaining: {remaining} | Completed: {completed}")
+            if team.get('code'):
+                builder.add_team_image(team['code'], position="thumbnail")
 
+            embed, files = builder.build_with_files()
             await interaction.followup.send(embed=embed, ephemeral=True, files=files or None)
 
         except Exception as e:

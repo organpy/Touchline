@@ -19,6 +19,7 @@ from db.transactions_repository import TransactionsRepository
 from utils.config_manager import get_config_manager
 from utils.team_player_cache import TeamPlayerCache
 from utils.autocomplete_helper import AutocompleteHelper
+from utils.embed_builder import EmbedBuilder
 from utils.embed_assets import (
     apply_league_badge,
     apply_team_badge,
@@ -288,9 +289,9 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         builder.add_field("Team", f"{team['name']} (`{team['code']}`)", inline=True)
         builder.add_field("Coach", interaction.user.mention, inline=True)
         builder.add_field("Expires", expiry_text, inline=False)
-        # Provide instructional footer augmentation
+        # Provide instructional footer augmentation (text only, no icon)
         footer_text = builder.embed.footer.text or "National Bobble League"
-        builder.set_footer_text(f"{footer_text} • Respond below to confirm or decline.", icon_url=getattr(builder.embed.footer, 'icon_url', None))
+        builder.set_footer_text(f"{footer_text} • Respond below to confirm or decline.")
         if thumbnail:
             builder.set_thumbnail_url(thumbnail)
         # Merge files (team logo + existing footer logo already in builder.files)
@@ -532,22 +533,20 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             # Notify
             files, thumbnail = build_team_logo_payload(team['code'])
 
-            embed = discord.Embed(
-                title="✅ Admin Force Sign",
-                color=discord.Color.green()
+            builder = EmbedBuilder.success(
+                title="Admin Force Sign",
+                description=f"{player.mention} signed to **{team['name']}** (force)"
             )
-            embed.add_field(name="Player", value=player.mention, inline=False)
-            embed.add_field(name="Team", value=f"{team['name']} (`{team['code']}`)", inline=False)
-            embed.add_field(name="League", value=league_display, inline=False)
-            embed.add_field(name="Season", value=season['name'], inline=False)
-            embed.add_field(name="Admin", value=interaction.user.mention, inline=False)
-            embed.set_footer(text="This was an admin force sign (no confirmation needed)")
-            if thumbnail:
-                target_thumbnail(embed, thumbnail)
-            apply_team_badge(embed, team['code'])
-            apply_league_badge(embed, league_code)
+            builder.add_field("League", league_display, inline=True)
+            builder.add_field("Season", season['name'], inline=True)
+            builder.add_field("Admin", interaction.user.mention, inline=True)
+            builder.set_footer_text("Admin force sign (no confirmation needed)")
+            if team['code']:
+                builder.add_team_image(team['code'], position="thumbnail")
+            builder.files.extend(files)
+            embed, all_files = builder.build_with_files()
 
-            await interaction.followup.send(embed=embed, ephemeral=True, files=files or None)
+            await interaction.followup.send(embed=embed, ephemeral=True, files=all_files or None)
 
         except Exception as e:
             logger.error(f"Failed to force sign player: {e}", exc_info=True)
@@ -619,28 +618,22 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             )
 
             # Notify
-            files: list[discord.File] = []
-            thumbnail: Optional[str] = None
-            if team and team.get('code'):
-                files, thumbnail = build_team_logo_payload(team['code'])
+            files, thumbnail = build_team_logo_payload(team['code'] if team else None)
 
-            embed = discord.Embed(
-                title="✅ Admin Force Release",
-                color=discord.Color.orange()
+            builder = EmbedBuilder.warning(
+                title="Admin Force Release",
+                description=f"{player.mention} released from **{team_display}** (force)"
             )
-            embed.add_field(name="Player", value=player.mention, inline=False)
-            embed.add_field(name="Previous Team", value=team_display, inline=False)
-            embed.add_field(name="League", value=league_display, inline=False)
-            embed.add_field(name="Season", value=season['name'], inline=False)
-            embed.add_field(name="Admin", value=interaction.user.mention, inline=False)
-            embed.set_footer(text="This was an admin force release (no confirmation needed)")
-            if thumbnail:
-                target_thumbnail(embed, thumbnail)
-            if team:
-                apply_team_badge(embed, team.get('code'))
-            apply_league_badge(embed, league_code)
+            builder.add_field("League", league_display, inline=True)
+            builder.add_field("Season", season['name'], inline=True)
+            builder.add_field("Admin", interaction.user.mention, inline=True)
+            builder.set_footer_text("Admin force release (no confirmation needed)")
+            if team and team.get('code'):
+                builder.add_team_image(team['code'], position="thumbnail")
+            builder.files.extend(files)
+            embed, all_files = builder.build_with_files()
 
-            await interaction.followup.send(embed=embed, ephemeral=True, files=files or None)
+            await interaction.followup.send(embed=embed, ephemeral=True, files=all_files or None)
 
         except Exception as e:
             logger.error(f"Failed to force release player: {e}", exc_info=True)
@@ -709,13 +702,15 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             )
             return
 
-        embed = discord.Embed(
+        league_display, league_code = self._get_league_display(season)
+        builder = EmbedBuilder(
             title="Draft Pick Ownership",
             description=f"Season {season['name']} picks",
-            color=discord.Color.purple()
+            team_code=target_team.get('code') if target_team else None,
+            division_code=league_code
         )
         if target_team:
-            embed.set_footer(text=f"Filtered for {target_team['name']} ({target_team['code']})")
+            builder.set_footer_text(f"Filtered for {target_team['name']} ({target_team['code']})")
 
         for rnd in sorted(grouped.keys()):
             picks_in_round = sorted(grouped[rnd], key=lambda p: p['overall'])
@@ -727,22 +722,15 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             value = "\n".join(lines)
             if not value:
                 continue
-            embed.add_field(name=f"Round {rnd}", value=value[:1024], inline=False)
+            builder.add_field(f"Round {rnd}", value[:1024], inline=False)
 
-        if not embed.fields:
-            embed.description = "No picks to display after applying filters."
+        if not builder.embed.fields:
+            builder.embed.description = "No picks to display after applying filters."
 
-        league_display, league_code = self._get_league_display(season)
-        apply_league_badge(embed, league_code)
+        if target_team and target_team.get('code'):
+            builder.add_team_image(target_team['code'], position="thumbnail")
 
-        files: list[discord.File] = []
-        thumbnail: Optional[str] = None
-        if target_team:
-            files, thumbnail = build_team_logo_payload(target_team['code'])
-            if thumbnail:
-                target_thumbnail(embed, thumbnail)
-            apply_team_badge(embed, target_team['code'])
-
+        embed, files = builder.build_with_files()
         await interaction.followup.send(embed=embed, ephemeral=True, files=files or None)
 
     # ------------------------------------------------------------------
@@ -854,32 +842,31 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         owner_mention = f"<@{owner_id}>" if owner_id else "Unknown"
 
         league_display, league_code = self._get_league_display(season)
-        files, thumbnail = build_team_logo_payload(team['code'])
-
-        embed = discord.Embed(
+        
+        builder = EmbedBuilder(
             title=f"📋 {team['name']} Roster",
             description=f"Season: **{season['name']}**",
-            color=discord.Color.blue()
+            team_code=team.get('code'),
+            division_code=league_code
         )
-        embed.add_field(name="League", value=league_display, inline=True)
-        embed.add_field(name="Team Code", value=f"`{team['code']}`", inline=True)
-        embed.add_field(name="Owner", value=owner_mention, inline=True)
+        builder.add_field("League", league_display, inline=True)
+        builder.add_field("Team Code", f"`{team['code']}`", inline=True)
+        builder.add_field("Owner", owner_mention, inline=True)
 
         if roster_lines:
-            embed.add_field(
-                name=f"Players ({len(roster_lines)})",
-                value="\n".join(roster_lines),
+            builder.add_field(
+                f"Players ({len(roster_lines)})",
+                "\n".join(roster_lines),
                 inline=False
             )
         else:
-            embed.add_field(name="Players", value="No players on roster yet.", inline=False)
+            builder.add_field("Players", "No players on roster yet.", inline=False)
 
-        embed.timestamp = datetime.utcnow()
-        if thumbnail:
-            target_thumbnail(embed, thumbnail)
-        apply_team_badge(embed, team['code'])
-        apply_league_badge(embed, league_code)
+        builder.add_timestamp()
+        if team.get('code'):
+            builder.add_team_image(team['code'], position="thumbnail")
 
+        embed, files = builder.build_with_files()
         await interaction.followup.send(embed=embed, ephemeral=True, files=files or None)
 
     # ------------------------------------------------------------------
@@ -963,14 +950,18 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         await interaction.response.defer(ephemeral=True)
         transactions_cfg = await self.config.get_transactions_config(interaction.guild_id)
 
-        embed = discord.Embed(title="⚙️ Transactions Configuration", color=discord.Color.blurple())
+        builder = EmbedBuilder.generic(
+            title="⚙️ Transactions Configuration",
+            description="Guild transaction settings"
+        )
         if not transactions_cfg:
-            embed.description = "No transaction configuration stored for this guild yet."
+            builder.embed.description = "No transaction configuration stored for this guild yet."
         else:
             for key, value in transactions_cfg.items():
-                embed.add_field(name=key, value=str(value), inline=False)
+                builder.add_field(key, str(value), inline=False)
 
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        embed, files = builder.build_with_files()
+        await interaction.followup.send(embed=embed, ephemeral=True, files=files or None)
 
     @app_commands.command(name="config-set-channel", description="[ADMIN] Set the channel used for transaction offers")
     @app_commands.checks.has_permissions(manage_guild=True)

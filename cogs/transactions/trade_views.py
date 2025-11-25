@@ -22,6 +22,7 @@ from utils.embed_assets import (
     build_team_logo_payload,
     target_thumbnail,
 )
+from utils.embed_builder import EmbedBuilder
 
 if TYPE_CHECKING:  # pragma: no cover - hints only
     from .transactions import TransactionsCog
@@ -188,22 +189,22 @@ class TradeAssetModal(discord.ui.Modal):
             initiator_discord_id=interaction.user.id
         )
 
-        embed = discord.Embed(
+        league_display, league_code = self.cog._get_league_display(self.season)
+        
+        builder = EmbedBuilder(
             title="Trade Proposal Builder",
             description=f"**{self.initiating_team['name']}** ↔ **{self.counterparty_team['name']}**",
-            color=discord.Color.blurple()
+            team_code=self.initiating_team.get('code'),
+            division_code=league_code
         )
-        embed.add_field(name="Select Assets", value="Choose players and/or picks from each team below.")
+        builder.add_field("Select Assets", "Choose players and/or picks from each team below.", inline=False)
         if self.notes.value:
-            embed.add_field(name="Notes", value=self.notes.value, inline=False)
-
-        league_display, league_code = self.cog._get_league_display(self.season)
-        embed.set_footer(text=f"{league_display}")
-        files, thumbnail = build_team_logo_payload(self.initiating_team.get('code'))
-        if thumbnail:
-            target_thumbnail(embed, thumbnail)
-        apply_team_badge(embed, self.initiating_team.get('code'))
-        apply_league_badge(embed, league_code)
+            builder.add_field("Notes", self.notes.value, inline=False)
+        builder.set_footer_text(league_display or league_code or "Trade Proposal")
+        if self.initiating_team.get('code'):
+            builder.add_team_image(self.initiating_team.get('code'), position="thumbnail")
+        
+        embed, files = builder.build_with_files()
 
         await interaction.followup.send(embed=embed, view=view, ephemeral=True, files=files or None)
 
@@ -462,10 +463,11 @@ class TradeAssetSelectionView(discord.ui.View):
 
     def _build_approval_request_embed(self, league_display: Optional[str] = None) -> discord.Embed:
         """Build the trade proposal embed for counterparty approval."""
-        embed = discord.Embed(
+        builder = EmbedBuilder(
             title="Trade Proposal Review",
             description=f"**{self.initiating_team['name']}** wants to trade with you!",
-            color=discord.Color.blurple()
+            team_code=self.counterparty_team.get('code'),
+            division_code=None
         )
 
         assets = {'outbound': [], 'inbound': []}
@@ -482,9 +484,9 @@ class TradeAssetSelectionView(discord.ui.View):
                     # Format pick as: "📋 R1P05" (could be enhanced with original owner info later)
                     lines.append(f"📋 {asset.get('label', 'Unknown Pick')}")
             if lines:
-                embed.add_field(
-                    name=f"{self.initiating_team['name']} Sends",
-                    value="\n".join(lines),
+                builder.add_field(
+                    f"{self.initiating_team['name']} Sends",
+                    "\n".join(lines),
                     inline=True
                 )
 
@@ -497,16 +499,20 @@ class TradeAssetSelectionView(discord.ui.View):
                     # Format pick as: "📋 R1P05" (could be enhanced with original owner info later)
                     lines.append(f"📋 {asset.get('label', 'Unknown Pick')}")
             if lines:
-                embed.add_field(
-                    name=f"{self.counterparty_team['name']} Sends",
-                    value="\n".join(lines),
+                builder.add_field(
+                    f"{self.counterparty_team['name']} Sends",
+                    "\n".join(lines),
                     inline=True
                 )
 
         footer_text = "Accept or Decline below"
         if league_display:
             footer_text = f"{league_display} • {footer_text}"
-        embed.set_footer(text=footer_text)
+        builder.set_footer_text(footer_text)
+        if self.counterparty_team.get('code'):
+            builder.add_team_image(self.counterparty_team.get('code'), position="thumbnail")
+        
+        embed, _ = builder.build_with_files()
         return embed
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
