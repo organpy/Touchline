@@ -171,3 +171,8 @@ class TeamOverviewCog(StatsCogBase):
 
         embed, files = builder.build_with_files()
         await interaction.followup.send(embed=embed, files=files or None)
+
+
+async def setup(bot):
+    """Register the cog with the bot."""
+    await bot.add_cog(TeamOverviewCog(bot))
