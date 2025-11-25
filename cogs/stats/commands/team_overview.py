@@ -113,7 +113,8 @@ class TeamOverviewCog(StatsCogBase):
         else:
             rank = sorted_standings.index(team_standing) + 1
             total_teams = len(sorted_standings)
-            rank_display = f"#{rank} of {total_teams}"
+            from utils.formatting import number_to_ordinal
+            rank_display = number_to_ordinal(rank)
             
             # Extract stats
             gp = team_standing.get('gp', 0)

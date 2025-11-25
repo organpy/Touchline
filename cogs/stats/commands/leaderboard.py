@@ -112,6 +112,7 @@ class LeaderboardCog(StatsCogBase):
 
         # Add leaderboard rows with medal emojis
         medals = ["🥇", "🥈", "🥉"]
+        from utils.formatting import number_to_ordinal
         for rank, entry in enumerate(leaderboard_data[:limit], 1):
             player_name = entry.get('player_name', 'Unknown')
             value = entry.get('value', 0)
@@ -122,7 +123,7 @@ class LeaderboardCog(StatsCogBase):
             else:
                 value_str = str(value)
 
-            medal = medals[rank - 1] if rank <= 3 else f"#{rank}"
+            medal = medals[rank - 1] if rank <= 3 else number_to_ordinal(rank)
             team_display = f" ({team_code.upper()})" if team_code else ""
 
             builder.add_stat_field(

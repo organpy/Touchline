@@ -157,6 +157,5 @@ class TeamDataProvider:
         team = cls.get_team(team_code)
         if not team:
             return ""
-        emoji = team.get("emoji", "")
-        display = f"{team['display_name']} ({team['code'].upper()})"
-        return f"{emoji} {display}" if emoji else display
+        # Return only display name without emoji or code
+        return team['display_name']
