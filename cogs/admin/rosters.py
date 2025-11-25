@@ -275,9 +275,11 @@ class ForceSignView(discord.ui.View):
                 return
 
             # Show confirmation
+            from utils.team_colors import get_team_color
+            team_color = get_team_color(self._selected_team.get('code'))
             embed = discord.Embed(
                 title="✍️ Confirm Force Sign",
-                color=discord.Color.blue(),
+                color=team_color,
             )
             embed.add_field(name="Team", value=f"**{self._selected_team.get('name')}**", inline=False)
             embed.add_field(name="Member", value=f"**{self._selected_member.display_name}** (<@{member_id}>)", inline=False)
@@ -407,11 +409,12 @@ class ForceSignView(discord.ui.View):
                             files, thumbnail = build_team_logo_payload(self._selected_team.get('code'))
                             league_display = self._selected_team.get('league_name', 'Unknown League')
                             league_code = self._selected_team.get('league_type', '').upper()
+                            team_color = get_team_color(self._selected_team.get('code'))
                             
                             embed = discord.Embed(
                                 title="✍️ Admin Force Sign",
                                 description=f"**{player['display_name']}** has been signed to **{self._selected_team.get('name')}**",
-                                color=discord.Color.green(),
+                                color=team_color,
                             )
                             embed.add_field(name="Team", value=f"{self._selected_team.get('name')} (`{self._selected_team.get('code')}`)", inline=True)
                             embed.add_field(name="League", value=league_display, inline=True)
@@ -435,7 +438,7 @@ class ForceSignView(discord.ui.View):
                 embed = discord.Embed(
                     title="✅ Player Signed",
                     description=f"**{player['display_name']}** has been signed to **{self._selected_team.get('name')}** for **{season.get('name')}**",
-                    color=discord.Color.green(),
+                    color=team_color,
                 )
                 await interaction.followup.send(embed=embed, ephemeral=True)
             else:
@@ -556,11 +559,13 @@ class ForceReleaseView(LazyInitView):
                                         league_display = team_info.get('league_name', 'Unknown League')
                                         league_code = team_info.get('league_type', '').upper()
                                         files, thumbnail = build_team_logo_payload(team_code)
+                                        from utils.team_colors import get_team_color
+                                        team_color = get_team_color(team_code)
                                         
                                         embed = discord.Embed(
                                             title="� Admin Force Release",
                                             description=f"**{player_name}** has been released from **{team_code}**",
-                                            color=discord.Color.orange(),
+                                            color=team_color,
                                         )
                                         embed.add_field(name="Team", value=team_code, inline=True)
                                         embed.add_field(name="League", value=league_display, inline=True)

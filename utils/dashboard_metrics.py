@@ -32,7 +32,7 @@ class DashboardMetricsView(discord.ui.View):
             players_response = supabase.table('players').select('id').execute()
             players_count = len(players_response.data) if players_response.data else 0
             
-            rosters_response = supabase.table('rosters').select('id').eq('left_at', None).execute()
+            rosters_response = supabase.table('rosters').select('id').is_not('left_at', 'null').execute()
             active_rosters_count = len(rosters_response.data) if rosters_response.data else 0
             
             matches_response = supabase.table('matches').select('id').eq('status', 'final').execute()

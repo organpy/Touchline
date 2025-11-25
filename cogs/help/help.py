@@ -99,58 +99,48 @@ class HelpView(discord.ui.View):
                         inline=False
                     )
             
-            await interaction.response.edit_message(embed=embed, view=self)
+            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
         else:
             # Show specific category
             embed = self.get_category_embed(self.current_category)
-            await interaction.response.edit_message(embed=embed, view=self)
+            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
     
-    @discord.ui.button(label="📊 Stats", style=discord.ButtonStyle.blurple)
+    @discord.ui.button(label="📊 Stats", style=discord.ButtonStyle.primary)
     async def stats_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
         self.current_category = CommandCategory.STATS
         self.current_page = 0
         await self.update_view(interaction)
     
-    @discord.ui.button(label="👔 Team Owner", style=discord.ButtonStyle.blurple)
+    @discord.ui.button(label="👔 Team Owner", style=discord.ButtonStyle.primary)
     async def owner_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
         self.current_category = CommandCategory.TEAM_OWNER
         self.current_page = 0
         await self.update_view(interaction)
     
-    @discord.ui.button(label="👥 Members", style=discord.ButtonStyle.blurple)
+    @discord.ui.button(label="👥 Members", style=discord.ButtonStyle.primary)
     async def members_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
         self.current_category = CommandCategory.MEMBERS
         self.current_page = 0
         await self.update_view(interaction)
     
-    @discord.ui.button(label="🔍 Search", style=discord.ButtonStyle.blurple)
+    @discord.ui.button(label="🔍 Search", style=discord.ButtonStyle.primary)
     async def search_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        self.current_category = CommandCategory.SEARCH
-        self.current_page = 0
-        await self.update_view(interaction)
+        await interaction.response.send_message(
+            "Enter search query (or say 'cancel' to exit):",
+            ephemeral=True,
+        )
     
-    @discord.ui.button(label="◀️ Back", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="⬅️ Previous", style=discord.ButtonStyle.secondary, row=1)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
         self.current_category = None
         self.current_page = 0
         await self.update_view(interaction)
     
-    @discord.ui.button(label="⏱️ More", style=discord.ButtonStyle.secondary, row=1)
-    async def more_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Show more categories (Timer, Score, etc)."""
-        await interaction.response.send_message(
-            "**More Categories:**\n"
-            "- `⏱️ Timer` - `/timer` commands\n"
-            "- `🏀 Score` - `/report-stats` command\n"
-            "- `⚙️ Admin` - Administrative commands (use `/admin-help`)\n"
-            "- `❓ Help` - Help commands",
-            ephemeral=True
-        )
+    @discord.ui.button(label="⬅️ Previous", style=discord.ButtonStyle.secondary, row=1)
+    async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_category:
+            self.current_page = max(0, self.current_page - 1)
+            await self.update_view(interaction)
 
 
 class AdminHelpView(discord.ui.View):
@@ -248,7 +238,7 @@ class AdminHelpView(discord.ui.View):
         )
         
         embed.set_footer(text="Use buttons to navigate dashboard sections")
-        await interaction.response.edit_message(embed=embed)
+        await interaction.followup.edit_message(interaction.message.id, embed=embed)
     
     @discord.ui.button(label="🏆 Workflows", style=discord.ButtonStyle.primary)
     async def workflows_button(self, interaction: discord.Interaction, button: discord.ui.Button):
