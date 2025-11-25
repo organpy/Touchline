@@ -1,10 +1,11 @@
 """
-Utility functions for stat calculations
-Pure functions - no circular imports
+Utility functions for stat calculations with async support.
+Pure functions with optional threading for CPU-bound work.
 """
 
-from typing import List, Dict, Optional
+import asyncio
 import logging
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -87,3 +88,20 @@ def calculate_season_totals(stat_list: List[Dict]) -> Dict[str, int]:
         'total_pp_plays': sum(s.get('powerup_plays', 0) for s in stat_list),
         'total_pp_used': sum(s.get('powerups_used', 0) for s in stat_list)
     }
+
+
+# Async wrappers to offload CPU-bound calculations to thread pool
+async def calculate_season_averages_async(stat_list: List[Dict]) -> Dict[str, float]:
+    """
+    Async version of calculate_season_averages.
+    Offloads CPU-bound work to thread pool to prevent event loop blocking.
+    """
+    return await asyncio.to_thread(calculate_season_averages, stat_list)
+
+
+async def calculate_season_totals_async(stat_list: List[Dict]) -> Dict[str, int]:
+    """
+    Async version of calculate_season_totals.
+    Offloads CPU-bound work to thread pool to prevent event loop blocking.
+    """
+    return await asyncio.to_thread(calculate_season_totals, stat_list)
