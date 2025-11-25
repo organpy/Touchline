@@ -150,7 +150,7 @@ class TeamOverviewCog(StatsCogBase):
 
         roster_display = "\n".join(f"• {name}" for name in sorted(roster_names)) or "No players on roster."
 
-        # 6. Build Embed
+        # 6. Build Embed (team color + logo only, no division logo)
         builder = EmbedBuilder.generic(
             title=f"Team Overview — {team_name}",
             team_code=team_code,
@@ -166,6 +166,7 @@ class TeamOverviewCog(StatsCogBase):
         
         builder.add_field(f"Roster ({len(roster_names)})", roster_display, inline=False)
         
+        # Show ONLY team logo as thumbnail (no division logo)
         if team_code:
             builder.add_team_image(team_code, position="thumbnail")
 
@@ -174,5 +175,10 @@ class TeamOverviewCog(StatsCogBase):
 
 
 async def setup(bot):
-    """Register the cog with the bot."""
+    """Register the cog."""
+    await bot.add_cog(TeamOverviewCog(bot))
+
+
+async def setup(bot):
+    """Load the TeamOverviewCog."""
     await bot.add_cog(TeamOverviewCog(bot))

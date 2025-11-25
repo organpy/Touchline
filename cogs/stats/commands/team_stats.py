@@ -101,15 +101,13 @@ class TeamStatsCog(StatsCogBase):
         team_code = team_row.get('code', '')
         team_display = team_row.get('display_name') or team_row.get('name', team)
 
-        builder = EmbedBuilder(
-            title=f"🏀 Team Stats — {team_display}",
-            color=discord.Color.green(),
+        builder = EmbedBuilder.generic(
+            title=f"Team Stats — {team_display}",
+            team_code=team_code,
+            division_code=league_code,
         )
-        builder.add_team_badge(team_code)
-        builder.add_league_badge(league_code)
-        builder.add_team_field(team_code, fallback_name=team_display)
-        builder.add_season_field(season_row.get('name', 'Unknown'))
         builder.add_league_field(league_code, league_name=season_league_display)
+        builder.add_season_field(season_row.get('name', 'Unknown'))
 
         totals_lines = [
             f"**Total Points**: {team_totals.get('total_points', 0)}",
@@ -203,15 +201,13 @@ class TeamStatsCog(StatsCogBase):
         team_code = team_row.get('code', '')
         team_display = team_row.get('display_name') or team_row.get('name', team)
 
-        builder = EmbedBuilder(
-            title=f"📊 Team Per-Game Averages — {team_display}",
-            color=discord.Color.blue(),
+        builder = EmbedBuilder.generic(
+            title=f"Team Per-Game Averages — {team_display}",
+            team_code=team_code,
+            division_code=league_code,
         )
-        builder.add_team_badge(team_code)
-        builder.add_league_badge(league_code)
-        builder.add_team_field(team_code, fallback_name=team_display)
-        builder.add_season_field(season_row.get('name', 'Unknown'))
         builder.add_league_field(league_code, league_name=season_league_display)
+        builder.add_season_field(season_row.get('name', 'Unknown'))
         builder.add_field("Games Played", str(team_avg.get('games_played', 0)), inline=False)
 
         avg_lines = [
