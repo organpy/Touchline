@@ -621,14 +621,18 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             # Notify
             files, thumbnail = build_team_logo_payload(team['code'])
 
-            builder = EmbedBuilder.success(
+            builder = EmbedBuilder(
                 title="Admin Force Sign",
-                description=f"{player.mention} signed to **{team_label}** (force)"
+                description=f"{player.mention} signed to **{team_label}** (force)",
+                team_code=team['code'],
+                division_code=league_code,
+                force_color="#57F287",  # Discord green for success
             )
             builder.add_league_field(league_code)
             builder.add_field("Season", season['name'], inline=True)
+            builder.add_field("Team", team_label, inline=True)
             builder.add_field("Admin", interaction.user.mention, inline=True)
-            builder.set_footer_text("Admin force sign (no confirmation needed)")
+            builder.add_timestamp()
             if team['code']:
                 builder.add_team_image(team['code'], position="thumbnail")
             builder.files.extend(files)
@@ -709,14 +713,18 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             # Notify
             files, thumbnail = build_team_logo_payload(team['code'] if team else None)
 
-            builder = EmbedBuilder.warning(
+            builder = EmbedBuilder(
                 title="Admin Force Release",
-                description=f"{player.mention} released from **{team_display}** (force)"
+                description=f"{player.mention} released from **{team_display}** (force)",
+                team_code=team['code'] if team else None,
+                division_code=league_code,
+                force_color="#FAA61A",  # Orange for warning
             )
             builder.add_league_field(league_code)
             builder.add_field("Season", season['name'], inline=True)
+            builder.add_field("Team", team_display, inline=True)
             builder.add_field("Admin", interaction.user.mention, inline=True)
-            builder.set_footer_text("Admin force release (no confirmation needed)")
+            builder.add_timestamp()
             if team and team.get('code'):
                 builder.add_team_image(team['code'], position="thumbnail")
             builder.files.extend(files)
