@@ -20,6 +20,45 @@ if TYPE_CHECKING:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
+def find_transaction_by_identifier(supabase, raw_identifier: str, fetch_limit: int = 200) -> Optional[Dict[str, Any]]:
+    """Resolve a transaction_event by full UUID or the short 8-char identifier."""
+    if not raw_identifier:
+        return None
+
+    identifier = raw_identifier.strip()
+    if not identifier:
+        return None
+
+    try:
+        # Full UUID lookup (36 chars) – safe to query directly
+        if len(identifier) == 36:
+            response = (
+                supabase.table("transaction_events")
+                .select("*")
+                .eq("id", identifier)
+                .limit(1)
+                .execute()
+            )
+            return response.data[0] if response.data else None
+
+        # Prefix lookup: fetch recent entries and filter client-side
+        response = (
+            supabase.table("transaction_events")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(fetch_limit)
+            .execute()
+        )
+        for txn in response.data or []:
+            txn_id = txn.get("id", "")
+            if isinstance(txn_id, str) and txn_id.startswith(identifier):
+                return txn
+    except Exception as exc:  # pragma: no cover - defensive logging for Supabase errors
+        logger.error("Failed to resolve transaction %s: %s", identifier, exc)
+
+    return None
+
+
 class VoidTransactionModal(discord.ui.Modal, title="Void Transaction"):
     """Modal for voiding a transaction."""
 
@@ -62,23 +101,14 @@ class VoidTransactionModal(discord.ui.Modal, title="Void Transaction"):
             return
 
         try:
-            # Find transaction
-            response = (
-                supabase.table("transaction_events")
-                .select("*")
-                .eq("id", self.transaction_id.value.strip())
-                .limit(1)
-                .execute()
-            )
+            transaction = find_transaction_by_identifier(supabase, self.transaction_id.value)
 
-            if not response.data:
+            if not transaction:
                 await interaction.followup.send(
                     f"❌ Transaction **{self.transaction_id.value}** not found.",
                     ephemeral=True,
                 )
                 return
-
-            transaction = response.data[0]
 
             # Update transaction status to voided
             void_response = (
@@ -167,23 +197,14 @@ class EditTransactionModal(discord.ui.Modal, title="Edit Transaction"):
             return
 
         try:
-            # Find transaction
-            response = (
-                supabase.table("transaction_events")
-                .select("*")
-                .eq("id", self.transaction_id.value.strip())
-                .limit(1)
-                .execute()
-            )
+            transaction = find_transaction_by_identifier(supabase, self.transaction_id.value)
 
-            if not response.data:
+            if not transaction:
                 await interaction.followup.send(
                     f"❌ Transaction **{self.transaction_id.value}** not found.",
                     ephemeral=True,
                 )
                 return
-
-            transaction = response.data[0]
 
             # Update transaction notes
             update_data = {
@@ -276,23 +297,14 @@ class ResendAnnouncementModal(discord.ui.Modal, title="Resend Announcement"):
             return
 
         try:
-            # Find transaction
-            response = (
-                supabase.table("transaction_events")
-                .select("*")
-                .eq("id", self.transaction_id.value.strip())
-                .limit(1)
-                .execute()
-            )
+            transaction = find_transaction_by_identifier(supabase, self.transaction_id.value)
 
-            if not response.data:
+            if not transaction:
                 await interaction.followup.send(
                     f"❌ Transaction **{self.transaction_id.value}** not found.",
                     ephemeral=True,
                 )
                 return
-
-            transaction = response.data[0]
 
             # Get channel
             try:

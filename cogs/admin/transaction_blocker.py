@@ -250,10 +250,15 @@ class TransactionBlockerPaginatedView(discord.ui.View):
                 # Clear ConfigManager cache so next read gets fresh data
                 config_mgr.clear_cache(self.guild_id)
                 logger.info(f"🗑️  Cleared ConfigManager cache for guild {self.guild_id}")
-                
-                final_list = list(banned_teams)
+
+                # Reload once to confirm persistence and to provide updated view data
+                fresh_config = await config_mgr.get_guild_config(self.guild_id)
+                fresh_rules = fresh_config.get("transaction_rules", {})
+                final_list = fresh_rules.get("banned_teams", [])
+                self.current_blocks = final_list.copy()
+                self.pending_changes.clear()
+                logger.info("   🔄 Reloaded banned teams from DB: %s", final_list)
                 logger.info(f"✅ Transaction blocker saved to database")
-                logger.info(f"   Final banned teams list: {final_list}")
                 logger.info(f"   Final list types: {[type(t).__name__ for t in final_list]}")
 
             embed = discord.Embed(
