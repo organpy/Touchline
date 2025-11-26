@@ -138,6 +138,7 @@ class TeamBanSelectView(LazyInitView):
         self.guild_id = guild_id
         self.parent_view = parent_view
         self.config_mgr = get_config_manager()
+        self.visible_team_ids: List[str] = []
 
     async def populate(self) -> None:
         cache = TeamPlayerCache()
@@ -150,7 +151,10 @@ class TeamBanSelectView(LazyInitView):
         
         # Create select menu
         options = []
-        for team in sorted(teams, key=lambda t: t['name'])[:25]: # Limit to 25 for select menu
+        sorted_teams = sorted(teams, key=lambda t: t['name'])[:25]  # Limit to 25 for select menu
+        self.visible_team_ids = [team['id'] for team in sorted_teams]
+
+        for team in sorted_teams:
             is_banned = team['id'] in banned_ids
             label = f"{'🚫 ' if is_banned else ''}{team['name']}"
             options.append(discord.SelectOption(
@@ -165,7 +169,7 @@ class TeamBanSelectView(LazyInitView):
 
         select = discord.ui.Select(
             placeholder="Select teams to toggle ban status...",
-            min_values=1,
+            min_values=0,
             max_values=len(options),
             options=options
         )
@@ -174,37 +178,16 @@ class TeamBanSelectView(LazyInitView):
 
     async def on_select(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        selected_ids = interaction.data['values']
+        selected_ids = interaction.data.get('values', [])
+        visible_ids = set(self.visible_team_ids)
+        selected_visible_ids = {team_id for team_id in selected_ids if team_id in visible_ids}
         
         config = await self.config_mgr.get_config(self.guild_id)
         tx_config = config.get('transaction_rules', {})
         current_bans = set(tx_config.get('banned_teams', []))
-        
-        # Toggle logic: if selected and banned -> unban. if selected and not banned -> ban.
-        # But multi-select makes this tricky. Let's assume the user selects the *new state* of bans?
-        # No, Discord select menus with defaults pre-selected allow modifying the set.
-        # The values returned are the *currently selected* items.
-        # So we just replace the banned list with the selected list?
-        # Wait, if we have > 25 teams, we can't show all.
-        # Let's stick to "Toggle" logic for simplicity if we can't show all.
-        # But here we are showing top 25.
-        # Actually, standard behavior for multi-select is "these are the selected items".
-        # So we should update the banned list to match the selection (for the visible items).
-        
-        # Better approach for "Toggle":
-        # Just take the selection and set it as the banned list?
-        # If we have > 25 teams, this is dangerous as it clears unseen bans.
-        # Let's assume < 25 teams for now or just implement a toggle per team in a different way?
-        # Given the user asked for "disable all or just disable one", a select menu is good.
-        
-        # Let's just update the banned list to be exactly what is selected, 
-        # assuming all teams fit in 25 or we only care about the ones shown.
-        # To be safe, let's merge.
-        
-        # Actually, let's just use the selection as the new banned list for simplicity.
-        # If the user unselects a team, it gets unbanned.
-        
-        tx_config['banned_teams'] = selected_ids
+        hidden_bans = current_bans - visible_ids
+        new_bans = hidden_bans | selected_visible_ids
+        tx_config['banned_teams'] = list(new_bans)
         
         await self.config_mgr.set_config(self.guild_id, 'transaction_rules', tx_config)
         
