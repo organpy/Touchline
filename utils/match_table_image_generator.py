@@ -95,6 +95,7 @@ CANVAS_PADDING = 32
 CARD_CORNER_RADIUS = 24
 HEADER_HEIGHT = 100
 CELL_SIZE = 70
+SUBCELL_HEIGHT = 35  # Height of each half-cell (home/away) - NEW
 LOGO_COLUMN_WIDTH = 80
 LOGO_SIZE = 50
 CELL_PADDING = 4
@@ -353,45 +354,73 @@ def generate_match_table_image(
                     logo_y = y + (CELL_SIZE - LOGO_SIZE) // 2
                     card.paste(logo, (logo_x, logo_y), logo)
 
-        # Draw match cells
+        # Draw match cells (each matchup gets 2 cells: home and away)
         for row, row_team in enumerate(teams):
             for col, col_team in enumerate(teams):
-                x = grid_x + LOGO_COLUMN_WIDTH + (col * CELL_SIZE)
-                y = grid_y + LOGO_COLUMN_WIDTH + (row * CELL_SIZE)
+                base_x = grid_x + LOGO_COLUMN_WIDTH + (col * CELL_SIZE)
+                base_y = grid_y + LOGO_COLUMN_WIDTH + (row * CELL_SIZE)
                 
-                cell_rect = (x, y, x + CELL_SIZE, y + CELL_SIZE)
-                
-                # Same team = diagonal (dark cell)
+                # Same team = diagonal (dark cells)
                 if row_team['id'] == col_team['id']:
+                    cell_rect = (base_x, base_y, base_x + CELL_SIZE, base_y + CELL_SIZE)
                     card_draw.rectangle(cell_rect, fill=_to_rgba(theme["cell_border"]), outline=_to_rgba(theme["cell_border"]))
                     continue
                 
-                # Look up match: row team is "home" (team1), col team is "away" (team2)
-                match = match_lookup.get((row_team['id'], col_team['id']))
+                # TOP SUBCELL: row_team is HOME (team1), col_team is AWAY (team2)
+                match_home = match_lookup.get((row_team['id'], col_team['id']))
+                top_rect = (base_x, base_y, base_x + CELL_SIZE, base_y + SUBCELL_HEIGHT)
                 
-                if match and match.get('status') == 'final':
-                    score1 = match.get('team1_score', 0) or 0
-                    score2 = match.get('team2_score', 0) or 0
+                if match_home and match_home.get('status') == 'final':
+                    score1 = match_home.get('team1_score', 0) or 0
+                    score2 = match_home.get('team2_score', 0) or 0
                     
-                    # Determine win/loss from row team's perspective (row team = team1)
+                    # Green if row_team (home) won, red if they lost
                     if score1 > score2:
                         cell_color = theme["cell_win"]
                     else:
                         cell_color = theme["cell_loss"]
                     
-                    card_draw.rectangle(cell_rect, fill=_to_rgba(cell_color), outline=_to_rgba(theme["cell_border"]))
+                    card_draw.rectangle(top_rect, fill=_to_rgba(cell_color), outline=_to_rgba(theme["cell_border"]))
                     
-                    # Draw score centered in cell
+                    # Draw score
                     score_text = f"{score1}-{score2}"
                     score_bbox = card_draw.textbbox((0, 0), score_text, font=score_font)
                     score_width = score_bbox[2] - score_bbox[0]
                     score_height = score_bbox[3] - score_bbox[1]
-                    score_x = x + (CELL_SIZE - score_width) // 2
-                    score_y = y + (CELL_SIZE - score_height) // 2
+                    score_x = base_x + (CELL_SIZE - score_width) // 2
+                    score_y = base_y + (SUBCELL_HEIGHT - score_height) // 2
                     card_draw.text((score_x, score_y), score_text, fill=_to_rgba(theme["text_primary"]), font=score_font)
                 else:
                     # Not played yet
-                    card_draw.rectangle(cell_rect, fill=_to_rgba(theme["cell_pending"]), outline=_to_rgba(theme["cell_border"]))
+                    card_draw.rectangle(top_rect, fill=_to_rgba(theme["cell_pending"]), outline=_to_rgba(theme["cell_border"]))
+                
+                # BOTTOM SUBCELL: col_team is HOME (team1), row_team is AWAY (team2)
+                match_away = match_lookup.get((col_team['id'], row_team['id']))
+                bottom_rect = (base_x, base_y + SUBCELL_HEIGHT, base_x + CELL_SIZE, base_y + CELL_SIZE)
+                
+                if match_away and match_away.get('status') == 'final':
+                    score1 = match_away.get('team1_score', 0) or 0
+                    score2 = match_away.get('team2_score', 0) or 0
+                    
+                    # Red if row_team (away) lost, green if they won
+                    if score2 > score1:
+                        cell_color = theme["cell_win"]
+                    else:
+                        cell_color = theme["cell_loss"]
+                    
+                    card_draw.rectangle(bottom_rect, fill=_to_rgba(cell_color), outline=_to_rgba(theme["cell_border"]))
+                    
+                    # Draw score (show it from row_team's perspective)
+                    score_text = f"{score2}-{score1}"
+                    score_bbox = card_draw.textbbox((0, 0), score_text, font=score_font)
+                    score_width = score_bbox[2] - score_bbox[0]
+                    score_height = score_bbox[3] - score_bbox[1]
+                    score_x = base_x + (CELL_SIZE - score_width) // 2
+                    score_y = base_y + SUBCELL_HEIGHT + (SUBCELL_HEIGHT - score_height) // 2
+                    card_draw.text((score_x, score_y), score_text, fill=_to_rgba(theme["text_primary"]), font=score_font)
+                else:
+                    # Not played yet
+                    card_draw.rectangle(bottom_rect, fill=_to_rgba(theme["cell_pending"]), outline=_to_rgba(theme["cell_border"]))
 
         # Paste card onto canvas
         canvas.paste(card, (CANVAS_PADDING, CANVAS_PADDING), card)
