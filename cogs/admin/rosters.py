@@ -512,6 +512,7 @@ class ForceReleaseView(LazyInitView):
                 roster_entry = roster.data[0]
                 player_name = roster_entry['players'].get('display_name', 'Unknown')
                 team_code = roster_entry['teams'].get('code', '?')
+                team_name = roster_entry['teams'].get('name', 'Unknown')
 
                 # Confirmation
                 class ConfirmReleaseView(discord.ui.View):
@@ -564,11 +565,11 @@ class ForceReleaseView(LazyInitView):
                                         team_color = get_team_color(team_code)
                                         
                                         embed = discord.Embed(
-                                            title="� Admin Force Release",
-                                            description=f"**{player_name}** has been released from **{team_code}**",
+                                            title="🚪 Admin Force Release",
+                                            description=f"**{player_name}** has been released from **{team_name}**",
                                             color=team_color,
                                         )
-                                        embed.add_field(name="Team", value=team_code, inline=True)
+                                        embed.add_field(name="Team", value=f"{team_name} (`{team_code}`)", inline=True)
                                         embed.add_field(name="League", value=league_display, inline=True)
                                         embed.add_field(name="Player", value=player_name, inline=False)
                                         embed.add_field(name="Executed by", value=confirm_interaction.user.mention, inline=False)
@@ -606,10 +607,12 @@ class ForceReleaseView(LazyInitView):
                 confirm_view.parent_view = self.parent_view
                 confirm_view.repo = self.repo
 
+                from utils.team_colors import get_team_color
+                team_color = get_team_color(team_code)
                 embed = discord.Embed(
-                    title="⚠️ Confirm Force Release",
-                    description=f"Release **{player_name}** from **{team_code}**?",
-                    color=discord.Color.red(),
+                    title="🚪 Confirm Force Release",
+                    description=f"Release **{player_name}** from **{team_name}**?",
+                    color=team_color,
                 )
                 await interaction.followup.send(embed=embed, view=confirm_view, ephemeral=True)
         except Exception as exc:  # pragma: no cover

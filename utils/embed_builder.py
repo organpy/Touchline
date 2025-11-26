@@ -149,7 +149,11 @@ class EmbedBuilder:
         label: str = "League",
         inline: bool = True,
     ) -> "EmbedBuilder":
-        """Add formatted league field with code and emoji."""
+        """Add formatted league field with emoji and name only.
+        
+        Shows: "<emoji> League_Name" (not "League_Name (CODE)")
+        """
+        # Use league_name if provided, otherwise use league_code
         display = league_name or (league_code.upper() if league_code else None)
         if not display:
             return self
@@ -171,11 +175,17 @@ class EmbedBuilder:
     def add_player_field(
         self,
         player_name: str,
+        player_mention: Optional[str] = None,
         label: str = "Player",
         inline: bool = True,
     ) -> "EmbedBuilder":
-        """Add player field."""
-        return self.add_field(name=label, value=f"**{player_name}**", inline=inline)
+        """Add player field with optional Discord mention/ping.
+        
+        If player_mention is provided (e.g. "<@123456>" or "@username"), it will be used.
+        Otherwise just shows the player name.
+        """
+        value = player_mention or f"**{player_name}**"
+        return self.add_field(name=label, value=value, inline=inline)
 
     def add_stat_field(
         self,

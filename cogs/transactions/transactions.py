@@ -193,6 +193,43 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             self.active_recordings.discard(matchup_key)
             logger.info(f"✅ Released recording lock for matchup {matchup_key}. Remaining active: {self.active_recordings}")
 
+    async def _check_transaction_rules(self, interaction: discord.Interaction, action_type: str, team_id: Optional[str] = None) -> bool:
+        """
+        Check if a transaction type is enabled globally and if the team is banned.
+        Returns True if allowed, False if blocked (and sends response).
+        """
+        guild_id = interaction.guild_id
+        if not guild_id:
+            return True
+
+        config = await self.config.get_config(guild_id)
+        rules = config.get("transaction_rules", {})
+        
+        # Determine response method based on interaction state
+        send_method = interaction.followup.send if interaction.response.is_done() else interaction.response.send_message
+
+        # 1. Check global toggle
+        # action_type: "signings", "releases", "trades"
+        if not rules.get(f"{action_type}_enabled", True):
+            await send_method(
+                f"❌ **{action_type.capitalize()} are currently disabled** by league admins.",
+                ephemeral=True
+            )
+            return False
+
+        # 2. Check team ban
+        if team_id:
+            banned_teams = rules.get("banned_teams", [])
+            if team_id in banned_teams:
+                await send_method(
+                    "❌ **Your team is currently banned from making transactions.**\n"
+                    "Please contact a league admin for more information.",
+                    ephemeral=True
+                )
+                return False
+
+        return True
+
     # ------------------------------------------------------------------
     # Signings
     # ------------------------------------------------------------------
@@ -201,6 +238,10 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     async def sign(self, interaction: discord.Interaction, player: discord.Member, minutes_valid: Optional[int] = None):
         """Create a pending signing and prompt the player to accept or decline."""
         await interaction.response.defer(ephemeral=True)
+
+        # Check global signing rules
+        if not await self._check_transaction_rules(interaction, "signings"):
+            return
 
         # Prevent signing bots or self
         if player.bot:
@@ -224,6 +265,10 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                 "❌ Unable to determine your team. Ensure your Discord ID is set as the team owner.",
                 ephemeral=True,
             )
+            return
+
+        # Check if team is banned from transactions
+        if not await self._check_transaction_rules(interaction, "signings", team['id']):
             return
 
         # Ensure there is an active season and that the team participates in it.
@@ -378,6 +423,10 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     @app_commands.command(name="release", description="[TEAM OWNER] Release a player from your roster")
     async def release(self, interaction: discord.Interaction, player: discord.Member):
         """Launch modal confirmation to release a player from the roster."""
+        # Check global release rules
+        if not await self._check_transaction_rules(interaction, "releases"):
+            return
+
         transactions_cfg = await self.config.get_transactions_config(interaction.guild_id)
 
         team = await queries.get_team_by_owner(self.supabase, interaction.user.id)
@@ -386,6 +435,10 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                 "❌ Unable to determine your team. Ensure your Discord ID is set as the team owner.",
                 ephemeral=True,
             )
+            return
+
+        # Check team ban
+        if not await self._check_transaction_rules(interaction, "releases", team['id']):
             return
 
         season = await queries.get_active_season(self.supabase)

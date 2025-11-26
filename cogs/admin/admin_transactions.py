@@ -15,6 +15,8 @@ from cogs.admin.seasons import SeasonActionsView
 from cogs.admin.overrides import OverridesActionsView
 from cogs.admin.pending_offers import PendingOffersActionsView
 from cogs.admin.audit_reports import AuditReportsActionsView
+from cogs.admin.transaction_settings import TransactionSettingsView
+from cogs.admin.transaction_blocker import TransactionBlockerSummaryView
 from utils.config_utility import ConfigUtility
 from utils.dashboard_metrics import DashboardMetricsView
 
@@ -33,6 +35,8 @@ class AdminDashboardView(discord.ui.View):
         ("📅 Season Management", "Create, activate, deactivate seasons"),
         ("⏰ Pending Offers Management", "Manage signing offers, expire early"),
         ("📊 Audit & Reporting", "View activity logs, flagged actions, export data"),
+        ("� Transaction Blocker", "Block teams from doing transactions mid-season"),
+        ("�🛑 Transaction Controls", "Toggle signings/trades/releases, ban teams"),
     ]
 
     def __init__(self, bot: Any, guild_id: int, config_data: Dict[str, Any]) -> None:
@@ -180,9 +184,9 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for pending offers: %s", exc)
 
-    @discord.ui.button(label="Audit & Reporting", emoji="📊", style=discord.ButtonStyle.primary, row=1)
-    async def audit_reporting(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        """Open audit and reporting interface."""
+    @discord.ui.button(label="Audit & Reporting", emoji="📊", style=discord.ButtonStyle.secondary, row=2)
+    async def audit_reports(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        """Open audit reports interface."""
         if not await self._safe_defer(interaction):
             return
         view = AuditReportsActionsView(self.bot, interaction.guild.id, self.bot.supabase)
@@ -190,20 +194,63 @@ class AdminDashboardView(discord.ui.View):
         message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         try:
             view.original_message = message
-        except Exception as exc:  # pragma: no cover
-            logger.error("Unable to fetch original response for audit and reporting: %s", exc)
+        except AttributeError:
+            pass
 
-    @discord.ui.button(label="📊 Metrics", emoji="📈", style=discord.ButtonStyle.success, row=2)
-    async def show_metrics(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        """Show league health metrics."""
+    @discord.ui.button(label="Transaction Blocker", emoji="🔐", style=discord.ButtonStyle.warning, row=2)
+    async def transaction_blocker(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        """Open transaction blocker interface."""
         if not await self._safe_defer(interaction):
             return
-        view = DashboardMetricsView(interaction.guild.id, self.bot)
-        await view.fetch_metrics()
-        embed = view.get_metrics_embed()
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        
+        from utils.config_manager import get_config_manager
+        config_mgr = get_config_manager()
+        config = await config_mgr.get_guild_config(interaction.guild_id)
+        
+        transaction_blocks = config.get("transaction_blocks", {})
+        
+        from db import get_supabase
+        supabase = get_supabase()
+        
+        from cogs.admin.transaction_blocker import TransactionBlockerSummaryView
+        view = TransactionBlockerSummaryView(interaction.guild_id, supabase, transaction_blocks)
+        
+        from utils.team_player_cache import TeamPlayerCache
+        cache = TeamPlayerCache()
+        all_teams = cache.get_all_teams()
+        blocked_count = len(transaction_blocks)
+        enabled_count = len(all_teams) - blocked_count
+        
+        embed = discord.Embed(
+            title="🔐 Transaction Blocker",
+            description="Block teams from doing signings/trades/releases mid-season",
+            color=discord.Color.orange(),
+        )
+        embed.add_field(
+            name="📊 Current Status",
+            value=f"✅ Enabled: {enabled_count} teams\n🚫 Blocked: {blocked_count} teams\n📦 Total: {len(all_teams)} teams",
+            inline=False,
+        )
+        
+        message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        view.message = message
 
-    @discord.ui.button(label="Close", emoji="❌", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="Transaction Controls", emoji="🛑", style=discord.ButtonStyle.danger, row=3)
+    async def transaction_controls(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        """Open transaction settings interface."""
+        if not await self._safe_defer(interaction):
+            return
+        view = TransactionSettingsView(self.bot, interaction.guild.id)
+        # Initialize the view (load current settings)
+        await view.initialize()
+        embed = view.create_embed()
+        message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        try:
+            view.original_message = message
+        except AttributeError:
+            pass
+
+    @discord.ui.button(label="Close", emoji="❌", style=discord.ButtonStyle.secondary, row=3)
     async def close(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Close the admin dashboard."""
         embed = discord.Embed(
