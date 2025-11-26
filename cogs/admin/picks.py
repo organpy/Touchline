@@ -727,6 +727,8 @@ class ReassignPickView(LazyInitView):
                 confirm_view.new_team_data = new_team_data
                 confirm_view.team_map = self._team_map
 
+                from utils.team_colors import get_team_color
+                team_color = get_team_color(new_team_data.get('code'))
                 embed = discord.Embed(
                     title="✅ Confirm Reassign",
                     description=(
@@ -736,7 +738,7 @@ class ReassignPickView(LazyInitView):
                         f"**To**: {new_team_label}\n\n"
                         f"Confirm reassignment?"
                     ),
-                    color=discord.Color.purple(),
+                    color=team_color,
                 )
                 await interaction.followup.send(embed=embed, view=confirm_view, ephemeral=True)
         except Exception as exc:  # pragma: no cover
@@ -1140,13 +1142,15 @@ class ViewPicksByTeamView(LazyInitView):
                     return
                 team_data = team_response.data[0]
 
+            from utils.team_colors import get_team_color
+            team_color = get_team_color(team_data.get('code'))
             embed = discord.Embed(
                 title=f"🗂️ {team_data.get('name', 'Unknown')} Draft Picks",
                 description=(
                     f"Code: `{team_data.get('code', '?')}`\n"
                     f"Season: **{self._season_name or self._selected_season.get('name', 'Unknown')}**"
                 ),
-                color=discord.Color.purple(),
+                color=team_color,
             )
 
             if not picks:

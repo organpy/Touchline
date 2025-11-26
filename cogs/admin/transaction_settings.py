@@ -213,3 +213,8 @@ class TeamBanSelectView(LazyInitView):
         await self.parent_view.update_display(interaction)
         
         await interaction.followup.send("✅ Team bans updated.", ephemeral=True)
+
+
+async def setup(bot):
+    """Setup function for cog loading (required by discord.py)."""
+    logger.info("✅ Transaction Settings module loaded (no cog class needed - provides UI views only)")

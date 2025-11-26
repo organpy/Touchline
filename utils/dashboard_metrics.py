@@ -32,14 +32,19 @@ class DashboardMetricsView(discord.ui.View):
             players_response = supabase.table('players').select('id').execute()
             players_count = len(players_response.data) if players_response.data else 0
             
-            rosters_response = supabase.table('rosters').select('id').is_('left_at', 'null').execute()
+            rosters_response = supabase.table('rosters').select('id').filter('left_at', 'is', 'null').execute()
             active_rosters_count = len(rosters_response.data) if rosters_response.data else 0
             
             matches_response = supabase.table('matches').select('id').eq('status', 'final').execute()
             completed_matches_count = len(matches_response.data) if matches_response.data else 0
             
-            pending_offers = supabase.table('pending_signings').select('id').eq('status', 'pending').execute()
-            pending_offers_count = len(pending_offers.data) if pending_offers.data else 0
+            pending_signings = supabase.table('pending_signings').select('id').eq('status', 'pending').execute()
+            pending_signings_count = len(pending_signings.data) if pending_signings.data else 0
+
+            pending_trades = supabase.table('trade_proposals').select('id').eq('status', 'pending').execute()
+            pending_trades_count = len(pending_trades.data) if pending_trades.data else 0
+            
+            pending_offers_count = pending_signings_count + pending_trades_count
             
             picks_response = supabase.table('draft_picks').select('id').eq('current_owner_team_id', None).execute()
             unassigned_picks_count = len(picks_response.data) if picks_response.data else 0

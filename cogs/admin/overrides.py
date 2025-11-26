@@ -66,7 +66,7 @@ class VoidTransactionModal(discord.ui.Modal, title="Void Transaction"):
             response = (
                 supabase.table("transaction_events")
                 .select("*")
-                .ilike("id", f"%{self.transaction_id.value}%")
+                .eq("id", self.transaction_id.value.strip())
                 .limit(1)
                 .execute()
             )
@@ -171,7 +171,7 @@ class EditTransactionModal(discord.ui.Modal, title="Edit Transaction"):
             response = (
                 supabase.table("transaction_events")
                 .select("*")
-                .ilike("id", f"%{self.transaction_id.value}%")
+                .eq("id", self.transaction_id.value.strip())
                 .limit(1)
                 .execute()
             )
@@ -280,7 +280,7 @@ class ResendAnnouncementModal(discord.ui.Modal, title="Resend Announcement"):
             response = (
                 supabase.table("transaction_events")
                 .select("*")
-                .ilike("id", f"%{self.transaction_id.value}%")
+                .eq("id", self.transaction_id.value.strip())
                 .limit(1)
                 .execute()
             )

@@ -197,7 +197,7 @@ class AdminDashboardView(discord.ui.View):
         except AttributeError:
             pass
 
-    @discord.ui.button(label="Transaction Blocker", emoji="🔐", style=discord.ButtonStyle.warning, row=2)
+    @discord.ui.button(label="Transaction Blocker", emoji="🔐", style=discord.ButtonStyle.danger, row=2)
     async def transaction_blocker(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open transaction blocker interface."""
         if not await self._safe_defer(interaction):

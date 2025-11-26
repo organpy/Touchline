@@ -835,6 +835,8 @@ class ForceTransferView(LazyInitView):
                 confirm_view.repo = self.repo
                 confirm_view._selected_roster = self._selected_roster
 
+                from utils.team_colors import get_team_color
+                team_color = get_team_color(dest_code)
                 embed = discord.Embed(
                     title="✅ Confirm Force Transfer",
                     description=(
@@ -843,7 +845,7 @@ class ForceTransferView(LazyInitView):
                         f"**To**: {dest_code}\n\n"
                         f"Confirm transfer?"
                     ),
-                    color=discord.Color.green(),
+                    color=team_color,
                 )
                 await interaction.followup.send(embed=embed, view=confirm_view, ephemeral=True)
         except Exception as exc:  # pragma: no cover
