@@ -21,6 +21,178 @@ if TYPE_CHECKING:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
+class ResendOfferModal(discord.ui.Modal, title="Resend Signing Offer"):
+    """Modal for resending a pending signing offer to the player."""
+
+    offer_id = discord.ui.TextInput(
+        label="Offer ID",
+        placeholder="e.g., uuid or reference",
+        required=True,
+        min_length=1,
+        max_length=200,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        """Handle modal submission."""
+        await interaction.response.defer(ephemeral=True)
+
+        supabase = get_supabase()
+        if not supabase:
+            await interaction.followup.send(
+                "❌ Database connection unavailable.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            offer_input = self.offer_id.value.strip()
+            offer = None
+
+            # Try full UUID first
+            if len(offer_input) == 36:
+                response = (
+                    supabase.table("pending_signings")
+                    .select("*")
+                    .eq("id", offer_input)
+                    .limit(1)
+                    .execute()
+                )
+                offer = response.data[0] if response.data else None
+            else:
+                # Prefix search
+                lookup_response = (
+                    supabase.table("pending_signings")
+                    .select("*")
+                    .eq("status", "pending")
+                    .order("created_at", desc=True)
+                    .limit(200)
+                    .execute()
+                )
+                for candidate in lookup_response.data or []:
+                    if isinstance(candidate.get("id"), str) and candidate["id"].startswith(offer_input):
+                        offer = candidate
+                        break
+
+            if not offer:
+                await interaction.followup.send(
+                    f"❌ Offer **{self.offer_id.value}** not found.",
+                    ephemeral=True,
+                )
+                return
+
+            if offer.get("status") != "pending":
+                await interaction.followup.send(
+                    f"⚠️ Offer is **{offer.get('status')}** and cannot be resent.",
+                    ephemeral=True,
+                )
+                return
+
+            # Get player and team info
+            player_id = offer.get("player_id")
+            team_id = offer.get("team_id")
+            season_id = offer.get("season_id")
+
+            player_resp = supabase.table("players").select("*").eq("id", player_id).limit(1).execute()
+            team_resp = supabase.table("teams").select("*").eq("id", team_id).limit(1).execute()
+            season_resp = supabase.table("seasons").select("*").eq("id", season_id).limit(1).execute()
+
+            if not player_resp.data or not team_resp.data or not season_resp.data:
+                await interaction.followup.send(
+                    "❌ Could not fetch player, team, or season information.",
+                    ephemeral=True,
+                )
+                return
+
+            player = player_resp.data[0]
+            team = team_resp.data[0]
+            season = season_resp.data[0]
+            player_discord_id = player.get("discord_id")
+
+            if not player_discord_id:
+                await interaction.followup.send(
+                    f"❌ Player {player.get('display_name')} has no Discord ID linked.",
+                    ephemeral=True,
+                )
+                return
+
+            try:
+                player_member = await interaction.client.fetch_user(player_discord_id)
+            except discord.NotFound:
+                await interaction.followup.send(
+                    f"❌ Could not find Discord user for player {player.get('display_name')}.",
+                    ephemeral=True,
+                )
+                return
+
+            # Rebuild the offer embed
+            from utils.team_display import format_team_label_from_record
+            from utils.embed_builder import EmbedBuilder
+            from utils.embed_assets import build_team_logo_payload
+
+            team_label = format_team_label_from_record(team)
+            expires_at = offer.get("expires_at")
+            expiry_text = f"<t:{int(datetime.fromisoformat(expires_at.replace('Z', '+00:00')).timestamp())}:R>" if expires_at else "No expiry"
+
+            files, thumbnail = build_team_logo_payload(team.get("code"))
+
+            league_code = None
+            if season_id:
+                try:
+                    div_resp = supabase.table("seasons").select("division_id").eq("id", season_id).limit(1).execute()
+                    if div_resp.data:
+                        division_id = div_resp.data[0].get("division_id")
+                        if division_id:
+                            div_resp2 = supabase.table("divisions").select("league_type").eq("id", division_id).limit(1).execute()
+                            if div_resp2.data:
+                                league_code = div_resp2.data[0].get("league_type")
+                except Exception:
+                    pass
+
+            builder = EmbedBuilder(
+                title="Signing Offer (Resent)",
+                description=f"{player_member.mention}, {team_label} would like to sign you!",
+                team_code=team.get("code"),
+                division_code=league_code,
+            )
+            builder.add_league_field(league_code)
+            builder.add_field("Season", season.get("name", "Unknown"), inline=True)
+            builder.add_field("Player", player.get("display_name"), inline=True)
+            builder.add_field("Team", team_label, inline=True)
+            builder.add_field("Expires", expiry_text, inline=False)
+            builder.add_timestamp()
+            if team.get("code"):
+                builder.add_team_image(team.get("code"), position="thumbnail")
+            builder.files.extend(files)
+            embed, all_files = builder.build_with_files()
+
+            # Send to player
+            try:
+                await player_member.send(embed=embed, files=all_files or None)
+                await interaction.followup.send(
+                    f"✅ Resent offer to {player.get('display_name')}.",
+                    ephemeral=True,
+                )
+                logger.info(f"Resent offer {offer['id']} to {player_discord_id}")
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    f"❌ Could not DM {player.get('display_name')} - they may have DMs disabled.",
+                    ephemeral=True,
+                )
+            except Exception as e:
+                logger.error(f"Error sending resend offer DM: {e}")
+                await interaction.followup.send(
+                    f"❌ Error sending offer: {str(e)[:100]}",
+                    ephemeral=True,
+                )
+
+        except Exception as e:
+            logger.error(f"Error resending offer: {e}", exc_info=True)
+            await interaction.followup.send(
+                f"❌ Error resending offer: {str(e)[:100]}",
+                ephemeral=True,
+            )
+
+
 class ExpireOfferModal(discord.ui.Modal, title="Expire Signing Offer"):
     """Modal for expiring a pending signing offer early."""
 
@@ -307,12 +479,9 @@ class PendingOffersActionsView(AdminUIView):
 
     @discord.ui.button(label="Resend", emoji="🔄", style=discord.ButtonStyle.primary, row=0)
     async def resend_offer(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        """Resend offer notification."""
-        await interaction.response.send_message(
-            "🔄 Resend Offer - Feature in development\n\n"
-            "This will resend the signing offer notification to the player's DM.",
-            ephemeral=True,
-        )
+        """Resend offer notification to player."""
+        modal = ResendOfferModal()
+        await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="Back", emoji="🔙", style=discord.ButtonStyle.secondary, row=1)
     async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:

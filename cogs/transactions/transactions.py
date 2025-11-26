@@ -108,10 +108,20 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         return display, league_code
 
     async def cog_load(self) -> None:
-        """Recover pending offers on cog load (bot restart) and re-attach views so they're interactive."""
+        """Recover pending offers on cog load (bot restart) and re-attach views so they're interactive.
+        
+        Note: DynamicItem-based buttons (in persistent_views.py) automatically reattach via regex templates,
+        so this recovery primarily ensures messages are still accessible and embeds are up-to-date.
+        """
         logger.info("🔄 Recovering pending signing offers from database...")
         try:
-            result = self.supabase.table('pending_signings').select('*').execute()
+            # Query only pending offers (status='pending') since others are terminal
+            result = (
+                self.supabase.table('pending_signings')
+                .select('*')
+                .eq('status', 'pending')
+                .execute()
+            )
             pending_offers = result.data or []
             
             if not pending_offers:
@@ -123,56 +133,48 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             for offer in pending_offers:
                 try:
                     guild_id = offer.get('guild_id')
-                    channel_id = offer.get('message_channel_id')
+                    channel_id = offer.get('channel_id')  # Correct field name (not message_channel_id)
                     message_id = offer.get('message_id')
                     player_id = offer.get('player_id')
                     team_id = offer.get('team_id')
                     signing_id = offer.get('id')
                     
+                    # Check for missing critical fields
                     if not all([guild_id, channel_id, message_id, player_id, team_id, signing_id]):
-                        logger.warning(f"⚠️ Incomplete pending offer record: {offer['id']}")
+                        logger.warning(
+                            f"⚠️ Incomplete pending offer record {signing_id}: "
+                            f"guild_id={guild_id}, channel_id={channel_id}, message_id={message_id}"
+                        )
                         continue
                     
-                    # Attempt to fetch the message and re-attach the view
+                    # Attempt to fetch the message and validate it's still there
                     try:
                         guild = self.bot.get_guild(guild_id)
                         if not guild:
-                            logger.warning(f"⚠️ Guild {guild_id} not found for offer {offer['id']}")
+                            logger.warning(f"⚠️ Guild {guild_id} not found for offer {signing_id}")
                             continue
                         
                         channel = guild.get_channel(channel_id)
                         if not channel:
-                            logger.warning(f"⚠️ Channel {channel_id} not found for offer {offer['id']}")
+                            logger.warning(f"⚠️ Channel {channel_id} not found in guild {guild_id} for offer {signing_id}")
                             continue
                         
-                        message = await channel.fetch_message(message_id)
-
-                        # Re-attach the view so the buttons work again
-                        view = PendingSigningView(
-                            repo=self.repo,
-                            signing_id=signing_id,
-                            player_id=player_id,
-                            team_id=team_id,
-                            guild_id=guild_id,
-                        )
+                        # Verify message exists (but don't edit - persistent views handle button reattachment)
                         try:
-                            await message.edit(view=view)
-                            logger.info(f"✅ Recovered and re-attached view to pending offer message {message_id} in {channel.mention}")
-                        except discord.HTTPException as e:
-                            logger.warning(f"⚠️ Failed to edit message with new view: {e}. Message may still be readable.")
-
-                        logger.info(f"✅ Recovered pending offer message {message_id} in {channel.mention}")
-                    except discord.NotFound:
-                        logger.warning(f"⚠️ Message {message_id} no longer exists for offer {offer['id']}")
-                    except discord.Forbidden:
-                        logger.warning(f"⚠️ No permission to fetch message {message_id} for offer {offer['id']}")
-                    except discord.HTTPException as e:
-                        logger.error(f"❌ Failed to fetch message {message_id}: {e}")
+                            message = await channel.fetch_message(message_id)
+                            logger.info(f"✅ Verified pending offer message {message_id} exists in {channel.mention}")
+                        except discord.NotFound:
+                            logger.warning(f"⚠️ Message {message_id} no longer exists for offer {signing_id}")
+                        except discord.Forbidden:
+                            logger.warning(f"⚠️ No permission to fetch message {message_id} for offer {signing_id}")
+                            
+                    except Exception as exc:  # pragma: no cover - network path
+                        logger.error(f"❌ Error verifying offer message {message_id}: {exc}")
                         
                 except Exception as exc:  # pragma: no cover - network path
-                    logger.error(f"❌ Error recovering offer {offer.get('id')}: {exc}")
+                    logger.error(f"❌ Error recovering offer {offer.get('id')}: {exc}", exc_info=True)
         except Exception as exc:  # pragma: no cover - network path
-            logger.error(f"❌ Failed to recover pending offers: {exc}")
+            logger.error(f"❌ Failed to recover pending offers: {exc}", exc_info=True)
 
     def _get_matchup_key(self, team1_code: str, team2_code: str) -> str:
         """Generate a unique, order-independent key for a matchup (prevents duplicate recording)."""
