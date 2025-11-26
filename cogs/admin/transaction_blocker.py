@@ -71,7 +71,17 @@ class TransactionBlockerPaginatedView(discord.ui.View):
 
     def get_current_state(self, team_id: str) -> bool:
         """Get whether team can do transactions (True = enabled, False = blocked)."""
-        return self.pending_changes.get(team_id, self.current_blocks.get(team_id, True))
+        # Check pending changes first
+        if team_id in self.pending_changes:
+            return self.pending_changes[team_id]
+        
+        # Check current blocks
+        if isinstance(self.current_blocks, dict):
+            # Old format (dict): True means blocked, so return opposite
+            return not self.current_blocks.get(team_id, False)
+        else:
+            # New format (list): check if team_id is in the list
+            return team_id not in self.current_blocks
 
     def setup_buttons(self) -> None:
         """Setup all buttons for current page."""
@@ -212,20 +222,22 @@ class TransactionBlockerPaginatedView(discord.ui.View):
                 config_mgr = get_config_manager()
                 config = await config_mgr.get_guild_config(self.guild_id)
 
-                # Get or create transaction_blocks in config
-                transaction_blocks = config.get("transaction_blocks", {})
+                # Get or create transaction_rules in config
+                transaction_rules = config.get("transaction_rules", {})
+                banned_teams = set(transaction_rules.get("banned_teams", []))
 
                 # Apply changes
                 for team_id, is_enabled in self.pending_changes.items():
                     if is_enabled:
-                        # Remove from blocks if present
-                        transaction_blocks.pop(team_id, None)
+                        # Remove from banned list if present
+                        banned_teams.discard(team_id)
                     else:
-                        # Add to blocks
-                        transaction_blocks[team_id] = True
+                        # Add to banned list
+                        banned_teams.add(team_id)
 
                 # Save config
-                config.set("transaction_blocks", transaction_blocks)
+                transaction_rules["banned_teams"] = list(banned_teams)
+                config.set("transaction_rules", transaction_rules)
                 await config.save()
 
             embed = discord.Embed(
@@ -234,14 +246,22 @@ class TransactionBlockerPaginatedView(discord.ui.View):
                 color=discord.Color.green(),
             )
 
-            total_teams = len(self.current_blocks) + len(self.pending_changes)
-            final_blocks = {**self.current_blocks, **self.pending_changes}
-            blocked_count = sum(1 for v in final_blocks.values() if v)
-            enabled_count = total_teams - blocked_count
+            # Calculate final state
+            blocked_set = set(self.current_blocks.keys() if isinstance(self.current_blocks, dict) else self.current_blocks)
+            for team_id, is_enabled in self.pending_changes.items():
+                if is_enabled:
+                    blocked_set.discard(team_id)
+                else:
+                    blocked_set.add(team_id)
+            
+            cache = TeamPlayerCache()
+            all_teams = cache.get_all_teams()
+            blocked_count = len(blocked_set)
+            enabled_count = len(all_teams) - blocked_count
 
             embed.add_field(
                 name="📊 Final Status",
-                value=f"✅ Enabled: {enabled_count} | 🚫 Blocked: {blocked_count} | Total: {total_teams}",
+                value=f"✅ Enabled: {enabled_count} | 🚫 Blocked: {blocked_count} | Total: {len(all_teams)}",
                 inline=False,
             )
 
@@ -317,23 +337,22 @@ class TransactionBlockerPaginatedView(discord.ui.View):
                 inline=False,
             )
 
-        total_teams = len(current_division["teams"])
-        enabled_count = len(enabled_teams)
-        blocked_count = len(blocked_teams)
-
-        embed.add_field(
-            name="📊 Division Summary",
-            value=f"✅ Enabled: {enabled_count} | 🚫 Blocked: {blocked_count} | Total: {total_teams}",
-            inline=False,
-        )
-
-        final_blocks = {**self.current_blocks, **self.pending_changes}
-        all_enabled = sum(1 for v in final_blocks.values() if not v)
-        all_blocked = len(final_blocks) - all_enabled
+        # Calculate global summary
+        blocked_set = set(self.current_blocks.keys() if isinstance(self.current_blocks, dict) else self.current_blocks)
+        for team_id, is_enabled in self.pending_changes.items():
+            if is_enabled:
+                blocked_set.discard(team_id)
+            else:
+                blocked_set.add(team_id)
+        
+        cache = TeamPlayerCache()
+        all_teams_global = cache.get_all_teams()
+        all_blocked = len(blocked_set)
+        all_enabled = len(all_teams_global) - all_blocked
 
         embed.add_field(
             name="🌐 Global Summary",
-            value=f"✅ Enabled: {all_enabled} | 🚫 Blocked: {all_blocked} | Total: {len(final_blocks)} teams",
+            value=f"✅ Enabled: {all_enabled} | 🚫 Blocked: {all_blocked} | Total: {len(all_teams_global)} teams",
             inline=False,
         )
 
@@ -375,7 +394,7 @@ class TransactionBlockerPaginatedView(discord.ui.View):
 class TransactionBlockerSummaryView(discord.ui.View):
     """Summary view for transaction blocker with manage button."""
 
-    def __init__(self, guild_id: int, supabase: Any, current_blocks: Dict[str, bool]):
+    def __init__(self, guild_id: int, supabase: Any, current_blocks: Any):  # Can be dict or list
         super().__init__(timeout=300)
         self.guild_id = guild_id
         self.supabase = supabase
@@ -428,13 +447,14 @@ class TransactionBlockerCog(commands.Cog):
             )
             return
 
-        # Get current blocked teams
-        transaction_blocks = config.get("transaction_blocks", {})
+        # Get current blocked teams (from transaction_rules.banned_teams)
+        transaction_rules = config.get("transaction_rules", {})
+        banned_teams = transaction_rules.get("banned_teams", [])
 
         # Create summary embed
         cache = TeamPlayerCache()
         all_teams = cache.get_all_teams()
-        blocked_count = len(transaction_blocks)
+        blocked_count = len(banned_teams)
         enabled_count = len(all_teams) - blocked_count
 
         embed = discord.Embed(
@@ -463,7 +483,7 @@ class TransactionBlockerCog(commands.Cog):
 
         embed.set_footer(text="Block teams mid-season to prevent roster changes • Timeout: 5 minutes")
 
-        view = TransactionBlockerSummaryView(interaction.guild_id, self.supabase, transaction_blocks)
+        view = TransactionBlockerSummaryView(interaction.guild_id, self.supabase, banned_teams)
 
         message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         view.message = message
