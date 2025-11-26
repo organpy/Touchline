@@ -226,19 +226,31 @@ class TransactionBlockerPaginatedView(discord.ui.View):
                 transaction_rules = config.get("transaction_rules", {})
                 banned_teams = set(transaction_rules.get("banned_teams", []))
 
+                logger.info(f"📝 Saving transaction blocker changes for guild {self.guild_id}")
+                logger.info(f"   Current banned teams before changes: {banned_teams}")
+                logger.info(f"   Pending changes to apply: {self.pending_changes}")
+
                 # Apply changes
                 for team_id, is_enabled in self.pending_changes.items():
+                    logger.info(f"   Processing team_id={team_id} (type: {type(team_id).__name__}), is_enabled={is_enabled}")
                     if is_enabled:
                         # Remove from banned list if present
+                        logger.info(f"      → Enabling (removing from banned): {team_id}")
                         banned_teams.discard(team_id)
                     else:
                         # Add to banned list
+                        logger.info(f"      → Disabling (adding to banned): {team_id}")
                         banned_teams.add(team_id)
 
                 # Save config
                 transaction_rules["banned_teams"] = list(banned_teams)
                 config.set("transaction_rules", transaction_rules)
                 await config.save()
+                
+                final_list = list(banned_teams)
+                logger.info(f"✅ Transaction blocker saved to database")
+                logger.info(f"   Final banned teams list: {final_list}")
+                logger.info(f"   Final list types: {[type(t).__name__ for t in final_list]}")
 
             embed = discord.Embed(
                 title="✅ Transaction Blocker - Changes Saved",

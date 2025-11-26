@@ -205,6 +205,11 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         config = await self.config.get_guild_config(guild_id)
         rules = config.get("transaction_rules", {})
         
+        # Debug logging
+        logger.info(f"🔍 Transaction rules check: guild={guild_id}, action={action_type}, team_id={team_id}")
+        logger.info(f"   Full rules dict: {rules}")
+        logger.info(f"   Rules type: {type(rules)}")
+        
         # Determine response method based on interaction state
         send_method = interaction.followup.send if interaction.response.is_done() else interaction.response.send_message
 
@@ -220,7 +225,19 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         # 2. Check team ban
         if team_id:
             banned_teams = rules.get("banned_teams", [])
-            if team_id in banned_teams:
+            logger.info(f"   Banned teams list: {banned_teams}")
+            logger.info(f"   Banned teams type: {type(banned_teams)}")
+            logger.info(f"   Team ID to check: {team_id} (type: {type(team_id)})")
+            
+            is_banned = team_id in banned_teams
+            logger.info(f"   Is team {team_id} in banned list? {is_banned}")
+            
+            # Additional debug: Show each item in banned_teams with its type
+            for i, banned_id in enumerate(banned_teams):
+                logger.info(f"      [{i}] banned_id={banned_id} (type: {type(banned_id).__name__}), matches={banned_id == team_id}")
+            
+            if is_banned:
+                logger.warning(f"🚫 Team {team_id} is banned from {action_type}")
                 await send_method(
                     "❌ **Your team is currently banned from making transactions.**\n"
                     "Please contact a league admin for more information.",

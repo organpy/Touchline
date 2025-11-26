@@ -51,7 +51,11 @@ class GuildConfig:
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get config value"""
-        return self._cache.get(key, default)
+        value = self._cache.get(key, default)
+        # Debug logging for transaction_rules
+        if key == "transaction_rules":
+            logger.debug(f"🔍 GuildConfig.get('transaction_rules'): returning {value}")
+        return value
 
     def set(self, key: str, value: Any):
         """Set config value (call save() to persist)"""
