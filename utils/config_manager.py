@@ -111,6 +111,17 @@ class ConfigManager:
             self._configs[guild_id] = config
         return self._configs[guild_id]
 
+    async def get_config(self, guild_id: int) -> Dict[str, Any]:
+        """Return the raw config dictionary for a guild."""
+        config = await self.get_guild_config(guild_id)
+        return config.get_all()
+
+    async def set_config(self, guild_id: int, key: str, value: Any) -> None:
+        """Set a top-level config key and persist it."""
+        config = await self.get_guild_config(guild_id)
+        config.set(key, value)
+        await config.save()
+
     async def set_channel(
         self,
         guild_id: int,
