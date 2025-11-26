@@ -110,16 +110,17 @@ class VoidTransactionModal(discord.ui.Modal, title="Void Transaction"):
                 )
                 return
 
-            # Update transaction status to voided
+            # Update transaction status to voided via payload
             void_response = (
                 supabase.table("transaction_events")
                 .update({
-                    "status": "voided",
-                    "metadata": {
+                    "payload": {
+                        **(transaction.get("payload") or {}),
                         "voided_by": interaction.user.id,
                         "voided_at": datetime.utcnow().isoformat(),
                         "void_reason": self.reason.value,
                         "reversed_roster": reverse,
+                        "status": "voided",
                     }
                 })
                 .eq("id", transaction["id"])
@@ -206,10 +207,10 @@ class EditTransactionModal(discord.ui.Modal, title="Edit Transaction"):
                 )
                 return
 
-            # Update transaction notes
+            # Update transaction notes via payload
             update_data = {
-                "metadata": {
-                    **(transaction.get("metadata") or {}),
+                "payload": {
+                    **(transaction.get("payload") or {}),
                     "admin_notes": self.notes.value,
                     "last_edited_by": interaction.user.id,
                     "last_edited_at": datetime.utcnow().isoformat(),
@@ -385,9 +386,35 @@ class ResendAnnouncementModal(discord.ui.Modal, title="Resend Announcement"):
 
             embed, files = builder.build_with_files()
 
-            # Send announcement
+            # Send announcement with pings
             try:
-                await channel.send(embed=embed, files=files or None)
+                # Try to ping player and coach
+                mentions = []
+                
+                # Get player Discord ID from payload
+                player_id_str = payload.get("player_id")
+                if player_id_str:
+                    try:
+                        player_resp = supabase.table("players").select("discord_id").eq("id", player_id_str).limit(1).execute()
+                        if player_resp.data and player_resp.data[0].get("discord_id"):
+                            mentions.append(f"<@{player_resp.data[0]['discord_id']}>")
+                    except Exception:
+                        pass
+                
+                # Get coach Discord ID (from_team_id owner)
+                from_team_id = payload.get("from_team_id")
+                if from_team_id:
+                    try:
+                        team_resp = supabase.table("teams").select("owner_discord_id").eq("id", from_team_id).limit(1).execute()
+                        if team_resp.data and team_resp.data[0].get("owner_discord_id"):
+                            mentions.append(f"<@{team_resp.data[0]['owner_discord_id']}>")
+                    except Exception:
+                        pass
+                
+                mention_text = " ".join(mentions) if mentions else ""
+                message_content = f"📢 Transaction Update {mention_text}".strip()
+                
+                await channel.send(content=message_content, embed=embed, files=files or None)
 
                 response_embed = discord.Embed(
                     title="✅ Announcement Resent",
