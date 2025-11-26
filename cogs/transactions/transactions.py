@@ -641,6 +641,18 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             builder.files.extend(files)
             embed, all_files = builder.build_with_files()
 
+            # Post to transactions channel
+            transactions_cfg = await self.config.get_transactions_config(interaction.guild_id)
+            channel_id = transactions_cfg.get('channel_id')
+            if channel_id:
+                try:
+                    channel = self.bot.get_channel(int(channel_id))
+                    if channel and isinstance(channel, discord.TextChannel):
+                        channel_embed, channel_files = builder.build_with_files()
+                        await channel.send(embed=channel_embed, files=channel_files or None)
+                except Exception as channel_error:
+                    logger.warning(f"Failed to post admin force sign to transactions channel: {channel_error}")
+
             await interaction.followup.send(embed=embed, ephemeral=True, files=all_files or None)
 
         except Exception as e:
@@ -733,6 +745,18 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                 builder.add_team_image(team['code'], position="thumbnail")
             builder.files.extend(files)
             embed, all_files = builder.build_with_files()
+
+            # Post to transactions channel
+            transactions_cfg = await self.config.get_transactions_config(interaction.guild_id)
+            channel_id = transactions_cfg.get('channel_id')
+            if channel_id:
+                try:
+                    channel = self.bot.get_channel(int(channel_id))
+                    if channel and isinstance(channel, discord.TextChannel):
+                        channel_embed, channel_files = builder.build_with_files()
+                        await channel.send(embed=channel_embed, files=channel_files or None)
+                except Exception as channel_error:
+                    logger.warning(f"Failed to post admin force release to transactions channel: {channel_error}")
 
             await interaction.followup.send(embed=embed, ephemeral=True, files=all_files or None)
 

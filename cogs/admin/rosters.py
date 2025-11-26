@@ -417,15 +417,15 @@ class ForceSignView(discord.ui.View):
                 team_code = self._selected_team.get('code', '')
                 team_label = format_team_label_from_record(self._selected_team)
                 
-                # Post to admin transactions channel
+                # Post to transactions channel
                 config_mgr = get_config_manager()
-                config = await config_mgr.get_guild_config(self.guild_id)
-                channel_id = config.get('admin_transaction_channel_id')
+                tx_config = await config_mgr.get_transactions_config(self.guild_id)
+                channel_id = tx_config.get('channel_id')
 
                 if channel_id:
                     try:
                         channel = self.bot.get_channel(int(channel_id))
-                        if channel:
+                        if channel and isinstance(channel, discord.TextChannel):
                             # Build unified embed
                             builder = EmbedBuilder(
                                 title="✍️ Admin Force Sign",
