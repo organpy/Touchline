@@ -328,6 +328,26 @@ class TeamPlayerCache:
         return list(cls._teams.values())
 
     @classmethod
+    def get_team_by_owner(cls, owner_discord_id: int) -> Optional[dict]:
+        """Get team by owner Discord ID."""
+        for team in cls._teams.values():
+            if team.get('owner_discord_id') == owner_discord_id:
+                return team
+        return None
+
+    @classmethod
+    def get_active_season_for_division(cls, division_id: str) -> Optional[dict]:
+        """Get active season for a division from enriched team data."""
+        for team in cls._teams.values():
+            if team.get('division_id') == division_id and team.get('active_season_id'):
+                return {
+                    'id': team['active_season_id'],
+                    'name': team.get('active_season_name'),
+                    'division_id': division_id,
+                }
+        return None
+
+    @classmethod
     def get_team_codes(cls) -> List[str]:
         """Get all team codes for autocomplete."""
         return sorted(cls._teams_by_code.keys())

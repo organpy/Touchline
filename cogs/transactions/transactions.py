@@ -864,45 +864,51 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     @app_commands.autocomplete(counterparty_team=autocomplete_team_code)
     async def trade(self, interaction: discord.Interaction, counterparty_team: str):
         """Initiate a trade proposal with multi-asset selection modal."""
-        await interaction.response.defer(ephemeral=True)
-
-        # Identify initiator's team
-        team = await queries.get_team_by_owner(self.supabase, interaction.user.id)
+        # NOTE: Do NOT defer here - we need to send a modal as the first response
+        
+        # Use cache for fast lookups (no async DB calls before modal)
+        cache = TeamPlayerCache()
+        
+        # Identify initiator's team from cache
+        team = cache.get_team_by_owner(interaction.user.id)
         if not team:
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 "❌ Unable to determine your team. Ensure your Discord ID is set as the team owner.",
                 ephemeral=True,
             )
             return
 
-        # Get active season
-        season = await queries.get_active_season(self.supabase)
+        # Get active season from cache
+        season = cache.get_active_season_for_division(team.get('division_id'))
         if not season:
-            await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
+            # Fallback to DB query if not in cache
+            season = await queries.get_active_season(self.supabase)
+        if not season:
+            await interaction.response.send_message("⚠️ No active season configured.", ephemeral=True)
             return
         if team['division_id'] != season['division_id']:
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 "❌ Your team is not part of the active season's division.",
                 ephemeral=True,
             )
             return
 
-        # Resolve counterparty team
-        counterparty = await queries.get_team_by_code(self.supabase, counterparty_team)
+        # Resolve counterparty team from cache
+        counterparty = cache.get_team_by_code(counterparty_team)
         if not counterparty:
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 f"❌ Unknown team code `{counterparty_team}`.",
                 ephemeral=True,
             )
             return
         if counterparty['division_id'] != team['division_id']:
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 "❌ That team is not in your division.",
                 ephemeral=True,
             )
             return
         if counterparty['id'] == team['id']:
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 "❌ You cannot trade with your own team.",
                 ephemeral=True,
             )
