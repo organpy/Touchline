@@ -131,17 +131,16 @@ class EmbedBuilder:
         label: str = "League",
         inline: bool = True,
     ) -> "EmbedBuilder":
-        """Add formatted league field with emoji and name only.
+        """Add formatted league field with emoji and short code.
         
-        Shows: "<emoji> League_Name" (not "League_Name (CODE)")
+        Shows: "<emoji> CODE" (e.g. '<nblemoji> NBL')
         """
-        # Use league_name if provided, otherwise use league_code
-        display = league_name or (league_code.upper() if league_code else None)
-        if not display:
+        code = (league_code or '').upper()
+        if not code:
             return self
 
-        emoji = get_league_emoji(league_code) if league_code else None
-        value = f"{emoji} {display}" if emoji else display
+        emoji = get_league_emoji(code)
+        value = f"{emoji} {code}" if emoji else code
 
         return self.add_field(label, value, inline=inline)
 

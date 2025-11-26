@@ -323,37 +323,71 @@ class ResendAnnouncementModal(discord.ui.Modal, title="Resend Announcement"):
                 )
                 return
 
-            # Build announcement embed
-            embed = discord.Embed(
-                title="📢 Transaction Announcement (Resent)",
-                description=f"Transaction ID: `{transaction['id'][:8]}`",
-                color=discord.Color.blue(),
+            # Build announcement embed with proper formatting
+            from utils.embed_builder import EmbedBuilder
+            from utils.team_display import format_team_label_by_id
+            from utils.embed_assets import get_league_emoji, build_team_logo_payload
+
+            # Extract transaction details from payload
+            payload = transaction.get("payload") or {}
+            txn_type = transaction.get("event_type") or transaction.get("transaction_type") or "Transaction"
+            status = transaction.get("status", "completed").capitalize()
+            created_at = transaction.get("created_at", "")[:10] if transaction.get("created_at") else "Unknown"
+
+            # Get team info for theming
+            team_id = payload.get("to_team_id") or payload.get("from_team_id") or payload.get("team_id")
+            from utils.team_player_cache import TeamPlayerCache
+            cache = TeamPlayerCache()
+            team = cache.get_team(team_id) if team_id else None
+            team_code = team.get("code") if team else None
+            team_label = format_team_label_by_id(team_id) if team_id else "Unknown Team"
+
+            # Get league code from season if available
+            season_id = payload.get("season_id")
+            league_code = None
+            if season_id:
+                try:
+                    season_resp = supabase.table("seasons").select("division_id").eq("id", season_id).limit(1).execute()
+                    if season_resp.data:
+                        division_id = season_resp.data[0].get("division_id")
+                        if division_id:
+                            div_resp = supabase.table("divisions").select("league_type").eq("id", division_id).limit(1).execute()
+                            if div_resp.data:
+                                league_code = div_resp.data[0].get("league_type")
+                except Exception:
+                    pass
+
+            # Get player info
+            player_id = payload.get("player_id")
+            player_name = "Unknown Player"
+            if player_id:
+                try:
+                    player_resp = supabase.table("players").select("display_name").eq("id", player_id).limit(1).execute()
+                    if player_resp.data:
+                        player_name = player_resp.data[0].get("display_name", "Unknown Player")
+                except Exception:
+                    pass
+
+            builder = EmbedBuilder(
+                title=f"📢 {txn_type.replace('_', ' ').title()} (Resent)",
+                description=f"**{player_name}** → {team_label}",
+                team_code=team_code,
+                division_code=league_code,
             )
-            embed.add_field(
-                name="Type",
-                value=transaction.get("transaction_type", "Unknown"),
-                inline=True
-            )
-            embed.add_field(
-                name="Status",
-                value=transaction.get("status", "Unknown"),
-                inline=True
-            )
-            embed.add_field(
-                name="Original Date",
-                value=transaction.get("created_at", "Unknown"),
-                inline=False
-            )
-            embed.add_field(
-                name="Resent By",
-                value=f"<@{interaction.user.id}>",
-                inline=False
-            )
-            embed.set_footer(text="This is a resend of a previous announcement.")
+            if league_code:
+                builder.add_league_field(league_code)
+            builder.add_field("Status", status, inline=True)
+            builder.add_field("Original Date", created_at, inline=True)
+            builder.add_field("Resent By", f"<@{interaction.user.id}>", inline=True)
+            builder.set_footer_text("This is a resend of a previous announcement.")
+            if team_code:
+                builder.add_team_image(team_code, position="thumbnail")
+
+            embed, files = builder.build_with_files()
 
             # Send announcement
             try:
-                await channel.send(embed=embed)
+                await channel.send(embed=embed, files=files or None)
 
                 response_embed = discord.Embed(
                     title="✅ Announcement Resent",

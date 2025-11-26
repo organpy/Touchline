@@ -360,7 +360,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             team_code=team['code'],
             division_code=league_code,
         )
-        builder.add_field("League", league_display, inline=True)
+        builder.add_league_field(league_code)
         builder.add_field("Season", season.get('name', 'Unknown Season'), inline=True)
         builder.add_field("Player", player.display_name, inline=True)
         builder.add_field("Team", team_label, inline=True)
@@ -625,7 +625,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                 title="Admin Force Sign",
                 description=f"{player.mention} signed to **{team_label}** (force)"
             )
-            builder.add_field("League", league_display, inline=True)
+            builder.add_league_field(league_code)
             builder.add_field("Season", season['name'], inline=True)
             builder.add_field("Admin", interaction.user.mention, inline=True)
             builder.set_footer_text("Admin force sign (no confirmation needed)")
@@ -713,7 +713,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                 title="Admin Force Release",
                 description=f"{player.mention} released from **{team_display}** (force)"
             )
-            builder.add_field("League", league_display, inline=True)
+            builder.add_league_field(league_code)
             builder.add_field("Season", season['name'], inline=True)
             builder.add_field("Admin", interaction.user.mention, inline=True)
             builder.set_footer_text("Admin force release (no confirmation needed)")
@@ -774,9 +774,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             if not team_id:
                 return "Unassigned"
             team_row = team_by_id.get(team_id)
-            if not team_row:
-                return "Unknown Team"
-            return f"{team_row['name']} (`{team_row['code']}`)"
+            return format_team_label_from_record(team_row, fallback="Unknown Team")
 
         grouped = defaultdict(list)
         for pick in picks:
@@ -941,7 +939,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             division_code=league_code
         )
         builder.add_field("Team", team_label, inline=True)
-        builder.add_field("League", league_display, inline=True)
+        builder.add_league_field(league_code)
         builder.add_field("Owner", owner_mention, inline=True)
 
         if roster_lines:

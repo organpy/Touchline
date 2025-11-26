@@ -129,17 +129,19 @@ class PendingSigningView(discord.ui.View):
     # Embed helpers
     # ------------------------------------------------------------------
     def _decline_embed(self, actor: discord.abc.User) -> tuple[discord.Embed, Optional[list]]:
+        from utils.team_display import format_team_label_from_record
+        team_label = format_team_label_from_record(self.team)
         builder = EmbedBuilder(
             title="Signing Declined",
-            description=f"{self.player.mention} declined the offer from **{self.team['name']}**.",
+            description=f"{self.player.mention} declined the offer from **{team_label}**.",
             force_color=0xED4245,  # Error red
             team_code=self.team.get('code'),
             division_code=self.league_code
         )
-        builder.add_field("League", self._league_field_value(), inline=True)
+        builder.add_league_field(self.league_code)
         builder.add_field("Season", self.season_name, inline=True)
         builder.add_field("Player", str(self.player), inline=True)
-        builder.add_field("Team", f"{self.team['name']} (`{self.team['code']}`)", inline=True)
+        builder.add_field("Team", team_label, inline=True)
         builder.add_field("Updated By", actor.mention, inline=True)
         builder.add_timestamp()
         if self.team.get('code'):
@@ -147,17 +149,19 @@ class PendingSigningView(discord.ui.View):
         return builder.build_with_files()
 
     def _already_signed_embed(self) -> tuple[discord.Embed, Optional[list]]:
+        from utils.team_display import format_team_label_from_record
+        team_label = format_team_label_from_record(self.team)
         builder = EmbedBuilder(
             title="No Changes Needed",
-            description=f"{self.player.mention} is already rostered on **{self.team['name']}**.",
+            description=f"{self.player.mention} is already rostered on **{team_label}**.",
             force_color=0xFAA61A,  # Orange/warning color
             team_code=self.team.get('code'),
             division_code=self.league_code
         )
-        builder.add_field("League", self._league_field_value(), inline=True)
+        builder.add_league_field(self.league_code)
         builder.add_field("Season", self.season_name, inline=True)
         builder.add_field("Player", str(self.player), inline=True)
-        builder.add_field("Team", f"{self.team['name']} (`{self.team['code']}`)", inline=True)
+        builder.add_field("Team", team_label, inline=True)
         builder.add_timestamp()
         if self.team.get('code'):
             builder.add_team_image(self.team['code'], position="thumbnail")
@@ -264,21 +268,23 @@ class ReleaseConfirmationModal(discord.ui.Modal):
         await cache.invalidate_team(self.team['id'])
 
         # Build embed with EmbedBuilder
-        league_value = self.league_display or (self.league_code or self.season.get('league_type') or 'Unknown League')
+        from utils.team_display import format_team_label_from_record
+        team_label = format_team_label_from_record(self.team)
         builder = EmbedBuilder(
             title="Player Released",
-            description=f"{self.player_member.mention} has been released from **{self.team['name']}**.",
-            color=discord.Color.orange()
+            description=f"{self.player_member.mention} has been released from **{team_label}**.",
+            team_code=self.team.get('code'),
+            division_code=self.league_code
         )
-        builder.add_team_field("Team", self.team.get('name'), self.team.get('code'))
-        builder.add_league_field("League", league_value, self.league_code)
+        builder.add_league_field(self.league_code)
         builder.add_field("Season", self.season_name, inline=True)
         builder.add_field("Player", str(self.player_member), inline=True)
+        builder.add_field("Team", team_label, inline=True)
         builder.add_field("Released By", interaction.user.mention, inline=True)
         if reason:
             builder.add_field("Reason", reason, inline=False)
         builder.add_timestamp()
-        builder.add_team_image(self.team.get('code'), as_thumbnail=True)
+        builder.add_team_image(self.team.get('code'), position="thumbnail")
         
         embed, files = builder.build_with_files()        
         announcement_error = False
