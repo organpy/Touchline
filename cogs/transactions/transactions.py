@@ -624,17 +624,18 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             files, thumbnail = build_team_logo_payload(team['code'])
 
             builder = EmbedBuilder(
-                title="Admin Force Sign",
-                description=f"{player.mention} signed to **{team_label}** (force)",
+                title="✅ Admin Force Sign",
+                description=f"**{player.display_name}** has been signed to {team_label}",
                 team_code=team['code'],
                 division_code=league_code,
-                force_color="#57F287",  # Discord green for success
             )
             builder.add_league_field(league_code)
             builder.add_field("Season", season['name'], inline=True)
+            builder.add_field("Player", player.display_name, inline=True)
             builder.add_field("Team", team_label, inline=True)
-            builder.add_field("Admin", interaction.user.mention, inline=True)
+            builder.add_field("Executed by", interaction.user.mention, inline=False)
             builder.add_timestamp()
+            builder.set_footer_text("This was an admin force sign (no confirmation needed)")
             if team['code']:
                 builder.add_team_image(team['code'], position="thumbnail")
             builder.files.extend(files)
@@ -716,17 +717,18 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             files, thumbnail = build_team_logo_payload(team['code'] if team else None)
 
             builder = EmbedBuilder(
-                title="Admin Force Release",
-                description=f"{player.mention} released from **{team_display}** (force)",
+                title="🚪 Admin Force Release",
+                description=f"**{player.display_name}** has been released from {team_display}",
                 team_code=team['code'] if team else None,
                 division_code=league_code,
-                force_color="#FAA61A",  # Orange for warning
             )
             builder.add_league_field(league_code)
             builder.add_field("Season", season['name'], inline=True)
+            builder.add_field("Player", player.display_name, inline=True)
             builder.add_field("Team", team_display, inline=True)
-            builder.add_field("Admin", interaction.user.mention, inline=True)
+            builder.add_field("Executed by", interaction.user.mention, inline=False)
             builder.add_timestamp()
+            builder.set_footer_text("This was an admin force release (no confirmation needed)")
             if team and team.get('code'):
                 builder.add_team_image(team['code'], position="thumbnail")
             builder.files.extend(files)
