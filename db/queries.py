@@ -384,3 +384,17 @@ async def get_matches_for_season(supabase, season_id: str) -> List[Dict[str, Any
     except Exception as e:
         logger.error(f"Error fetching matches for season {season_id}: {e}")
         return []
+
+
+async def get_all_matches_for_season(supabase, season_id: str) -> List[Dict[str, Any]]:
+    """Get ALL matches for a season (played and scheduled) with team info."""
+    try:
+        response = supabase.table('matches').select(
+            'id, team1_id, team2_id, team1_score, team2_score, played_at, status, '
+            'team1:team1_id(id, code, name, emoji), '
+            'team2:team2_id(id, code, name, emoji)'
+        ).eq('season_id', season_id).order('played_at', desc=False).execute()
+        return response.data if response.data else []
+    except Exception as e:
+        logger.error(f"Error fetching all matches for season {season_id}: {e}")
+        return []
