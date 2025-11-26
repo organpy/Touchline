@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import discord
@@ -218,48 +219,71 @@ class TransactionBlockerPaginatedView(discord.ui.View):
         try:
             await interaction.response.defer(ephemeral=True)
 
+            if not self.supabase:
+                await interaction.followup.send(
+                    "❌ Supabase client unavailable.",
+                    ephemeral=True,
+                )
+                return
+
             if self.pending_changes:
-                config_mgr = get_config_manager()
-                config = await config_mgr.get_guild_config(self.guild_id)
+                logger.info(
+                    "📝 Saving transaction blocker changes for guild %s", self.guild_id
+                )
+                logger.info("   Pending changes to apply: %s", self.pending_changes)
 
-                # Get or create transaction_rules in config
-                transaction_rules = config.get("transaction_rules", {})
-                banned_teams = set(transaction_rules.get("banned_teams", []))
+                upserts: List[Dict[str, Any]] = []
+                removals: List[str] = []
+                timestamp = datetime.utcnow().isoformat()
 
-                logger.info(f"📝 Saving transaction blocker changes for guild {self.guild_id}")
-                logger.info(f"   Current banned teams before changes: {banned_teams}")
-                logger.info(f"   Pending changes to apply: {self.pending_changes}")
-
-                # Apply changes
                 for team_id, is_enabled in self.pending_changes.items():
-                    logger.info(f"   Processing team_id={team_id} (type: {type(team_id).__name__}), is_enabled={is_enabled}")
+                    logger.info(
+                        "   Processing team_id=%s (type: %s), is_enabled=%s",
+                        team_id,
+                        type(team_id).__name__,
+                        is_enabled,
+                    )
                     if is_enabled:
-                        # Remove from banned list if present
-                        logger.info(f"      → Enabling (removing from banned): {team_id}")
-                        banned_teams.discard(team_id)
+                        removals.append(team_id)
                     else:
-                        # Add to banned list
-                        logger.info(f"      → Disabling (adding to banned): {team_id}")
-                        banned_teams.add(team_id)
+                        upserts.append(
+                            {
+                                "guild_id": self.guild_id,
+                                "team_id": team_id,
+                                "blocked": True,
+                                "blocked_by": interaction.user.id,
+                                "blocked_at": timestamp,
+                                "updated_at": timestamp,
+                            }
+                        )
 
-                # Save config
-                transaction_rules["banned_teams"] = list(banned_teams)
-                config.set("transaction_rules", transaction_rules)
-                await config.save()
-                
-                # Clear ConfigManager cache so next read gets fresh data
-                config_mgr.clear_cache(self.guild_id)
-                logger.info(f"🗑️  Cleared ConfigManager cache for guild {self.guild_id}")
+                if upserts:
+                    logger.info("   ➕ Upserting %d blocked team entries", len(upserts))
+                    (
+                        self.supabase.table("transaction_blocker_entries")
+                        .upsert(upserts, on_conflict="guild_id,team_id")
+                        .execute()
+                    )
 
-                # Reload once to confirm persistence and to provide updated view data
-                fresh_config = await config_mgr.get_guild_config(self.guild_id)
-                fresh_rules = fresh_config.get("transaction_rules", {})
-                final_list = fresh_rules.get("banned_teams", [])
-                self.current_blocks = final_list.copy()
+                if removals:
+                    logger.info("   ➖ Removing %d entries", len(removals))
+                    chunk_size = 50
+                    for i in range(0, len(removals), chunk_size):
+                        chunk = removals[i : i + chunk_size]
+                        (
+                            self.supabase.table("transaction_blocker_entries")
+                            .delete()
+                            .eq("guild_id", self.guild_id)
+                            .in_("team_id", chunk)
+                            .execute()
+                        )
+
+                latest_blocks = await queries.get_blocked_teams_for_guild(
+                    self.supabase, self.guild_id
+                )
+                self.current_blocks = latest_blocks
                 self.pending_changes.clear()
-                logger.info("   🔄 Reloaded banned teams from DB: %s", final_list)
-                logger.info(f"✅ Transaction blocker saved to database")
-                logger.info(f"   Final list types: {[type(t).__name__ for t in final_list]}")
+                logger.info("   🔄 Reloaded blocked teams: %s", latest_blocks)
 
             embed = discord.Embed(
                 title="✅ Transaction Blocker - Changes Saved",
@@ -267,17 +291,14 @@ class TransactionBlockerPaginatedView(discord.ui.View):
                 color=discord.Color.green(),
             )
 
-            # Calculate final state from pending changes, not stale current_blocks
-            new_blocked_set = set(self.current_blocks.keys() if isinstance(self.current_blocks, dict) else self.current_blocks)
-            for team_id, is_enabled in self.pending_changes.items():
-                if is_enabled:
-                    new_blocked_set.discard(team_id)
-                else:
-                    new_blocked_set.add(team_id)
-            
+            blocked_set = set(
+                self.current_blocks.keys()
+                if isinstance(self.current_blocks, dict)
+                else self.current_blocks
+            )
             cache = TeamPlayerCache()
             all_teams = cache.get_all_teams()
-            blocked_count = len(new_blocked_set)
+            blocked_count = len(blocked_set)
             enabled_count = len(all_teams) - blocked_count
 
             embed.add_field(
@@ -291,7 +312,7 @@ class TransactionBlockerPaginatedView(discord.ui.View):
             await interaction.edit_original_response(embed=embed, view=None)
 
         except Exception as e:
-            logger.error(f"Error saving transaction blocker changes: {e}")
+            logger.error(f"Error saving transaction blocker changes: {e}", exc_info=True)
             try:
                 embed = discord.Embed(
                     title="❌ Error Saving Changes",
@@ -433,8 +454,9 @@ class TransactionBlockerSummaryView(discord.ui.View):
 
     async def open_manager(self, interaction: discord.Interaction):
         """Open the detailed manager."""
+        latest_blocks = await queries.get_blocked_teams_for_guild(self.supabase, self.guild_id)
         detailed_view = TransactionBlockerPaginatedView(
-            self.guild_id, self.supabase, self.current_blocks
+            self.guild_id, self.supabase, latest_blocks
         )
         embed = detailed_view.create_embed()
 
@@ -468,9 +490,8 @@ class TransactionBlockerCog(commands.Cog):
             )
             return
 
-        # Get current blocked teams (from transaction_rules.banned_teams)
-        transaction_rules = config.get("transaction_rules", {})
-        banned_teams = transaction_rules.get("banned_teams", [])
+        # Get current blocked teams from dedicated table
+        banned_teams = await queries.get_blocked_teams_for_guild(self.supabase, interaction.guild_id)
 
         # Create summary embed
         cache = TeamPlayerCache()

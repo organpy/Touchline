@@ -121,6 +121,26 @@ async def get_player_by_discord_id(supabase, discord_id: int) -> Optional[Dict[s
         return None
 
 
+async def get_blocked_teams_for_guild(supabase, guild_id: int) -> List[str]:
+    """Fetch blocked team IDs for a guild from transaction_blocker_entries."""
+    if not guild_id:
+        return []
+
+    try:
+        response = (
+            supabase.table('transaction_blocker_entries')
+            .select('team_id')
+            .eq('guild_id', guild_id)
+            .eq('blocked', True)
+            .execute()
+        )
+        data = response.data or []
+        return [entry.get('team_id') for entry in data if entry.get('team_id')]
+    except Exception as e:
+        logger.error(f"Error fetching blocked teams for guild {guild_id}: {e}")
+        return []
+
+
 async def get_player_by_name(supabase, display_name: str) -> Optional[Dict[str, Any]]:
     """Get player by display name (case-insensitive)"""
     try:

@@ -224,7 +224,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
 
         # 2. Check team ban
         if team_id:
-            banned_teams = rules.get("banned_teams", [])
+            banned_teams = await queries.get_blocked_teams_for_guild(self.supabase, guild_id)
             logger.info(f"   Banned teams list: {banned_teams}")
             logger.info(f"   Banned teams type: {type(banned_teams)}")
             logger.info(f"   Team ID to check: {team_id} (type: {type(team_id)})")
