@@ -292,7 +292,13 @@ class ReleaseConfirmationModal(discord.ui.Modal):
             channel = interaction.guild.get_channel(self.channel_id)
             if isinstance(channel, discord.TextChannel):
                 try:
-                    await channel.send(embed=embed, files=files or None)
+                    # Ping the released player
+                    await channel.send(
+                        content=self.player_member.mention,
+                        embed=embed,
+                        files=files or None,
+                        allowed_mentions=discord.AllowedMentions(users=[self.player_member]),
+                    )
                 except discord.Forbidden:
                     logger.warning(
                         "Missing permissions to post release announcement in channel %s",

@@ -104,17 +104,86 @@ class SigningAcceptButton(ui.DynamicItem[ui.Button], template=r'signing:accept:(
         cache = TeamPlayerCache()
         await cache.invalidate_team(signing['team_id'])
 
-        # Update message
+        # Update message and post announcement
         try:
             team = supabase.table('teams').select('*').eq('id', signing['team_id']).single().execute().data
+            
+            # Get league info for styling
+            league_code = ''
+            division_id = team.get('division_id')
+            if division_id:
+                try:
+                    div_resp = supabase.table('divisions').select('league_type').eq('id', division_id).limit(1).execute()
+                    if div_resp.data:
+                        league_code = div_resp.data[0].get('league_type', '').upper()
+                except Exception:
+                    pass
+            
+            # Get season name
+            season_name = 'Unknown Season'
+            try:
+                season_resp = supabase.table('seasons').select('name').eq('id', signing['season_id']).limit(1).execute()
+                if season_resp.data:
+                    season_name = season_resp.data[0].get('name', 'Unknown Season')
+            except Exception:
+                pass
+            
+            from utils.team_display import format_team_label_from_record
+            team_label = format_team_label_from_record(team)
+            
             builder = EmbedBuilder(
                 title="Signing Accepted",
-                description=f"<@{interaction.user.id}> has joined **{team['name']}**!",
+                description=f"<@{interaction.user.id}> has joined {team_label}!",
                 force_color=0x57F287,
                 team_code=team.get('code'),
+                division_code=league_code,
             )
+            builder.add_league_field(league_code)
+            builder.add_field("Season", season_name, inline=True)
+            builder.add_field("Player", f"<@{interaction.user.id}>", inline=True)
+            builder.add_field("Team", team_label, inline=True)
+            builder.add_timestamp()
+            builder.add_team_image(team.get('code'), position="thumbnail")
+            
             embed, files = builder.build_with_files()
             await interaction.message.edit(embed=embed, view=None, attachments=[])
+            
+            # Post announcement to transactions channel with ping
+            guild_id = signing.get('guild_id')
+            if guild_id and interaction.guild:
+                from utils.config_manager import get_config_manager
+                config_mgr = get_config_manager()
+                tx_config = await config_mgr.get_transactions_config(int(guild_id))
+                channel_id = tx_config.get('channel_id')
+                
+                if channel_id:
+                    try:
+                        channel = interaction.guild.get_channel(int(channel_id))
+                        if channel and isinstance(channel, discord.TextChannel):
+                            # Rebuild embed for channel (in case message files don't carry over)
+                            channel_builder = EmbedBuilder(
+                                title="✅ Signing Accepted",
+                                description=f"<@{interaction.user.id}> has joined {team_label}!",
+                                force_color=0x57F287,
+                                team_code=team.get('code'),
+                                division_code=league_code,
+                            )
+                            channel_builder.add_league_field(league_code)
+                            channel_builder.add_field("Season", season_name, inline=True)
+                            channel_builder.add_field("Player", f"<@{interaction.user.id}>", inline=True)
+                            channel_builder.add_field("Team", team_label, inline=True)
+                            channel_builder.add_timestamp()
+                            channel_builder.add_team_image(team.get('code'), position="thumbnail")
+                            
+                            channel_embed, channel_files = channel_builder.build_with_files()
+                            await channel.send(
+                                content=f"<@{interaction.user.id}>",
+                                embed=channel_embed,
+                                files=channel_files or None,
+                                allowed_mentions=discord.AllowedMentions(users=[interaction.user]),
+                            )
+                    except Exception as e:
+                        logger.warning(f"Failed to post signing acceptance to transactions channel: {e}")
         except Exception as e:
             logger.error(f"Failed to update message after signing accept: {e}")
             

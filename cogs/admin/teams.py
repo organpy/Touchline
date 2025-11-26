@@ -310,6 +310,60 @@ class SetTeamOwnerView(LazyInitView):
                             owner_interaction.user.id,
                         )
                         await TeamPlayerCache.refresh(self.supabase)
+                        
+                        # Post unified embed to transactions channel with ping
+                        from utils.config_manager import get_config_manager
+                        from utils.embed_builder import EmbedBuilder
+                        from utils.team_display import format_team_label_from_record
+                        
+                        config_mgr = get_config_manager()
+                        tx_config = await config_mgr.get_transactions_config(self.parent_view.guild_id)
+                        channel_id = tx_config.get('channel_id')
+                        
+                        if channel_id:
+                            try:
+                                channel = owner_interaction.guild.get_channel(int(channel_id))
+                                if channel and isinstance(channel, discord.TextChannel):
+                                    # Get league info for styling
+                                    team_code = self.selected_team.get('code', '')
+                                    league_code = ''
+                                    division_id = self.selected_team.get('division_id')
+                                    if division_id:
+                                        try:
+                                            div_resp = self.supabase.table('divisions').select('league_type').eq('id', division_id).limit(1).execute()
+                                            if div_resp.data:
+                                                league_code = div_resp.data[0].get('league_type', '').upper()
+                                        except Exception:
+                                            pass
+                                    
+                                    team_label = format_team_label_from_record(self.selected_team)
+                                    
+                                    # Build unified embed
+                                    builder = EmbedBuilder(
+                                        title="👑 Ownership Transfer",
+                                        description=f"<@{new_owner_id}> is now the owner of {team_label}",
+                                        team_code=team_code,
+                                        division_code=league_code,
+                                    )
+                                    builder.add_league_field(league_code)
+                                    builder.add_field("Team", team_label, inline=True)
+                                    builder.add_field("New Owner", f"<@{new_owner_id}>", inline=True)
+                                    builder.add_field("Assigned by", owner_interaction.user.mention, inline=False)
+                                    builder.add_timestamp()
+                                    builder.add_team_image(team_code, position="thumbnail")
+                                    
+                                    embed, files = builder.build_with_files()
+                                    # Ping the new owner
+                                    new_owner_member = owner_interaction.guild.get_member(int(new_owner_id))
+                                    await channel.send(
+                                        content=f"<@{new_owner_id}>",
+                                        embed=embed,
+                                        files=files or None,
+                                        allowed_mentions=discord.AllowedMentions(users=[new_owner_member] if new_owner_member else True),
+                                    )
+                            except Exception as e:
+                                logger.warning(f"Failed to post ownership transfer to transactions channel: {e}")
+                        
                         await owner_interaction.followup.send(
                             f"✅ Team **{self.selected_team.get('name')}** owner set to <@{new_owner_id}>",
                             ephemeral=True,

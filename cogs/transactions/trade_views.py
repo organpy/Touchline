@@ -427,12 +427,13 @@ class TradeAssetSelectionView(discord.ui.View):
         try:
             counterparty_owner_id = self.counterparty_team.get('owner_discord_id')
             counterparty_mention = f"<@{counterparty_owner_id}>" if counterparty_owner_id else "Team"
+            counterparty_member = interaction.guild.get_member(int(counterparty_owner_id)) if counterparty_owner_id else None
 
             message = await channel.send(
                 content=f"{counterparty_mention} you have a trade proposal to review!",
                 embed=approval_embed,
                 view=approval_view,
-                allowed_mentions=discord.AllowedMentions(users=[counterparty_owner_id]) if counterparty_owner_id else None,
+                allowed_mentions=discord.AllowedMentions(users=[counterparty_member] if counterparty_member else True),
                 files=files or None,
             )
             approval_view.set_message(message)

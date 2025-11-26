@@ -429,13 +429,13 @@ class ForceSignView(discord.ui.View):
                             # Build unified embed
                             builder = EmbedBuilder(
                                 title="✍️ Admin Force Sign",
-                                description=f"**{player['display_name']}** has been signed to {team_label}",
+                                description=f"<@{self._selected_member.id}> has been signed to {team_label}",
                                 team_code=team_code,
                                 division_code=league_code,
                             )
                             builder.add_league_field(league_code)
                             builder.add_field("Season", season.get('name'), inline=True)
-                            builder.add_field("Player", player['display_name'], inline=True)
+                            builder.add_field("Player", self._selected_member.mention, inline=True)
                             builder.add_field("Team", team_label, inline=True)
                             builder.add_field("Executed by", interaction.user.mention, inline=False)
                             builder.add_timestamp()
@@ -443,7 +443,13 @@ class ForceSignView(discord.ui.View):
                             builder.add_team_image(team_code, position="thumbnail")
                             
                             embed, files = builder.build_with_files()
-                            await channel.send(embed=embed, files=files or None)
+                            # Ping the player
+                            await channel.send(
+                                content=f"<@{self._selected_member.id}>",
+                                embed=embed,
+                                files=files or None,
+                                allowed_mentions=discord.AllowedMentions(users=[self._selected_member]),
+                            )
                     except Exception as channel_error:
                         logger.warning("Failed to post to transaction channel: %s", channel_error)
 
@@ -521,12 +527,13 @@ class ForceReleaseView(LazyInitView):
 
         try:
             roster = self.supabase.table('rosters').select(
-                'id, player_id, team_id, season_id, players(display_name), teams(name, code)'
+                'id, player_id, team_id, season_id, players(display_name, discord_id), teams(name, code)'
             ).eq('id', roster_id).limit(1).execute()
 
             if roster.data:
                 roster_entry = roster.data[0]
                 player_name = roster_entry['players'].get('display_name', 'Unknown')
+                player_discord_id = roster_entry['players'].get('discord_id')
                 team_code = roster_entry['teams'].get('code', '?')
                 team_name = roster_entry['teams'].get('name', 'Unknown')
 
@@ -582,14 +589,15 @@ class ForceReleaseView(LazyInitView):
                                         team_label = format_team_label_by_code(team_code)
                                         
                                         # Build unified embed
+                                        player_mention = f"<@{player_discord_id}>" if player_discord_id else player_name
                                         builder = EmbedBuilder(
                                             title="🚪 Admin Force Release",
-                                            description=f"**{player_name}** has been released from {team_label}",
+                                            description=f"{player_mention} has been released from {team_label}",
                                             team_code=team_code,
                                             division_code=league_code,
                                         )
                                         builder.add_league_field(league_code)
-                                        builder.add_field("Player", player_name, inline=True)
+                                        builder.add_field("Player", player_mention, inline=True)
                                         builder.add_field("Team", team_label, inline=True)
                                         builder.add_field("Executed by", confirm_interaction.user.mention, inline=False)
                                         builder.add_timestamp()
@@ -597,7 +605,15 @@ class ForceReleaseView(LazyInitView):
                                         builder.add_team_image(team_code, position="thumbnail")
                                         
                                         embed, files = builder.build_with_files()
-                                        await channel.send(embed=embed, files=files or None)
+                                        # Ping the player
+                                        ping_content = f"<@{player_discord_id}>" if player_discord_id else None
+                                        player_member = confirm_interaction.guild.get_member(int(player_discord_id)) if player_discord_id else None
+                                        await channel.send(
+                                            content=ping_content,
+                                            embed=embed,
+                                            files=files or None,
+                                            allowed_mentions=discord.AllowedMentions(users=[player_member] if player_member else True),
+                                        )
                                 except Exception as e:
                                     logger.warning(f"Failed to post admin release to transactions channel: {e}")
                             
@@ -653,7 +669,7 @@ class ForceTransferView(LazyInitView):
         """Load active roster players."""
         try:
             active_rosters = self.supabase.table('rosters').select(
-                'id, player_id, team_id, season_id, players(display_name), teams(code, name)'
+                'id, player_id, team_id, season_id, players(display_name, discord_id), teams(code, name)'
             ).is_('left_at', 'null').order('joined_at', desc=True).limit(100).execute()
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to load roster entries for transfer: %s", exc)
@@ -691,7 +707,7 @@ class ForceTransferView(LazyInitView):
 
         try:
             roster = self.supabase.table('rosters').select(
-                'id, player_id, team_id, season_id, players(display_name), teams(name, code)'
+                'id, player_id, team_id, season_id, players(display_name, discord_id), teams(name, code)'
             ).eq('id', roster_id).limit(1).execute()
 
             if roster.data:
@@ -750,6 +766,7 @@ class ForceTransferView(LazyInitView):
             if dest_team.data:
                 dest_team_data = dest_team.data[0]
                 player_name = self._selected_roster['players'].get('display_name', 'Unknown')
+                player_discord_id = self._selected_roster['players'].get('discord_id')
                 current_code = self._selected_roster['teams'].get('code', '?')
                 dest_code = dest_team_data.get('code', '?')
 
@@ -811,14 +828,15 @@ class ForceTransferView(LazyInitView):
                                         to_team_label = format_team_label_by_code(dest_code)
                                         
                                         # Build unified embed
+                                        player_mention = f"<@{player_discord_id}>" if player_discord_id else player_name
                                         builder = EmbedBuilder(
                                             title="🔄 Admin Force Transfer",
-                                            description=f"**{player_name}** has been transferred from {from_team_label} to {to_team_label}",
+                                            description=f"{player_mention} has been transferred from {from_team_label} to {to_team_label}",
                                             team_code=dest_code,
                                             division_code=league_code,
                                         )
                                         builder.add_league_field(league_code)
-                                        builder.add_field("Player", player_name, inline=True)
+                                        builder.add_field("Player", player_mention, inline=True)
                                         builder.add_field("From Team", from_team_label, inline=True)
                                         builder.add_field("To Team", to_team_label, inline=True)
                                         builder.add_field("Executed by", confirm_interaction.user.mention, inline=False)
@@ -827,7 +845,15 @@ class ForceTransferView(LazyInitView):
                                         builder.add_team_image(dest_code, position="thumbnail")
                                         
                                         embed, files = builder.build_with_files()
-                                        await channel.send(embed=embed, files=files or None)
+                                        # Ping the player
+                                        ping_content = f"<@{player_discord_id}>" if player_discord_id else None
+                                        player_member = confirm_interaction.guild.get_member(int(player_discord_id)) if player_discord_id else None
+                                        await channel.send(
+                                            content=ping_content,
+                                            embed=embed,
+                                            files=files or None,
+                                            allowed_mentions=discord.AllowedMentions(users=[player_member] if player_member else True),
+                                        )
                                 except Exception as e:
                                     logger.warning(f"Failed to post admin transfer to transactions channel: {e}")
                             

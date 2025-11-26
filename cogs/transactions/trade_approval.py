@@ -115,6 +115,10 @@ class TradeApprovalView(discord.ui.View):
 
         embed, files = self._acceptance_embed()
         await self._finalize(embed, files)
+        
+        # Post announcement to trading channel with pings for both team owners
+        await self._post_trade_executed_announcement(interaction)
+        
         await interaction.followup.send("✅ Trade executed successfully!", ephemeral=True)
 
     @discord.ui.button(label="Decline Trade", style=discord.ButtonStyle.danger)
@@ -246,6 +250,91 @@ class TradeApprovalView(discord.ui.View):
         except Exception as exc:
             logger.error("Error executing trade %s: %s", self.trade_proposal['id'], exc, exc_info=True)
             return False
+
+    async def _post_trade_executed_announcement(self, interaction: discord.Interaction) -> None:
+        """Post a trade executed announcement to the trading channel and ping both team owners."""
+        try:
+            # Get trading channel
+            from utils.config_manager import get_config_manager
+            config_mgr = get_config_manager()
+            tx_config = await config_mgr.get_trading_config(interaction.guild_id)
+            channel_id = tx_config.get('channel_id')
+            
+            if not channel_id:
+                return
+            
+            channel = interaction.guild.get_channel(int(channel_id))
+            if not channel or not isinstance(channel, discord.TextChannel):
+                return
+            
+            # Build announcement embed
+            from utils.team_display import format_team_label_from_record
+            initiator_label = format_team_label_from_record(self.initiating_team)
+            counterparty_label = format_team_label_from_record(self.counterparty_team)
+            
+            builder = EmbedBuilder(
+                title="🤝 Trade Executed",
+                description=f"{initiator_label} ↔ {counterparty_label}",
+                force_color=0x57F287,
+                team_code=self.initiating_team.get('code'),
+                division_code=self.league_code
+            )
+            
+            outbound_assets = [a for a in self.trade_assets if a['direction'] == 'outbound']
+            inbound_assets = [a for a in self.trade_assets if a['direction'] == 'inbound']
+
+            if outbound_assets:
+                lines = []
+                for asset in outbound_assets:
+                    if asset['asset_type'] == 'player':
+                        lines.append(f"🧑 {asset.get('label', 'Unknown Player')}")
+                    elif asset['asset_type'] == 'pick':
+                        lines.append(f"📋 {asset.get('label', 'Unknown Pick')}")
+                if lines:
+                    builder.add_field(f"From {self.initiating_team['name']}", "\n".join(lines), inline=False)
+
+            if inbound_assets:
+                lines = []
+                for asset in inbound_assets:
+                    if asset['asset_type'] == 'player':
+                        lines.append(f"🧑 {asset.get('label', 'Unknown Player')}")
+                    elif asset['asset_type'] == 'pick':
+                        lines.append(f"📋 {asset.get('label', 'Unknown Pick')}")
+                if lines:
+                    builder.add_field(f"From {self.counterparty_team['name']}", "\n".join(lines), inline=False)
+            
+            builder.add_timestamp()
+            builder.add_team_image(self.initiating_team.get('code'), position="thumbnail")
+            
+            embed, files = builder.build_with_files()
+            
+            # Get both team owners for ping
+            initiator_owner_id = self.initiating_team.get('owner_discord_id')
+            counterparty_owner_id = self.counterparty_team.get('owner_discord_id')
+            
+            mentions = []
+            members_to_mention = []
+            if initiator_owner_id:
+                mentions.append(f"<@{initiator_owner_id}>")
+                member = interaction.guild.get_member(int(initiator_owner_id))
+                if member:
+                    members_to_mention.append(member)
+            if counterparty_owner_id:
+                mentions.append(f"<@{counterparty_owner_id}>")
+                member = interaction.guild.get_member(int(counterparty_owner_id))
+                if member:
+                    members_to_mention.append(member)
+            
+            ping_content = " ".join(mentions) if mentions else None
+            
+            await channel.send(
+                content=ping_content,
+                embed=embed,
+                files=files or None,
+                allowed_mentions=discord.AllowedMentions(users=members_to_mention if members_to_mention else True),
+            )
+        except Exception as e:
+            logger.warning(f"Failed to post trade executed announcement: {e}")
 
     def _acceptance_embed(self) -> tuple[discord.Embed, Optional[list]]:
         builder = EmbedBuilder(
