@@ -404,7 +404,7 @@ class TradeAssetSelectionView(discord.ui.View):
         apply_team_badge(approval_embed, self.initiating_team.get('code'))
         apply_league_badge(approval_embed, league_code)
 
-        cfg = await self.cog.config.get_transactions_config(interaction.guild_id)
+        cfg = await self.cog.config.get_trading_config(interaction.guild_id)
         channel = interaction.channel
         channel_id = cfg.get('channel_id')
         if channel_id:
@@ -428,7 +428,7 @@ class TradeAssetSelectionView(discord.ui.View):
                 content=f"{counterparty_mention} you have a trade proposal to review!",
                 embed=approval_embed,
                 view=approval_view,
-                allowed_mentions=discord.AllowedMentions(users=[]) if counterparty_owner_id else None,
+                allowed_mentions=discord.AllowedMentions(users=[counterparty_owner_id]) if counterparty_owner_id else None,
                 files=files or None,
             )
             approval_view.set_message(message)

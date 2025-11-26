@@ -184,19 +184,18 @@ class AddTeamModal(discord.ui.Modal, title="Add New Team"):
             return
 
         try:
-            # ✅ FIXED: Validate this guild can create teams in active division
-            manager = AdminBaseManager()
-            divisions = await manager.get_guild_divisions(self.view.guild_id)
+            # ✅ FIXED: Get active season to extract division (this is a single-server bot)
             
-            if not divisions:
+            # Get active season which contains the division
+            active_season = await queries.get_active_season(self.supabase)
+            if not active_season:
                 await interaction.followup.send(
-                    "❌ No divisions configured for this guild. Contact admin.",
+                    "❌ No active season configured. Set up seasons first.",
                     ephemeral=True,
                 )
                 return
             
-            # Use first active division (or let user pick - simplified to first for now)
-            division_id = divisions[0]['id']
+            division_id = active_season['division_id']
             
             # Insert team into correct division
             result = self.supabase.table('teams').insert({

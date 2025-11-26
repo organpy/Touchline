@@ -133,6 +133,10 @@ class ConfigurationView(discord.ui.View):
             "Choose the channel where admin commands can be used.",
         )
 
+    @discord.ui.button(label="Trading Channel", emoji="🔄", style=discord.ButtonStyle.primary, row=0)
+    async def trading_channel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._handle_trading_channel_selection(interaction)
+
     async def _handle_channel_selection(
         self,
         interaction: discord.Interaction,
@@ -164,6 +168,39 @@ class ConfigurationView(discord.ui.View):
 
             if view.selected_channel_id:
                 self.config_data[config_key] = view.selected_channel_id
+                self.mark_changes()
+        finally:
+            self.is_busy = False
+            self.set_buttons_state(False)
+            await self.update_display()
+
+    async def _handle_trading_channel_selection(self, interaction: discord.Interaction) -> None:
+        """Handle trading channel selection with nested config."""
+        if self.is_busy:
+            await interaction.response.send_message(
+                "⏳ Please wait for the current operation to complete.",
+                ephemeral=True,
+            )
+            return
+
+        self.is_busy = True
+        self.set_buttons_state(True)
+        await self.update_display()
+
+        try:
+            view = ChannelSelectView("Trading Channel")
+            embed = discord.Embed(
+                title="🔄 Select Trading Channel",
+                description="Choose the channel where trade proposals will be posted.",
+                color=discord.Color.blue(),
+            )
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            await view.wait()
+
+            if view.selected_channel_id:
+                if "trading" not in self.config_data:
+                    self.config_data["trading"] = {}
+                self.config_data["trading"]["channel_id"] = view.selected_channel_id
                 self.mark_changes()
         finally:
             self.is_busy = False
@@ -272,6 +309,9 @@ class ConfigurationView(discord.ui.View):
                 "transactionsChannelId": "",
                 "admin_role_id": "",
                 "adminCommandsChannelId": "",
+                "trading": {
+                    "channel_id": "",
+                },
             }
             self.mark_changes()
 

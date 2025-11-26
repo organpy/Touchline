@@ -230,6 +230,18 @@ class ConfigManager:
         merged.update(stored)
         return merged
 
+    async def get_trading_config(self, guild_id: int) -> Dict[str, Any]:
+        """Return trading config with defaults applied."""
+        defaults = {
+            'channel_id': None,
+        }
+
+        config = await self.get_guild_config(guild_id)
+        stored = config.get('trading', {}) or {}
+        merged = defaults.copy()
+        merged.update(stored)
+        return merged
+
     async def set_role_requirement(
         self,
         guild_id: int,

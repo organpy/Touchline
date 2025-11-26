@@ -40,6 +40,10 @@ class ConfigUtility:
             "transactions": {
                 "default_expiry_minutes": 60,
                 "require_league_approval": False,
+                "channel_id": "",
+            },
+            "trading": {
+                "channel_id": "",
             },
         }
 
@@ -178,6 +182,21 @@ class ConfigUtility:
         config["blacklist_role_id"] = str(role_id)
         await ConfigUtility.save_guild_config(bot, guild_id, config)
 
+    @staticmethod
+    async def get_trading_config(bot: Any, guild_id: int) -> Dict[str, Any]:
+        """Get trading-specific configuration."""
+        config = await ConfigUtility.get_guild_config(bot, guild_id)
+        return config.get("trading", {}) or {}
+
+    @staticmethod
+    async def set_trading_channel(bot: Any, guild_id: int, channel_id: int) -> None:
+        """Set the trading channel ID."""
+        config = await ConfigUtility.get_guild_config(bot, guild_id)
+        if "trading" not in config:
+            config["trading"] = {}
+        config["trading"]["channel_id"] = str(channel_id)
+        await ConfigUtility.save_guild_config(bot, guild_id, config)
+
     # ------------------------------------------------------------------
     # UI helpers
     # ------------------------------------------------------------------
@@ -210,6 +229,11 @@ class ConfigUtility:
         admin_channel = config_data.get("adminCommandsChannelId")
         admin_channel_text = f"<#{admin_channel}>" if admin_channel else "Not Set"
         embed.add_field(name="⚡ Admin Commands Channel", value=admin_channel_text, inline=True)
+
+        trading_config = config_data.get("trading", {}) or {}
+        trade_channel_id = trading_config.get("channel_id")
+        trade_channel_text = f"<#{trade_channel_id}>" if trade_channel_id else "Not Set"
+        embed.add_field(name="🔄 Trading Channel", value=trade_channel_text, inline=True)
 
         blacklist_role_id = config_data.get("blacklist_role_id")
         blacklist_role_text = f"<@&{blacklist_role_id}>" if blacklist_role_id else "Not Set"
