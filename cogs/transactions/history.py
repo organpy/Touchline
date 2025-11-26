@@ -11,6 +11,7 @@ from discord import app_commands
 
 from db import queries
 from utils.embed_builder import EmbedBuilder
+from utils.team_display import format_team_label_from_record
 
 if TYPE_CHECKING:  # pragma: no cover - hints only
     from .transactions import TransactionsCog
@@ -90,8 +91,11 @@ class TransactionHistoryPaginator:
             from_team_id = txn.get('from_team_id')
             to_team_id = txn.get('to_team_id')
 
-            from_team = team_by_id.get(from_team_id, {}).get('code', '?') if from_team_id else '—'
-            to_team = team_by_id.get(to_team_id, {}).get('code', '?') if to_team_id else '—'
+            from_team_record = team_by_id.get(from_team_id) if from_team_id else None
+            to_team_record = team_by_id.get(to_team_id) if to_team_id else None
+
+            from_team = format_team_label_from_record(from_team_record, fallback="—") if from_team_id else '—'
+            to_team = format_team_label_from_record(to_team_record, fallback="—") if to_team_id else '—'
 
             player_name = '?'
             if player_id:
@@ -99,12 +103,14 @@ class TransactionHistoryPaginator:
                 player_name = player.get('display_name', '?')
 
             title = f"{txn_type}: {player_name}"
-            desc = f"From: **{from_team}** → To: **{to_team}**\nID: `{txn_id}`"
-            
-            builder.add_field(name=title, value=desc, inline=False)
-            value = f"{from_team} → {to_team}\n{timestamp[:10]}"  # ISO date only
+            date_display = timestamp[:10] if isinstance(timestamp, str) else ''
+            desc = (
+                f"{from_team} → {to_team}\n"
+                f"ID: `{txn_id}`"
+                + (f" • {date_display}" if date_display else '')
+            )
 
-            builder.add_field(title, value, inline=False)
+            builder.add_field(name=title, value=desc, inline=False)
 
         builder.set_footer_text(f"Total: {len(self.transactions)} transactions")
         return builder.embed
@@ -131,8 +137,11 @@ def build_history_embed(
         from_team_id = txn.get('from_team_id')
         to_team_id = txn.get('to_team_id')
 
-        from_team = team_by_id.get(from_team_id, {}).get('code', '?') if from_team_id else '—'
-        to_team = team_by_id.get(to_team_id, {}).get('code', '?') if to_team_id else '—'
+        from_team_record = team_by_id.get(from_team_id) if from_team_id else None
+        to_team_record = team_by_id.get(to_team_id) if to_team_id else None
+
+        from_team = format_team_label_from_record(from_team_record, fallback="—") if from_team_id else '—'
+        to_team = format_team_label_from_record(to_team_record, fallback="—") if to_team_id else '—'
 
         player_name = '?'
         if player_id:

@@ -27,6 +27,11 @@ from utils.embed_assets import (
     target_thumbnail,
 )
 from utils.error_handler import ConfirmationView
+from utils.team_display import (
+    format_team_label_from_record,
+    format_team_label_by_id,
+    format_team_label_by_code,
+)
 
 from .views import PendingSigningView, ReleaseConfirmationModal
 from .trade_views import TradeAssetModal
@@ -348,16 +353,17 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         files, thumbnail = build_team_logo_payload(team['code'])
         expiry_text = utils.format_dt(expires_at, style='R')
         from utils.embed_builder import EmbedBuilder  # local import to avoid circulars at module load
+        team_label = format_team_label_from_record(team)
         builder = EmbedBuilder.generic(
             title="Signing Offer",
-            description=f"{player.mention}, **{team['name']}** would like to sign you!",
+            description=f"{player.mention}, {team_label} would like to sign you!",
             team_code=team['code'],
             division_code=league_code,
         )
         builder.add_field("League", league_display, inline=True)
         builder.add_field("Season", season.get('name', 'Unknown Season'), inline=True)
         builder.add_field("Player", player.display_name, inline=True)
-        builder.add_field("Team", f"{team['name']} (`{team['code']}`)", inline=True)
+        builder.add_field("Team", team_label, inline=True)
         builder.add_field("Coach", interaction.user.mention, inline=True)
         builder.add_field("Expires", expiry_text, inline=False)
         # Provide instructional footer augmentation (text only, no icon)
@@ -604,9 +610,11 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
 
             league_display, league_code = self._get_league_display(season)
 
+            team_label = format_team_label_from_record(team)
+
             # Log to audit trail
             logger.info(
-                f"🔧 ADMIN FORCE SIGN: {player.display_name} → {team['code']} "
+                f"🔧 ADMIN FORCE SIGN: {player.display_name} → {team_label} "
                 f"in {league_display} {season['name']} by {interaction.user.name}"
             )
 
@@ -615,7 +623,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
 
             builder = EmbedBuilder.success(
                 title="Admin Force Sign",
-                description=f"{player.mention} signed to **{team['name']}** (force)"
+                description=f"{player.mention} signed to **{team_label}** (force)"
             )
             builder.add_field("League", league_display, inline=True)
             builder.add_field("Season", season['name'], inline=True)
@@ -688,7 +696,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             # Get team info for the embed
             teams = await queries.get_all_teams(self.supabase, season['division_id'])
             team = next((t for t in teams if t['id'] == roster_entry['team_id']), None)
-            team_display = f"{team['name']} (`{team['code']}`)" if team else "Unknown Team"
+            team_display = format_team_label_from_record(team)
 
             league_display, league_code = self._get_league_display(season)
 
@@ -922,16 +930,18 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         owner_id = team.get('owner_discord_id')
         owner_mention = f"<@{owner_id}>" if owner_id else "Unknown"
 
+        team_label = format_team_label_from_record(team)
+
         league_display, league_code = self._get_league_display(season)
         
         builder = EmbedBuilder(
-            title=f"📋 {team['name']} Roster",
+            title=f"📋 {team_label} Roster",
             description=f"Season: **{season['name']}**",
             team_code=team.get('code'),
             division_code=league_code
         )
+        builder.add_field("Team", team_label, inline=True)
         builder.add_field("League", league_display, inline=True)
-        builder.add_field("Team Code", f"`{team['code']}`", inline=True)
         builder.add_field("Owner", owner_mention, inline=True)
 
         if roster_lines:

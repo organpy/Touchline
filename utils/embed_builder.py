@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Tuple
 import discord
 
 from utils.team_data_provider import TeamDataProvider
+from utils.team_display import format_team_label_from_record
 from utils.embed_assets import (
     get_team_logo_file,
     get_league_logo_file,
@@ -117,29 +118,10 @@ class EmbedBuilder:
         """Add formatted team field with code and emoji."""
         provider = TeamDataProvider()
         team = provider.get_team(team_code) if team_code else None
+        if not team and fallback_name:
+            team = {"name": fallback_name}
 
-        display_name = (team or {}).get("display_name") or fallback_name
-        code_value = (team or {}).get("code") or team_code
-        emoji = (team or {}).get("emoji")
-
-        if not display_name and not code_value:
-            return self
-
-        value_parts = []
-        if emoji:
-            value_parts.append(emoji)
-
-        if display_name and code_value:
-            value_parts.append(f"{display_name} (`{code_value.upper()}`)")
-        elif display_name:
-            value_parts.append(display_name)
-        elif code_value:
-            value_parts.append(f"(`{code_value.upper()}`)")
-
-        value = " ".join(value_parts) if value_parts else None
-        if not value:
-            return self
-
+        value = format_team_label_from_record(team, fallback=fallback_name or "Unknown Team")
         return self.add_field(label, value, inline=inline)
 
     def add_league_field(
