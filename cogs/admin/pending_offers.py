@@ -53,18 +53,39 @@ class ExpireOfferModal(discord.ui.Modal, title="Expire Signing Offer"):
             return
 
         try:
-            # Find pending signing by ID (UUID comparison, not pattern matching)
+            # Find pending signing by ID (support both full UUID and truncated prefix)
+            offer_input = self.offer_id.value.strip()
+            
+            # First try exact UUID match
             response = (
                 supabase.table("pending_signings")
                 .select("*")
-                .eq("id", self.offer_id.value)
+                .eq("id", offer_input)
                 .limit(1)
                 .execute()
             )
+            
+            # If not found and input is short, try pattern match for offers starting with that prefix
+            if not response.data and len(offer_input) < 36:  # UUID is 36 chars
+                try:
+                    response = (
+                        supabase.table("pending_signings")
+                        .select("*")
+                        .execute()
+                    )
+                    # Filter locally for offers starting with the prefix
+                    matching_offers = [
+                        o for o in (response.data or [])
+                        if o.get("id", "").startswith(offer_input)
+                    ]
+                    if matching_offers:
+                        response.data = matching_offers[:1]  # Take first match
+                except Exception:
+                    response.data = None
 
             if not response.data:
                 await interaction.followup.send(
-                    f"❌ Offer **{self.offer_id.value}** not found.",
+                    f"❌ Offer **{self.offer_id.value}** not found. Use a full UUID or first 8 characters.",
                     ephemeral=True,
                 )
                 return

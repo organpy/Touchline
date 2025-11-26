@@ -247,6 +247,10 @@ class TransactionBlockerPaginatedView(discord.ui.View):
                 config.set("transaction_rules", transaction_rules)
                 await config.save()
                 
+                # Clear ConfigManager cache so next read gets fresh data
+                config_mgr.clear_cache(self.guild_id)
+                logger.info(f"🗑️  Cleared ConfigManager cache for guild {self.guild_id}")
+                
                 final_list = list(banned_teams)
                 logger.info(f"✅ Transaction blocker saved to database")
                 logger.info(f"   Final banned teams list: {final_list}")
@@ -258,17 +262,17 @@ class TransactionBlockerPaginatedView(discord.ui.View):
                 color=discord.Color.green(),
             )
 
-            # Calculate final state
-            blocked_set = set(self.current_blocks.keys() if isinstance(self.current_blocks, dict) else self.current_blocks)
+            # Calculate final state from pending changes, not stale current_blocks
+            new_blocked_set = set(self.current_blocks.keys() if isinstance(self.current_blocks, dict) else self.current_blocks)
             for team_id, is_enabled in self.pending_changes.items():
                 if is_enabled:
-                    blocked_set.discard(team_id)
+                    new_blocked_set.discard(team_id)
                 else:
-                    blocked_set.add(team_id)
+                    new_blocked_set.add(team_id)
             
             cache = TeamPlayerCache()
             all_teams = cache.get_all_teams()
-            blocked_count = len(blocked_set)
+            blocked_count = len(new_blocked_set)
             enabled_count = len(all_teams) - blocked_count
 
             embed.add_field(

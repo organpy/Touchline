@@ -387,6 +387,7 @@ class ViewTransactionHistoryView(LazyInitView):
         self.current_page = 0
         self.per_page = 5
         self.transactions_list: list[Dict[str, Any]] = []
+        self.original_message: Optional[discord.Message] = None
 
     async def lazy_init(self) -> None:
         """Fetch transactions from database."""
@@ -408,6 +409,16 @@ class ViewTransactionHistoryView(LazyInitView):
 
     async def populate(self) -> None:
         await self.lazy_init()
+
+    async def update_display(self) -> None:
+        """Refresh the transaction history display."""
+        if not self.original_message:
+            return
+
+        try:
+            await self.original_message.edit(embed=self.create_embed(), view=self)
+        except Exception as exc:
+            logger.error(f"Failed to update transaction history display: {exc}")
 
     def create_embed(self) -> discord.Embed:
         """Build transaction history embed."""
@@ -440,7 +451,8 @@ class ViewTransactionHistoryView(LazyInitView):
             }.get(txn.get("status", "unknown"), "❓")
 
             txn_id_short = txn["id"][:8] if txn.get("id") else "Unknown"
-            txn_type = txn.get("transaction_type", "Unknown")
+            # event_type is the field name in transaction_events table
+            txn_type = txn.get("event_type", "Unknown")
             status = txn.get("status", "Unknown").capitalize()
             created = txn.get("created_at", "Unknown")[:10]
 
