@@ -65,18 +65,38 @@ class AdminBaseManager:
     ) -> Optional[Dict[str, Any]]:
         """Resolve a team by code or name (guild_id ignored - single server setup)."""
         try:
-            # Try by code first (faster)
+            search_term = team_code_or_name.strip()
+            
+            # Try by exact code first (faster)
             response = self.supabase.table('teams').select(
                 '*'
-            ).eq('code', team_code_or_name.upper()).execute()
+            ).eq('code', search_term.upper()).execute()
             
             if response.data and len(response.data) > 0:
                 return response.data[0]
             
-            # Try by name if code search failed
+            # Try without dashes (in case code stored without dashes)
+            code_no_dash = search_term.upper().replace('-', '')
             response = self.supabase.table('teams').select(
                 '*'
-            ).ilike('name', f"%{team_code_or_name}%").execute()
+            ).eq('code', code_no_dash).execute()
+            
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            
+            # Try by name (case insensitive, partial match)
+            response = self.supabase.table('teams').select(
+                '*'
+            ).ilike('name', f"%{search_term}%").execute()
+            
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            
+            # Try name with dashes converted to spaces
+            name_with_spaces = search_term.replace('-', ' ')
+            response = self.supabase.table('teams').select(
+                '*'
+            ).ilike('name', f"%{name_with_spaces}%").execute()
             
             if response.data and len(response.data) > 0:
                 return response.data[0]
@@ -233,8 +253,8 @@ class AdminBaseManager:
 
     @staticmethod
     def error_team_not_in_guild(team_name: str) -> str:
-        """Error message for team not in guild."""
-        return f"❌ Team **{team_name}** is not part of your server's divisions."
+        """Error message for team not found."""
+        return f"❌ Team **{team_name}** was not found."
 
     @staticmethod
     def error_season_not_found(season_name: str) -> str:

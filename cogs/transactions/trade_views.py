@@ -408,9 +408,13 @@ class TradeAssetSelectionView(discord.ui.View):
         channel = interaction.channel
         channel_id = cfg.get('channel_id')
         if channel_id:
-            configured_channel = interaction.guild.get_channel(channel_id)
-            if isinstance(configured_channel, discord.TextChannel):
-                channel = configured_channel
+            try:
+                channel_id_int = int(channel_id)
+                configured_channel = interaction.guild.get_channel(channel_id_int)
+                if isinstance(configured_channel, discord.TextChannel):
+                    channel = configured_channel
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid trading channel_id: {channel_id}")
 
         if channel is None:
             self.cog.repo.update_trade_status(proposal['id'], 'cancelled')

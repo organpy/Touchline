@@ -381,22 +381,14 @@ def generate_match_table_image(
                     
                     card_draw.rectangle(cell_rect, fill=_to_rgba(cell_color), outline=_to_rgba(theme["cell_border"]))
                     
-                    # Draw score
+                    # Draw score centered in cell
                     score_text = f"{score1}-{score2}"
                     score_bbox = card_draw.textbbox((0, 0), score_text, font=score_font)
                     score_width = score_bbox[2] - score_bbox[0]
                     score_height = score_bbox[3] - score_bbox[1]
                     score_x = x + (CELL_SIZE - score_width) // 2
-                    score_y = y + (CELL_SIZE - score_height) // 2 - 8
+                    score_y = y + (CELL_SIZE - score_height) // 2
                     card_draw.text((score_x, score_y), score_text, fill=_to_rgba(theme["text_primary"]), font=score_font)
-                    
-                    # Draw 'F/' label below score
-                    label_text = "'F/"
-                    label_bbox = card_draw.textbbox((0, 0), label_text, font=score_label_font)
-                    label_width = label_bbox[2] - label_bbox[0]
-                    label_x = x + (CELL_SIZE - label_width) // 2
-                    label_y = score_y + score_height + 2
-                    card_draw.text((label_x, label_y), label_text, fill=_to_rgba(theme["text_muted"]), font=score_label_font)
                 else:
                     # Not played yet
                     card_draw.rectangle(cell_rect, fill=_to_rgba(theme["cell_pending"]), outline=_to_rgba(theme["cell_border"]))
