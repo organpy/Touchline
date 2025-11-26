@@ -202,7 +202,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         if not guild_id:
             return True
 
-        config = await self.config.get_config(guild_id)
+        config = await self.config.get_guild_config(guild_id)
         rules = config.get("transaction_rules", {})
         
         # Determine response method based on interaction state

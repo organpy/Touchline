@@ -242,7 +242,7 @@ class AdminDashboardView(discord.ui.View):
             return
         view = TransactionSettingsView(self.bot, interaction.guild.id)
         # Initialize the view (load current settings)
-        await view.initialize()
+        await view.prepare()
         embed = view.create_embed()
         message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         try:
