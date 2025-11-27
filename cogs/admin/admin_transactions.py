@@ -17,6 +17,7 @@ from cogs.admin.pending_offers import PendingOffersActionsView
 from cogs.admin.audit_reports import AuditReportsActionsView
 from cogs.admin.transaction_settings import TransactionSettingsView
 from cogs.admin.transaction_blocker import TransactionBlockerSummaryView
+from cogs.admin.trades import TradeManagementView
 from utils.config_utility import ConfigUtility
 from utils.dashboard_metrics import DashboardMetricsView
 
@@ -33,8 +34,7 @@ class AdminDashboardView(discord.ui.View):
         ("🏆 Draft Pick Management", "Seed picks, reassign ownership"),
         ("📝 Transaction Overrides", "Void, edit, or resend transaction announcements"),
         ("📅 Season Management", "Create, activate, deactivate seasons"),
-        ("⏰ Pending Offers Management", "Manage signing offers, expire early"),
-        ("📊 Audit & Reporting", "View activity logs, flagged actions, export data"),
+        ("⏰ Pending Offers Management", "Manage signing offers, expire early"),        ("🤝 Trade Management", "View and manage trade proposals"),        ("📊 Audit & Reporting", "View activity logs, flagged actions, export data"),
         ("� Transaction Blocker", "Block teams from doing transactions mid-season"),
         ("�🛑 Transaction Controls", "Toggle signings/trades/releases, ban teams"),
     ]
@@ -183,6 +183,19 @@ class AdminDashboardView(discord.ui.View):
             view.original_message = message
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for pending offers: %s", exc)
+
+    @discord.ui.button(label="Trade Management", emoji="🤝", style=discord.ButtonStyle.primary, row=1)
+    async def trades(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        """Open trade management interface."""
+        if not await self._safe_defer(interaction):
+            return
+        view = TradeManagementView(self.bot, interaction.guild.id, self.bot.supabase)
+        embed = view.create_embed()
+        message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        try:
+            view.original_message = message
+        except Exception as exc:  # pragma: no cover
+            logger.error("Unable to fetch original response for trade management: %s", exc)
 
     @discord.ui.button(label="Audit & Reporting", emoji="📊", style=discord.ButtonStyle.secondary, row=2)
     async def audit_reports(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
