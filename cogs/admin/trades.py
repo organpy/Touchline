@@ -149,8 +149,8 @@ class ViewPendingTradesView(LazyInitView):
             initiating_team_id = trade.get("initiating_team_id")
             counterparty_team_id = trade.get("counterparty_team_id")
 
-            initiating_team = cache.get_team_by_id(initiating_team_id) if initiating_team_id else None
-            counterparty_team = cache.get_team_by_id(counterparty_team_id) if counterparty_team_id else None
+            initiating_team = cache.get_team(initiating_team_id) if initiating_team_id else None
+            counterparty_team = cache.get_team(counterparty_team_id) if counterparty_team_id else None
 
             init_name = initiating_team.get("name", "Unknown") if initiating_team else "Unknown"
             counter_name = counterparty_team.get("name", "Unknown") if counterparty_team else "Unknown"
@@ -264,8 +264,8 @@ class ViewTradeHistoryView(LazyInitView):
             initiating_team_id = trade.get("initiating_team_id")
             counterparty_team_id = trade.get("counterparty_team_id")
 
-            initiating_team = cache.get_team_by_id(initiating_team_id) if initiating_team_id else None
-            counterparty_team = cache.get_team_by_id(counterparty_team_id) if counterparty_team_id else None
+            initiating_team = cache.get_team(initiating_team_id) if initiating_team_id else None
+            counterparty_team = cache.get_team(counterparty_team_id) if counterparty_team_id else None
 
             init_name = initiating_team.get("name", "Unknown") if initiating_team else "Unknown"
             counter_name = counterparty_team.get("name", "Unknown") if counterparty_team else "Unknown"
@@ -382,8 +382,8 @@ class CancelTradeModal(discord.ui.Modal, title="Cancel Trade"):
 
             if success:
                 cache = TeamPlayerCache()
-                init_team = cache.get_team_by_id(trade.get("initiating_team_id"))
-                counter_team = cache.get_team_by_id(trade.get("counterparty_team_id"))
+                init_team = cache.get_team(trade.get("initiating_team_id"))
+                counter_team = cache.get_team(trade.get("counterparty_team_id"))
 
                 init_name = init_team.get("name", "Unknown") if init_team else "Unknown"
                 counter_name = counter_team.get("name", "Unknown") if counter_team else "Unknown"
