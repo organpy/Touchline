@@ -113,7 +113,7 @@ class TradeApprovalView(discord.ui.View):
             )
             return
 
-        embed, files = self._acceptance_embed()
+        embed, files = await self._acceptance_embed()
         await self._finalize(embed, files)
         
         # Post announcement to trading channel with pings for both team owners
@@ -254,6 +254,10 @@ class TradeApprovalView(discord.ui.View):
     async def _post_trade_executed_announcement(self, interaction: discord.Interaction) -> None:
         """Post a trade executed announcement to the trading channel and ping both team owners."""
         try:
+            # Enrich assets with labels
+            from cogs.transactions.trade_utils import enrich_trade_assets
+            enriched_assets = await enrich_trade_assets(self.trade_assets, self.cog.supabase)
+            
             # Get trading channel
             from utils.config_manager import get_config_manager
             config_mgr = get_config_manager()
@@ -280,8 +284,8 @@ class TradeApprovalView(discord.ui.View):
                 division_code=self.league_code
             )
             
-            outbound_assets = [a for a in self.trade_assets if a['direction'] == 'outbound']
-            inbound_assets = [a for a in self.trade_assets if a['direction'] == 'inbound']
+            outbound_assets = [a for a in enriched_assets if a['direction'] == 'outbound']
+            inbound_assets = [a for a in enriched_assets if a['direction'] == 'inbound']
 
             if outbound_assets:
                 lines = []
@@ -336,7 +340,11 @@ class TradeApprovalView(discord.ui.View):
         except Exception as e:
             logger.warning(f"Failed to post trade executed announcement: {e}")
 
-    def _acceptance_embed(self) -> tuple[discord.Embed, Optional[list]]:
+    async def _acceptance_embed(self) -> tuple[discord.Embed, Optional[list]]:
+        # Enrich assets with labels
+        from cogs.transactions.trade_utils import enrich_trade_assets
+        enriched_assets = await enrich_trade_assets(self.trade_assets, self.cog.supabase)
+        
         builder = EmbedBuilder(
             title="Trade Executed",
             description=f"**{self.initiating_team['name']}** ↔ **{self.counterparty_team['name']}**",
@@ -345,8 +353,8 @@ class TradeApprovalView(discord.ui.View):
             division_code=self.league_code
         )
 
-        outbound_assets = [a for a in self.trade_assets if a['direction'] == 'outbound']
-        inbound_assets = [a for a in self.trade_assets if a['direction'] == 'inbound']
+        outbound_assets = [a for a in enriched_assets if a['direction'] == 'outbound']
+        inbound_assets = [a for a in enriched_assets if a['direction'] == 'inbound']
 
         if outbound_assets:
             lines = []

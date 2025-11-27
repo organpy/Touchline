@@ -16,6 +16,7 @@ from utils.embed_builder import EmbedBuilder
 from utils.team_display import format_team_label_from_record
 from utils.embed_assets import apply_league_badge, apply_team_badge, target_thumbnail
 from cogs.admin.common import LazyInitView
+from cogs.transactions.trade_utils import can_trade_picks, get_available_trade_assets
 
 if TYPE_CHECKING:  # pragma: no cover - hints only
     pass
@@ -23,24 +24,47 @@ if TYPE_CHECKING:  # pragma: no cover - hints only
 logger = logging.getLogger(__name__)
 
 
+async def autocomplete_team_force_trade(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[app_commands.Choice[str]]:
+    """Autocomplete for team selection in force trade."""
+    cache = TeamPlayerCache()
+    teams = cache.get_all_teams()
+    
+    filtered = [
+        t for t in teams
+        if current.lower() in t.get('code', '').lower()
+        or current.lower() in t.get('name', '').lower()
+    ]
+    
+    return [
+        app_commands.Choice(name=f"{t['code']} - {t['name']}", value=t['code'])
+        for t in filtered[:25]
+    ]
+
+
 class ForceTradeModal(discord.ui.Modal):
     """Modal for specifying trade assets when force-trading."""
 
-    def __init__(self, cog: "ForceTradeCommand", team1: Dict[str, Any], team2: Dict[str, Any]):
+    def __init__(self, cog: "ForceTradeCommand", team1: Dict[str, Any], team2: Dict[str, Any], allow_picks: bool = True):
         super().__init__(title="Force Trade Assets")
         self.cog = cog
         self.team1 = team1
         self.team2 = team2
+        self.allow_picks = allow_picks
 
+        pick_note = "\nLeave blank for none" if allow_picks else "\n(No picks allowed between divisions)"
+        
         self.team1_assets = discord.ui.TextInput(
             label=f"Assets FROM {team1['code']} to {team2['code']}",
-            placeholder="player_name, player_name, draft_pick_1, cash_amount\nLeave blank for none",
+            placeholder="player_name, player_name, draft_pick_1, cash_amount" + pick_note,
             required=False,
             style=discord.TextStyle.paragraph,
         )
         self.team2_assets = discord.ui.TextInput(
             label=f"Assets FROM {team2['code']} to {team1['code']}",
-            placeholder="player_name, player_name, draft_pick_1, cash_amount\nLeave blank for none",
+            placeholder="player_name, player_name, draft_pick_1, cash_amount" + pick_note,
             required=False,
             style=discord.TextStyle.paragraph,
         )
@@ -159,6 +183,8 @@ class ForceTradeCommand(commands.Cog):
         team1="First team in the trade",
         team2="Second team in the trade",
     )
+    @app_commands.autocomplete(team1=autocomplete_team_force_trade)
+    @app_commands.autocomplete(team2=autocomplete_team_force_trade)
     async def force_trade(
         self,
         interaction: discord.Interaction,
@@ -192,8 +218,15 @@ class ForceTradeCommand(commands.Cog):
             )
             return
 
+        # Check if picks can be traded
+        allow_picks = await can_trade_picks(
+            team1_record['division_id'],
+            team2_record['division_id'],
+            supabase
+        )
+
         # Show modal for asset selection
-        modal = ForceTradeModal(self, team1_record, team2_record)
+        modal = ForceTradeModal(self, team1_record, team2_record, allow_picks=allow_picks)
         await interaction.response.send_modal(modal)
 
 

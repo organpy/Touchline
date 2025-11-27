@@ -104,6 +104,9 @@ class TradeAssetModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
 
+        # Import division-checking utility
+        from cogs.transactions.trade_utils import can_trade_picks
+
         # Fetch available rosters and picks
         initiating_rosters = await queries.get_active_rosters(self.supabase, self.season['id'])
         initiating_players = [
@@ -117,17 +120,32 @@ class TradeAssetModal(discord.ui.Modal):
             if r.get('team_id') == self.counterparty_team['id']
         ]
 
+        # Check if picks can be traded between these teams
+        allow_picks = await can_trade_picks(
+            self.initiating_team['division_id'],
+            self.counterparty_team['division_id'],
+            self.supabase
+        )
+
         initiating_picks = self.cog.repo.list_draft_picks(self.season['id'])
         initiating_picks = [
             p for p in initiating_picks
             if p.get('current_owner_team_id') == self.initiating_team['id']
         ]
+        
+        # Filter picks if not allowed to trade
+        if not allow_picks:
+            initiating_picks = []
 
         counterparty_picks = self.cog.repo.list_draft_picks(self.season['id'])
         counterparty_picks = [
             p for p in counterparty_picks
             if p.get('current_owner_team_id') == self.counterparty_team['id']
         ]
+        
+        # Filter picks if not allowed to trade
+        if not allow_picks:
+            counterparty_picks = []
 
         # Build asset lists
         initiating_player_assets = [
