@@ -65,8 +65,8 @@ class TradeApprovalView(discord.ui.View):
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
         if self.message:
-            attachments = list(self.message.attachments) if self.message.attachments else None
-            await self.message.edit(embed=embed, view=self, attachments=attachments)
+            # Don't pass attachments if they exist - just keep message as is
+            await self.message.edit(embed=embed, view=self)
 
     async def _already_resolved(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_message(
