@@ -99,6 +99,8 @@ SUBCELL_HEIGHT = 35  # Height of each half-cell (home/away) - NEW
 LOGO_COLUMN_WIDTH = 80
 LOGO_SIZE = 50
 CELL_PADDING = 4
+MATCH_HEADER_LOGO_SIZE = 64
+MATCH_HEADER_GAP = 18
 
 
 def _normalize_key(value: str) -> str:
@@ -175,6 +177,28 @@ def _prepare_logo_image(image: Image.Image, size: int) -> Image.Image:
     offset = ((size - image.width) // 2, (size - image.height) // 2)
     canvas.paste(image, offset, image)
     return canvas
+
+
+def _draw_circle_avatar(
+    base: Image.Image,
+    center: Tuple[int, int],
+    diameter: int,
+    text: str,
+    *,
+    fill_color: Tuple[int, int, int, int],
+    outline_color: Tuple[int, int, int, int],
+    text_color: Tuple[int, int, int, int],
+):
+    draw = ImageDraw.Draw(base)
+    radius = diameter // 2
+    x0, y0 = center[0] - radius, center[1] - radius
+    x1, y1 = center[0] + radius, center[1] + radius
+    draw.ellipse((x0, y0, x1, y1), fill=fill_color, outline=outline_color, width=2)
+    text_font = ImageFont.load_default()
+    bbox = draw.textbbox((0, 0), text, font=text_font)
+    w = bbox[2] - bbox[0]
+    h = bbox[3] - bbox[1]
+    draw.text((center[0] - w / 2, center[1] - h / 2), text, fill=text_color, font=text_font)
 
 
 def _draw_vertical_gradient(draw: ImageDraw.ImageDraw, bbox: Tuple[int, int, int, int], start_color, end_color):
@@ -298,21 +322,61 @@ def generate_match_table_image(
         )
         card.paste(header_img, (0, 0), mask)
 
-        # Draw title text
+        # Draw header block: league logo left of text, centered together
         title_text = f"{league_name} — {season_name}"
         subtitle_text = "Match Results Grid"
-        
+
+        # Measure text sizes
         title_bbox = card_draw.textbbox((0, 0), title_text, font=title_font)
         title_width = title_bbox[2] - title_bbox[0]
-        title_x = (card_width - title_width) // 2
-        title_y = 25
-        card_draw.text((title_x, title_y), title_text, fill=_to_rgba(theme["text_primary"]), font=title_font)
-
+        title_height = title_bbox[3] - title_bbox[1]
         subtitle_bbox = card_draw.textbbox((0, 0), subtitle_text, font=subtitle_font)
         subtitle_width = subtitle_bbox[2] - subtitle_bbox[0]
-        subtitle_x = (card_width - subtitle_width) // 2
-        subtitle_y = title_y + 35
-        card_draw.text((subtitle_x, subtitle_y), subtitle_text, fill=_to_rgba(theme["text_muted"]), font=subtitle_font)
+        subtitle_height = subtitle_bbox[3] - subtitle_bbox[1]
+        text_block_width = max(title_width, subtitle_width)
+
+        # Load league logo (or fallback avatar)
+        logo_img: Optional[Image.Image] = None
+        league_logo_path = _find_logo_path(league_code, league_name)
+        if league_logo_path:
+            logo_img = _load_logo(league_logo_path, MATCH_HEADER_LOGO_SIZE)
+
+        # Combined width for centering
+        has_logo = logo_img is not None
+        combined_width = (MATCH_HEADER_LOGO_SIZE + MATCH_HEADER_GAP if has_logo else 0) + text_block_width
+        combined_x = (card_width - combined_width) // 2
+        header_center_y = HEADER_HEIGHT // 2
+
+        # Positions
+        if has_logo:
+            logo_x = combined_x
+            logo_y = header_center_y - MATCH_HEADER_LOGO_SIZE // 2
+            card.paste(logo_img, (logo_x, logo_y), logo_img)
+            text_x = logo_x + MATCH_HEADER_LOGO_SIZE + MATCH_HEADER_GAP
+        else:
+            # Draw a simple avatar placeholder with league initials for consistent centering
+            initials = (league_code or "L")[:2].upper()
+            logo_x = combined_x
+            logo_y = header_center_y - MATCH_HEADER_LOGO_SIZE // 2
+            _draw_circle_avatar(
+                card,
+                (logo_x + MATCH_HEADER_LOGO_SIZE // 2, logo_y + MATCH_HEADER_LOGO_SIZE // 2),
+                MATCH_HEADER_LOGO_SIZE,
+                initials,
+                fill_color=_to_rgba(theme["card_bg"]),
+                outline_color=_to_rgba(theme["card_border"]),
+                text_color=_to_rgba(theme["text_primary"]),
+            )
+            text_x = logo_x + MATCH_HEADER_LOGO_SIZE + MATCH_HEADER_GAP
+
+        # Vertically center the two lines as a block with a small gap
+        line_gap = 10
+        text_block_height = title_height + line_gap + subtitle_height
+        title_y = header_center_y - text_block_height // 2
+        subtitle_y = title_y + title_height + line_gap
+
+        card_draw.text((text_x, title_y), title_text, fill=_to_rgba(theme["text_primary"]), font=title_font)
+        card_draw.text((text_x, subtitle_y), subtitle_text, fill=_to_rgba(theme["text_muted"]), font=subtitle_font)
 
         # Grid starting position
         grid_x = CANVAS_PADDING
