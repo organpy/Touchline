@@ -49,15 +49,18 @@ LEAGUE_THEME_OVERRIDES = {
         "cell_border": (100, 70, 40, 255),
     },
     "MBL": {
-        "canvas_gradient": ((29, 6, 6), (70, 21, 2)),
-        # Base MBL header on #FF9602 (orange) with a darker orange tail
+        # Orange-based scheme anchored on #FF9602
+        "canvas_gradient": ((24, 12, 2), (68, 38, 6)),
+        # Header uses #FF9602 → deeper orange
         "header_gradient": ((255, 150, 2), (191, 105, 2)),
-        "card_bg": (42, 24, 18, 255),
-        "card_border": (84, 47, 34, 255),
+        # Card and borders lean into dark-orange rather than red-brown
+        "card_bg": (48, 30, 8, 255),
+        "card_border": (128, 78, 12, 255),
         "cell_win": (56, 142, 60, 255),
         "cell_loss": (211, 47, 47, 255),
-        "cell_pending": (60, 40, 35, 255),
-        "cell_border": (90, 55, 40, 255),
+        # Pending and borders shifted to muted orange shades
+        "cell_pending": (82, 52, 14, 255),
+        "cell_border": (110, 72, 16, 255),
     },
     "NCBA": {
         "canvas_gradient": ((5, 24, 24), (9, 58, 70)),
