@@ -115,10 +115,7 @@ class TradeApprovalView(discord.ui.View):
 
         embed, files = await self._acceptance_embed()
         await self._finalize(embed, files)
-        
-        # Post announcement to trading channel with pings for both team owners
-        await self._post_trade_executed_announcement(interaction)
-        
+
         await interaction.followup.send("✅ Trade executed successfully!", ephemeral=True)
 
     @discord.ui.button(label="Decline Trade", style=discord.ButtonStyle.danger)
