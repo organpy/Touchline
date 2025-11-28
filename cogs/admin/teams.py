@@ -31,27 +31,24 @@ class TeamActionsView(discord.ui.View):
         self.original_message: Optional[discord.Message] = None
 
     def create_embed(self) -> discord.Embed:
-        """Build themed team management embed using unified builder."""
-        from utils.embed_builder import EmbedBuilder
-        builder = EmbedBuilder.generic(
-            title="🏢 Team Management",
-            description="Manage teams, owners, and team details.",
+        """Build dark minimalistic team management embed."""
+        embed = discord.Embed(
+            title="Team Management",
+            description="Create, edit, and manage teams.",
+            color=0x2B2D31,  # Dark theme
         )
-        builder.add_field(
-            name="Available Actions",
+        embed.add_field(
+            name="Actions",
             value=(
-                "• ➕ **Add Team** - Create a new team\n"
-                "• 👑 **Set Owner** - Change team owner\n"
-                "• 🏷️ **Edit Details** - Update team info\n"
-                "• 🗑️ **Delete Team** - Remove team\n"
-                "• 📋 **View Teams** - List all teams"
+                "**Add** - Create new team\n"
+                "**Owner** - Change ownership\n"
+                "**Edit** - Update team info\n"
+                "**Delete** - Remove team\n"
+                "**View** - List all teams"
             ),
             inline=False,
         )
-        # Augment footer with context
-        footer_text = builder.embed.footer.text + " • Click a button below." if builder.embed.footer.text else "Click a button below."
-        builder.set_footer_text(footer_text, icon_url=getattr(builder.embed.footer, 'icon_url', None))
-        return builder.build()
+        return embed
 
     async def update_display(self) -> None:
         """Refresh the embed message."""
@@ -62,12 +59,12 @@ class TeamActionsView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to update team management embed: %s", exc)
 
-    @discord.ui.button(label="Add Team", emoji="➕", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Add", style=discord.ButtonStyle.secondary, row=0)
     async def add_team(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         modal = AddTeamModal(self.supabase, self)
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="Set Owner", emoji="👑", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Owner", style=discord.ButtonStyle.secondary, row=0)
     async def set_owner(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = SetTeamOwnerView(self.supabase, self)
         await view.prepare()
@@ -79,7 +76,7 @@ class TeamActionsView(discord.ui.View):
         await interaction.response.send_message(embed=embed_builder.build(), view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
-    @discord.ui.button(label="Edit Details", emoji="🏷️", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Edit", style=discord.ButtonStyle.secondary, row=0)
     async def edit_details(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = EditTeamDetailsView(self.supabase, self)
         await view.prepare()
@@ -91,7 +88,7 @@ class TeamActionsView(discord.ui.View):
         await interaction.response.send_message(embed=embed_builder.build(), view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
-    @discord.ui.button(label="Delete Team", emoji="🗑️", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="Delete", style=discord.ButtonStyle.danger, row=0)
     async def delete_team(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = DeleteTeamView(self.supabase, self)
         await view.prepare()
@@ -103,7 +100,7 @@ class TeamActionsView(discord.ui.View):
         await interaction.response.send_message(embed=embed_builder.build(), view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
-    @discord.ui.button(label="View Teams", emoji="📋", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="View", style=discord.ButtonStyle.secondary, row=1)
     async def view_teams(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.defer(ephemeral=True)
 
@@ -136,7 +133,7 @@ class TeamActionsView(discord.ui.View):
                 ephemeral=True,
             )
 
-    @discord.ui.button(label="Back", emoji="◀️", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=1)
     async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Return to main dashboard."""
         await interaction.response.defer()

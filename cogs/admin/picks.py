@@ -36,23 +36,22 @@ class PicksActionsView(discord.ui.View):
         self.repo = TransactionsRepository(supabase)
 
     def create_embed(self) -> discord.Embed:
-        """Build draft picks management embed."""
+        """Build dark minimalistic draft picks management embed."""
         embed = discord.Embed(
-            title="🏆 Draft Pick Management",
-            description="Manage draft picks, seed rounds, and reassign ownership.",
-            color=discord.Color.purple(),
+            title="Draft Picks",
+            description="Seed, reassign, and view draft picks.",
+            color=0x2B2D31,  # Dark theme
         )
         embed.add_field(
-            name="Available Actions",
+            name="Actions",
             value=(
-                "• 🌱 **Seed Picks** - Generate draft picks for season\n"
-                "• 🔄 **Reassign Pick** - Transfer pick ownership\n"
-                "• 📋 **View Picks** - List all picks for season\n"
-                "• 🗂️ **View by Team** - See picks owned by team"
+                "**Seed** - Generate picks for season\n"
+                "**Reassign** - Transfer ownership\n"
+                "**View** - List all picks\n"
+                "**By Team** - Team pick ownership"
             ),
             inline=False,
         )
-        embed.set_footer(text="Click a button below.")
         return embed
 
     async def update_display(self) -> None:
@@ -64,7 +63,7 @@ class PicksActionsView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to update draft picks management embed: %s", exc)
 
-    @discord.ui.button(label="Seed Picks", emoji="🌱", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Seed", style=discord.ButtonStyle.secondary, row=0)
     async def seed_picks(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = SeedPicksView(self.supabase, self, self.repo)
         await view.prepare()
@@ -76,7 +75,7 @@ class PicksActionsView(discord.ui.View):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
-    @discord.ui.button(label="Reassign Pick", emoji="🔄", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Reassign", style=discord.ButtonStyle.secondary, row=0)
     async def reassign_pick(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = ReassignPickView(self.supabase, self, self.repo)
         await view.prepare()
@@ -88,7 +87,7 @@ class PicksActionsView(discord.ui.View):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
-    @discord.ui.button(label="View Picks", emoji="📋", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="View", style=discord.ButtonStyle.secondary, row=0)
     async def view_picks(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = ViewPicksView(self.supabase, self)
         await view.prepare()
@@ -100,7 +99,7 @@ class PicksActionsView(discord.ui.View):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
-    @discord.ui.button(label="View by Team", emoji="🗂️", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="By Team", style=discord.ButtonStyle.secondary, row=0)
     async def view_by_team(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = ViewPicksByTeamView(self.supabase, self)
         await view.prepare()
@@ -112,7 +111,7 @@ class PicksActionsView(discord.ui.View):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
-    @discord.ui.button(label="Back", emoji="◀️", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=1)
     async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Return to main dashboard."""
         await interaction.response.defer()

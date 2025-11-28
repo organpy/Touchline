@@ -55,22 +55,22 @@ class TransactionSettingsView(LazyInitView):
         self.toggle_releases.emoji = "✅" if releases_enabled else "🚫"
 
     def create_embed(self) -> discord.Embed:
-        """Build settings embed."""
+        """Build dark minimalistic settings embed."""
         tx_config = self.config_data.get('transaction_rules', {})
         banned_teams = tx_config.get('banned_teams', [])
         
         embed = discord.Embed(
-            title="⚙️ Transaction Settings",
-            description="Control global transaction permissions and team-specific bans.",
-            color=discord.Color.gold()
+            title="Transaction Settings",
+            description="Toggle transaction permissions.",
+            color=0x2B2D31  # Dark theme
         )
         
         status_text = (
-            f"**Signings:** {'✅ Enabled' if tx_config.get('signings_enabled', True) else '🚫 Disabled'}\n"
-            f"**Trades:** {'✅ Enabled' if tx_config.get('trades_enabled', True) else '🚫 Disabled'}\n"
-            f"**Releases:** {'✅ Enabled' if tx_config.get('releases_enabled', True) else '🚫 Disabled'}"
+            f"**Signings:** {'Enabled' if tx_config.get('signings_enabled', True) else 'Disabled'}\n"
+            f"**Trades:** {'Enabled' if tx_config.get('trades_enabled', True) else 'Disabled'}\n"
+            f"**Releases:** {'Enabled' if tx_config.get('releases_enabled', True) else 'Disabled'}"
         )
-        embed.add_field(name="Global Status", value=status_text, inline=False)
+        embed.add_field(name="Status", value=status_text, inline=False)
         
         if banned_teams:
             cache = TeamPlayerCache()
@@ -78,13 +78,13 @@ class TransactionSettingsView(LazyInitView):
             for team_id in banned_teams:
                 team = cache.get_team(team_id)
                 if team:
-                    team_names.append(f"{team['name']} ({team['code']})")
+                    team_names.append(f"{team['code']}")
                 else:
-                    team_names.append(f"Unknown Team ({team_id})")
+                    team_names.append(f"Unknown")
             
-            embed.add_field(name="🚫 Banned Teams", value="\n".join(team_names), inline=False)
+            embed.add_field(name="Banned", value=", ".join(team_names), inline=False)
         else:
-            embed.add_field(name="🚫 Banned Teams", value="None", inline=False)
+            embed.add_field(name="Banned", value="None", inline=False)
             
         return embed
 
@@ -122,7 +122,7 @@ class TransactionSettingsView(LazyInitView):
     async def toggle_releases(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._toggle_setting(interaction, 'releases_enabled')
 
-    @discord.ui.button(label="Manage Banned Teams", style=discord.ButtonStyle.secondary, emoji="🛡️", row=1)
+    @discord.ui.button(label="Manage Bans", style=discord.ButtonStyle.secondary, row=1)
     async def manage_bans(self, interaction: discord.Interaction, button: discord.ui.Button):
         view = TeamBanSelectView(self.bot, self.guild_id, self)
         await view.populate()

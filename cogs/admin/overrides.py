@@ -575,44 +575,43 @@ class OverridesActionsView(AdminUIView):
         self.supabase = supabase
 
     def create_embed(self) -> discord.Embed:
-        """Build transaction overrides embed."""
+        """Build dark minimalistic transaction overrides embed."""
         embed = discord.Embed(
-            title="📝 Transaction Overrides",
-            description="Manage and override transactions.",
-            color=discord.Color.red(),
+            title="Transaction Overrides",
+            description="Void, edit, and resend transactions.",
+            color=0x2B2D31,  # Dark theme
         )
         embed.add_field(
-            name="Available Actions",
+            name="Actions",
             value=(
-                "• 🚫 **Void Transaction** - Mark transaction as void\n"
-                "• ✏️ **Edit Details** - Update transaction notes\n"
-                "• 📢 **Resend Announcement** - Post to channel\n"
-                "• 📋 **View History** - See all transactions\n\n"
-                "**Use with caution:** These actions affect recorded data."
+                "**Void** - Mark as void\n"
+                "**Edit** - Update notes\n"
+                "**Resend** - Post to channel\n"
+                "**History** - View all"
             ),
             inline=False,
         )
         return embed
 
-    @discord.ui.button(label="Void Transaction", emoji="🚫", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="Void", style=discord.ButtonStyle.danger, row=0)
     async def void_transaction(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open void transaction modal."""
         modal = VoidTransactionModal()
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="Edit Details", emoji="✏️", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Edit", style=discord.ButtonStyle.secondary, row=0)
     async def edit_transaction(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open edit transaction modal."""
         modal = EditTransactionModal()
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="Resend Announcement", emoji="📢", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Resend", style=discord.ButtonStyle.secondary, row=0)
     async def resend_announcement(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open resend announcement modal."""
         modal = ResendAnnouncementModal()
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="View History", emoji="📋", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="History", style=discord.ButtonStyle.secondary, row=1)
     async def view_history(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Show transaction history with pagination."""
         await interaction.response.defer(ephemeral=True)
@@ -625,7 +624,7 @@ class OverridesActionsView(AdminUIView):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for transaction history: %s", exc)
 
-    @discord.ui.button(label="Back", emoji="🔙", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=1)
     async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Return to admin dashboard."""
         await interaction.response.defer()

@@ -181,11 +181,11 @@ class ForceTradeCommand(commands.Cog):
         team2: str,
     ) -> None:
         """Allow admin to force a trade between two teams."""
-        await interaction.response.defer(ephemeral=True)
-
+        # NOTE: Do NOT defer here - modals must be sent as the first response
+        
         supabase = get_supabase()
         if not supabase:
-            await interaction.followup.send("❌ Database connection failed.", ephemeral=True)
+            await interaction.response.send_message("❌ Database connection failed.", ephemeral=True)
             return
 
         # Get teams from cache (case-insensitive)
@@ -194,15 +194,15 @@ class ForceTradeCommand(commands.Cog):
         team2_record = cache.get_team_by_code(team2)
 
         if not team1_record:
-            await interaction.followup.send(f"❌ Team **{team1}** not found.", ephemeral=True)
+            await interaction.response.send_message(f"❌ Team **{team1}** not found.", ephemeral=True)
             return
 
         if not team2_record:
-            await interaction.followup.send(f"❌ Team **{team2}** not found.", ephemeral=True)
+            await interaction.response.send_message(f"❌ Team **{team2}** not found.", ephemeral=True)
             return
 
         if team1_record["id"] == team2_record["id"]:
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 "❌ Cannot trade a team with itself.",
                 ephemeral=True,
             )
@@ -215,7 +215,7 @@ class ForceTradeCommand(commands.Cog):
             supabase
         )
 
-        # Show modal for asset selection
+        # Show modal for asset selection (must be the first response)
         modal = ForceTradeModal(self, team1_record, team2_record, allow_picks=allow_picks)
         await interaction.response.send_modal(modal)
 

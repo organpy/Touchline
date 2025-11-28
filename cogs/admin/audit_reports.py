@@ -359,25 +359,24 @@ class AuditReportsActionsView(AdminUIView):
         self.supabase = supabase
 
     def create_embed(self) -> discord.Embed:
-        """Build audit & reporting management embed."""
+        """Build dark minimalistic audit reporting embed."""
         embed = discord.Embed(
-            title="📊 Audit & Reporting",
-            description="View transaction audit logs and activity reports.",
-            color=discord.Color.purple(),
+            title="Audit & Reports",
+            description="Transaction logs and activity.",
+            color=0x2B2D31,  # Dark theme
         )
         embed.add_field(
-            name="Available Actions",
+            name="Actions",
             value=(
-                "• 📋 **Timeline** - View all transaction activity\n"
-                "• 🚩 **Flagged** - Review voids and edits\n"
-                "• 📥 **Export** - Download transaction data\n\n"
-                "**Features:** Comprehensive audit trail and reporting"
+                "**Timeline** - View activity\n"
+                "**Flagged** - Voids and edits\n"
+                "**Export** - Download data"
             ),
             inline=False,
         )
         return embed
 
-    @discord.ui.button(label="Timeline", emoji="📋", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="Timeline", style=discord.ButtonStyle.secondary, row=0)
     async def view_timeline(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Show activity timeline."""
         await interaction.response.defer(ephemeral=True)
@@ -390,7 +389,7 @@ class AuditReportsActionsView(AdminUIView):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for timeline: %s", exc)
 
-    @discord.ui.button(label="Flagged", emoji="🚩", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="Flagged", style=discord.ButtonStyle.danger, row=0)
     async def view_flagged(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Show flagged actions."""
         await interaction.response.defer(ephemeral=True)
@@ -403,13 +402,13 @@ class AuditReportsActionsView(AdminUIView):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for flagged actions: %s", exc)
 
-    @discord.ui.button(label="Export", emoji="📥", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Export", style=discord.ButtonStyle.secondary, row=0)
     async def export_data(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open export data modal."""
         modal = ExportDataModal()
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="Back", emoji="🔙", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=1)
     async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Return to admin dashboard."""
         await interaction.response.defer()

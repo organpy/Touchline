@@ -31,18 +31,18 @@ class TradeManagementView(discord.ui.View):
         self.original_message: Optional[discord.Message] = None
 
     def create_embed(self) -> discord.Embed:
-        """Build trade management embed."""
+        """Build dark minimalistic trade management embed."""
         embed = discord.Embed(
             title="Trade Management",
-            description="View and manage trade proposals across all teams.",
-            color=discord.Color.blue(),
+            description="View and manage trades.",
+            color=0x2B2D31,  # Dark theme
         )
         embed.add_field(
             name="Actions",
             value=(
-                "View Pending - See all pending trade proposals\n"
-                "View History - See completed/cancelled trades\n"
-                "Cancel Trade - Force cancel a pending trade"
+                "**Pending** - View pending trades\n"
+                "**History** - View completed trades\n"
+                "**Cancel** - Force cancel trade"
             ),
             inline=False,
         )
@@ -57,7 +57,7 @@ class TradeManagementView(discord.ui.View):
         except Exception as exc:
             logger.error("Failed to update trade management embed: %s", exc)
 
-    @discord.ui.button(label="View Pending", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Pending", style=discord.ButtonStyle.secondary, row=0)
     async def view_pending(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """View pending trade proposals."""
         view = ViewPendingTradesView(self.bot, self.guild_id, self.supabase)
@@ -66,7 +66,7 @@ class TradeManagementView(discord.ui.View):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
-    @discord.ui.button(label="View History", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="History", style=discord.ButtonStyle.secondary, row=0)
     async def view_history(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """View trade history."""
         view = ViewTradeHistoryView(self.bot, self.guild_id, self.supabase)
@@ -75,7 +75,7 @@ class TradeManagementView(discord.ui.View):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
-    @discord.ui.button(label="Cancel Trade", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger, row=0)
     async def cancel_trade(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Cancel a pending trade."""
         modal = CancelTradeModal(self.supabase, self.repo)

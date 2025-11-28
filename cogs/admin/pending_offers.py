@@ -440,25 +440,24 @@ class PendingOffersActionsView(AdminUIView):
         self.supabase = supabase
 
     def create_embed(self) -> discord.Embed:
-        """Build pending offers management embed."""
+        """Build dark minimalistic pending offers embed."""
         embed = discord.Embed(
-            title="⏰ Pending Signing Offers",
-            description="Manage pending signing offers from players.",
-            color=discord.Color.gold(),
+            title="Signing Offers",
+            description="Manage pending player offers.",
+            color=0x2B2D31,  # Dark theme
         )
         embed.add_field(
-            name="Available Actions",
+            name="Actions",
             value=(
-                "• 📋 **View All** - List pending offers\n"
-                "• ⏱️ **Expire Offer** - Mark offer as expired\n"
-                "• 🔄 **Resend** - Resend offer notification to player\n\n"
-                "**Status:** Pending offers waiting player response"
+                "**View** - List pending offers\n"
+                "**Expire** - Mark as expired\n"
+                "**Resend** - Re-notify player"
             ),
             inline=False,
         )
         return embed
 
-    @discord.ui.button(label="View All", emoji="📋", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="View", style=discord.ButtonStyle.secondary, row=0)
     async def view_all_offers(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Show all pending offers with pagination."""
         await interaction.response.defer(ephemeral=True)
@@ -471,19 +470,19 @@ class PendingOffersActionsView(AdminUIView):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for pending offers: %s", exc)
 
-    @discord.ui.button(label="Expire Offer", emoji="⏱️", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="Expire", style=discord.ButtonStyle.danger, row=0)
     async def expire_offer(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open expire offer modal."""
         modal = ExpireOfferModal()
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="Resend", emoji="🔄", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Resend", style=discord.ButtonStyle.secondary, row=0)
     async def resend_offer(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Resend offer notification to player."""
         modal = ResendOfferModal()
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="Back", emoji="🔙", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=1)
     async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Return to admin dashboard."""
         await interaction.response.defer()

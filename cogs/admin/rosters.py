@@ -42,24 +42,23 @@ class RosterActionsView(discord.ui.View):
         self.repo = TransactionsRepository(supabase)
 
     def create_embed(self) -> discord.Embed:
-        """Build roster management embed."""
+        """Build dark minimalistic roster management embed."""
         embed = discord.Embed(
-            title="🏀 Roster Management",
-            description="Force sign, release, transfer players, and manage blacklists.",
-            color=discord.Color.blue(),
+            title="Roster Management",
+            description="Force sign, release, and transfer players.",
+            color=0x2B2D31,  # Dark theme
         )
         embed.add_field(
-            name="Available Actions",
+            name="Actions",
             value=(
-                "• ✍️ **Force Sign** - Add player to roster immediately\n"
-                "• 🚪 **Force Release** - Remove player from roster\n"
-                "• 🔄 **Force Transfer** - Move player between teams\n"
-                "• 🚫 **Blacklist** - Prevent player from joining team\n"
-                "• 📋 **View Roster** - List active players on team"
+                "**Sign** - Add player to roster\n"
+                "**Release** - Remove from roster\n"
+                "**Transfer** - Move between teams\n"
+                "**Block** - Manage blacklists\n"
+                "**View** - List roster"
             ),
             inline=False,
         )
-        embed.set_footer(text="Click a button below.")
         return embed
 
     async def update_display(self) -> None:
@@ -71,7 +70,7 @@ class RosterActionsView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to update roster management embed: %s", exc)
 
-    @discord.ui.button(label="Force Sign", emoji="✍️", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Sign", style=discord.ButtonStyle.secondary, row=0)
     async def force_sign(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = ForceSignView(self.bot, self.guild_id, self.supabase, self.repo, self)
         await view.prepare()
@@ -83,7 +82,7 @@ class RosterActionsView(discord.ui.View):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
-    @discord.ui.button(label="Force Release", emoji="🚪", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Release", style=discord.ButtonStyle.secondary, row=0)
     async def force_release(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = ForceReleaseView(self.supabase, self, self.repo)
         await view.prepare()
@@ -95,7 +94,7 @@ class RosterActionsView(discord.ui.View):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
-    @discord.ui.button(label="Force Transfer", emoji="🔄", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Transfer", style=discord.ButtonStyle.secondary, row=0)
     async def force_transfer(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = ForceTransferView(self.supabase, self, self.repo)
         await view.prepare()
@@ -107,7 +106,7 @@ class RosterActionsView(discord.ui.View):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
-    @discord.ui.button(label="Blacklist", emoji="🚫", style=discord.ButtonStyle.danger, row=0)
+    @discord.ui.button(label="Block", style=discord.ButtonStyle.danger, row=0)
     async def blacklist(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = BlacklistView(self.bot, self.guild_id, self.supabase, self)
         await view.prepare()
@@ -119,7 +118,7 @@ class RosterActionsView(discord.ui.View):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
-    @discord.ui.button(label="View Roster", emoji="📋", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="View", style=discord.ButtonStyle.secondary, row=1)
     async def view_roster(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         view = ViewRosterView(self.supabase, self)
         await view.prepare()
@@ -131,7 +130,7 @@ class RosterActionsView(discord.ui.View):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         view.original_message = await interaction.original_response()
 
-    @discord.ui.button(label="Back", emoji="◀️", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=1)
     async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Return to main dashboard."""
         await interaction.response.defer()

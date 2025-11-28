@@ -302,7 +302,7 @@ class ActivateSeasonView(discord.ui.View):
             select.options = options
             self.add_item(select)
 
-    @discord.ui.button(label="Back", emoji="🔙", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=1)
     async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Return to season management."""
         await interaction.response.defer()
@@ -423,19 +423,19 @@ class SeasonActionsView(AdminUIView):
         self.supabase = supabase
 
     def create_embed(self) -> discord.Embed:
-        """Build season management embed."""
+        """Build dark minimalistic season management embed."""
         embed = discord.Embed(
-            title="📅 Season Management",
-            description="Create and manage seasons for your divisions.",
-            color=discord.Color.purple(),
+            title="Season Management",
+            description="Create and activate seasons.",
+            color=0x2B2D31,  # Dark theme
         )
         embed.add_field(
-            name="Available Actions",
+            name="Actions",
             value=(
-                "• ➕ **Create Season** - Add a new season\n"
-                "• 🟢 **Activate** - Set a season as active (one per division)\n"
-                "• 📋 **View All** - List all seasons\n\n"
-                "**Note:** Only one season can be active per division."
+                "**Create** - Add new season\n"
+                "**Activate** - Set active season\n"
+                "**View** - List all seasons\n\n"
+                "One season active per division."
             ),
             inline=False,
         )
@@ -449,13 +449,13 @@ class SeasonActionsView(AdminUIView):
             logger.error(f"Error fetching divisions: {e}", exc_info=True)
             return []
 
-    @discord.ui.button(label="Create Season", emoji="➕", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Create", style=discord.ButtonStyle.secondary, row=0)
     async def create_season(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open create season modal."""
         modal = CreateSeasonModal()
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="Activate", emoji="🟢", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Activate", style=discord.ButtonStyle.success, row=0)
     async def activate_season(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open activate season view."""
         await interaction.response.defer(ephemeral=True)
@@ -483,7 +483,7 @@ class SeasonActionsView(AdminUIView):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for activate season: %s", exc)
 
-    @discord.ui.button(label="View All", emoji="📋", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="View", style=discord.ButtonStyle.secondary, row=0)
     async def view_all_seasons(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Show all seasons with pagination."""
         await interaction.response.defer(ephemeral=True)

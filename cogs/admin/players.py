@@ -452,43 +452,43 @@ class PlayerActionsView(AdminUIView):
         self.supabase = supabase
 
     def create_embed(self) -> discord.Embed:
-        """Build player management embed."""
+        """Build dark minimalistic player management embed."""
         embed = discord.Embed(
-            title="👤 Player Management",
-            description="Manage players and Discord links.",
-            color=discord.Color.green(),
+            title="Player Management",
+            description="Register and manage players.",
+            color=0x2B2D31,  # Dark theme
         )
         embed.add_field(
-            name="Available Actions",
+            name="Actions",
             value=(
-                "• ➕ **Add Player** - Register new player\n"
-                "• 🔗 **Link Discord** - Link player to Discord ID\n"
-                "• ❌ **Deactivate** - Mark player as inactive\n"
-                "• 👀 **View All** - List all registered players"
+                "**Add** - Register new player\n"
+                "**Link** - Link to Discord\n"
+                "**Deactivate** - Mark inactive\n"
+                "**View** - List all players"
             ),
             inline=False,
         )
         return embed
 
-    @discord.ui.button(label="Add Player", emoji="➕", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Add", style=discord.ButtonStyle.secondary, row=0)
     async def add_player(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open add player modal."""
         modal = AddPlayerModal()
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="Link Discord", emoji="🔗", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Link", style=discord.ButtonStyle.secondary, row=0)
     async def link_player(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open link player modal."""
         modal = LinkPlayerModal()
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="Deactivate", emoji="❌", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="Deactivate", style=discord.ButtonStyle.danger, row=1)
     async def deactivate_player(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open deactivate player modal."""
         modal = DeactivatePlayerModal()
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="View All", emoji="👀", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="View", style=discord.ButtonStyle.secondary, row=1)
     async def view_all_players(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Show all players with pagination."""
         await interaction.response.defer(ephemeral=True)
@@ -501,7 +501,7 @@ class PlayerActionsView(AdminUIView):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for player management: %s", exc)
 
-    @discord.ui.button(label="Back", emoji="🔙", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=2)
     async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Return to admin dashboard."""
         await interaction.response.defer()
