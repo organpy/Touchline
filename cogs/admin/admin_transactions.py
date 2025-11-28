@@ -203,7 +203,7 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for pending offers: %s", exc)
 
-    @discord.ui.button(label="Trades", style=discord.ButtonStyle.success, row=2)
+    @discord.ui.button(label="Trades", style=discord.ButtonStyle.success, row=0)
     async def trades(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open trade management interface."""
         if not await self._safe_defer(interaction):
@@ -267,7 +267,7 @@ class AdminDashboardView(discord.ui.View):
         message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         view.message = message
 
-    @discord.ui.button(label="Controls", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="Controls", style=discord.ButtonStyle.danger, row=2)
     async def transaction_controls(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open transaction settings interface."""
         if not await self._safe_defer(interaction):
