@@ -27,18 +27,6 @@ logger = logging.getLogger(__name__)
 class AdminDashboardView(discord.ui.View):
     """Main admin transactions dashboard with section buttons."""
 
-    SECTION_DESCRIPTIONS = [
-        ("🏢 Team Management", "Add, edit, delete teams and set owners"),
-        ("👤 Player Management", "Register players and link Discord"),
-        ("🏀 Roster Management", "Force sign/release/transfer players"),
-        ("🏆 Draft Pick Management", "Seed picks, reassign ownership"),
-        ("📝 Transaction Overrides", "Void, edit, or resend transaction announcements"),
-        ("📅 Season Management", "Create, activate, deactivate seasons"),
-        ("⏰ Pending Offers Management", "Manage signing offers, expire early"),        ("🤝 Trade Management", "View and manage trade proposals"),        ("📊 Audit & Reporting", "View activity logs, flagged actions, export data"),
-        ("� Transaction Blocker", "Block teams from doing transactions mid-season"),
-        ("�🛑 Transaction Controls", "Toggle signings/trades/releases, ban teams"),
-    ]
-
     def __init__(self, bot: Any, guild_id: int, config_data: Dict[str, Any]) -> None:
         super().__init__(timeout=300)
         self.bot = bot
@@ -71,17 +59,48 @@ class AdminDashboardView(discord.ui.View):
         return True
 
     def create_embed(self) -> discord.Embed:
-        """Build the main dashboard embed."""
+        """Build the main dashboard embed with modern aesthetic."""
         embed = discord.Embed(
-            title="⚙️ Admin Transactions Dashboard",
-            description="Manage teams, rosters, picks, and transactions.",
-            color=discord.Color.red(),
+            title="Admin Control Panel",
+            description=(
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "Welcome to the admin dashboard.\n"
+                "Select a category below to manage.\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            ),
+            color=0x2B2D31,  # Discord dark theme color
         )
 
-        for title, desc in self.SECTION_DESCRIPTIONS:
-            embed.add_field(name=title, value=desc, inline=False)
+        # Core Management Section
+        embed.add_field(
+            name="📋 Core Management",
+            value=(
+                "> `Teams` · `Players` · `Rosters`\n"
+                "> `Draft Picks` · `Seasons`"
+            ),
+            inline=False,
+        )
 
-        embed.set_footer(text="Click a button below to manage that section.")
+        # Transaction Section
+        embed.add_field(
+            name="💼 Transactions",
+            value=(
+                "> `Trades` · `Pending Offers`\n"
+                "> `Overrides` · `Controls`"
+            ),
+            inline=False,
+        )
+
+        # Tools Section
+        embed.add_field(
+            name="🔧 Tools",
+            value=(
+                "> `Audit Logs` · `Transaction Blocker`"
+            ),
+            inline=False,
+        )
+
+        embed.set_footer(text="⚡ Select a button to continue")
         return embed
 
     async def update_display(self) -> None:
@@ -93,7 +112,7 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to update admin dashboard: %s", exc)
 
-    @discord.ui.button(label="Team Management", emoji="🏢", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Teams", style=discord.ButtonStyle.secondary, row=0)
     async def teams(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open team management interface."""
         if not await self._safe_defer(interaction):
@@ -106,7 +125,7 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for team management: %s", exc)
 
-    @discord.ui.button(label="Player Management", emoji="👤", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Players", style=discord.ButtonStyle.secondary, row=0)
     async def players(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open player management interface."""
         if not await self._safe_defer(interaction):
@@ -119,7 +138,7 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for player management: %s", exc)
 
-    @discord.ui.button(label="Roster Management", emoji="🏀", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Rosters", style=discord.ButtonStyle.secondary, row=0)
     async def rosters(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open roster management interface."""
         if not await self._safe_defer(interaction):
@@ -132,7 +151,7 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for roster management: %s", exc)
 
-    @discord.ui.button(label="Draft Picks", emoji="🏆", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Picks", style=discord.ButtonStyle.secondary, row=0)
     async def picks(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open draft picks management interface."""
         if not await self._safe_defer(interaction):
@@ -145,7 +164,7 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for draft picks management: %s", exc)
 
-    @discord.ui.button(label="Transaction Overrides", emoji="📝", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="Overrides", style=discord.ButtonStyle.secondary, row=1)
     async def transactions(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open transaction overrides interface."""
         if not await self._safe_defer(interaction):
@@ -158,7 +177,7 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for transaction overrides: %s", exc)
 
-    @discord.ui.button(label="Season Management", emoji="📅", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="Seasons", style=discord.ButtonStyle.secondary, row=0)
     async def seasons(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open season management interface."""
         if not await self._safe_defer(interaction):
@@ -171,7 +190,7 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for season management: %s", exc)
 
-    @discord.ui.button(label="Pending Offers", emoji="⏰", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="Offers", style=discord.ButtonStyle.primary, row=1)
     async def pending_offers(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open pending offers management interface."""
         if not await self._safe_defer(interaction):
@@ -184,7 +203,7 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for pending offers: %s", exc)
 
-    @discord.ui.button(label="Trade Management", emoji="🤝", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="Trades", style=discord.ButtonStyle.primary, row=1)
     async def trades(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open trade management interface."""
         if not await self._safe_defer(interaction):
@@ -197,7 +216,7 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for trade management: %s", exc)
 
-    @discord.ui.button(label="Audit & Reporting", emoji="📊", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="Audit", style=discord.ButtonStyle.secondary, row=2)
     async def audit_reports(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open audit reports interface."""
         if not await self._safe_defer(interaction):
@@ -210,7 +229,7 @@ class AdminDashboardView(discord.ui.View):
         except AttributeError:
             pass
 
-    @discord.ui.button(label="Transaction Blocker", emoji="🔐", style=discord.ButtonStyle.danger, row=2)
+    @discord.ui.button(label="Blocker", style=discord.ButtonStyle.secondary, row=2)
     async def transaction_blocker(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open transaction blocker interface."""
         if not await self._safe_defer(interaction):
@@ -248,7 +267,7 @@ class AdminDashboardView(discord.ui.View):
         message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         view.message = message
 
-    @discord.ui.button(label="Transaction Controls", emoji="🛑", style=discord.ButtonStyle.danger, row=3)
+    @discord.ui.button(label="Controls", style=discord.ButtonStyle.danger, row=1)
     async def transaction_controls(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open transaction settings interface."""
         if not await self._safe_defer(interaction):
@@ -263,7 +282,7 @@ class AdminDashboardView(discord.ui.View):
         except AttributeError:
             pass
 
-    @discord.ui.button(label="Close", emoji="❌", style=discord.ButtonStyle.secondary, row=3)
+    @discord.ui.button(label="Close", style=discord.ButtonStyle.danger, row=2)
     async def close(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Close the admin dashboard."""
         embed = discord.Embed(

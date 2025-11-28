@@ -25,6 +25,14 @@ if TYPE_CHECKING:  # pragma: no cover - hints only
 logger = logging.getLogger(__name__)
 
 
+async def autocomplete_team_code(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[app_commands.Choice[str]]:
+    """Wrapper for team autocomplete that includes interaction parameter."""
+    return await AutocompleteHelper.team_code_choices(current)
+
+
 class ForceTradeModal(discord.ui.Modal):
     """Modal for specifying trade assets when force-trading."""
 
@@ -164,8 +172,8 @@ class ForceTradeCommand(commands.Cog):
         team1="First team in the trade",
         team2="Second team in the trade",
     )
-    @app_commands.autocomplete(team1=AutocompleteHelper.team_code_choices)
-    @app_commands.autocomplete(team2=AutocompleteHelper.team_code_choices)
+    @app_commands.autocomplete(team1=autocomplete_team_code)
+    @app_commands.autocomplete(team2=autocomplete_team_code)
     async def force_trade(
         self,
         interaction: discord.Interaction,
