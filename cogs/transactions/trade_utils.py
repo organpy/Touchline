@@ -28,7 +28,7 @@ async def enrich_trade_assets(
         if asset.get('asset_type') == 'player' and asset.get('player_id'):
             # Look up player name
             try:
-                player = cache.get_player_by_id(asset['player_id'])
+                player = cache.get_player(asset['player_id'])
                 if player:
                     enriched_asset['label'] = player.get('display_name', 'Unknown Player')
                 else:
