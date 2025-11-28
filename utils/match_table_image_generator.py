@@ -50,7 +50,8 @@ LEAGUE_THEME_OVERRIDES = {
     },
     "MBL": {
         "canvas_gradient": ((29, 6, 6), (70, 21, 2)),
-        "header_gradient": ((255, 93, 32), (168, 48, 13)),
+        # Base MBL header on #FF9602 (orange) with a darker orange tail
+        "header_gradient": ((255, 150, 2), (191, 105, 2)),
         "card_bg": (42, 24, 18, 255),
         "card_border": (84, 47, 34, 255),
         "cell_win": (56, 142, 60, 255),
