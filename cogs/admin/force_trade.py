@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import discord
 from discord import app_commands
@@ -12,15 +12,8 @@ from discord.ext import commands
 from db import get_supabase, queries
 from db.transactions_repository import TransactionsRepository
 from utils.team_player_cache import TeamPlayerCache
-from utils.embed_builder import EmbedBuilder
-from utils.team_display import format_team_label_from_record
-from utils.embed_assets import apply_league_badge, apply_team_badge, target_thumbnail
 from utils.autocomplete_helper import AutocompleteHelper
-from cogs.admin.common import LazyInitView
 from cogs.transactions.trade_utils import can_trade_picks, get_available_trade_assets
-
-if TYPE_CHECKING:  # pragma: no cover - hints only
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -29,19 +22,18 @@ async def autocomplete_team_code(
     interaction: discord.Interaction,
     current: str,
 ) -> list[app_commands.Choice[str]]:
-    """Wrapper for team autocomplete that includes interaction parameter."""
+    """Wrapper for team autocomplete."""
     return await AutocompleteHelper.team_code_choices(current)
 
 
 class ForceTradeAssetSelect(discord.ui.Select):
-    """Dropdown to select players or picks for a force trade."""
+    """Dropdown to select players or picks for a trade."""
 
     def __init__(
         self,
         available_assets: List[Dict[str, Any]],
         asset_type: str,
         direction: str,
-        team_code: str,
         max_selections: int = 10
     ):
         self.asset_type = asset_type
@@ -54,13 +46,11 @@ class ForceTradeAssetSelect(discord.ui.Select):
                 value=asset['id'],
                 description=asset.get('description', '')[:100] if asset.get('description') else None
             )
-            for asset in available_assets[:25]  # Discord limit
+            for asset in available_assets[:25]
         ]
 
-        placeholder = f"Select {asset_type}s from {team_code}..."
-
         super().__init__(
-            placeholder=placeholder,
+            placeholder=f"Select {asset_type}s to {direction}...",
             min_values=0,
             max_values=min(len(options), max_selections),
             options=options
@@ -72,12 +62,11 @@ class ForceTradeAssetSelect(discord.ui.Select):
         await interaction.response.defer()
 
 
-class ForceTradeAssetSelectionView(discord.ui.View):
-    """View for selecting force trade assets with dropdowns."""
+class ForceTradeSelectionView(discord.ui.View):
+    """View for selecting and executing force trade assets."""
 
     def __init__(
         self,
-        cog: "ForceTradeCommand",
         team1: Dict[str, Any],
         team2: Dict[str, Any],
         season: Dict[str, Any],
@@ -90,7 +79,6 @@ class ForceTradeAssetSelectionView(discord.ui.View):
         guild_id: int
     ):
         super().__init__(timeout=300)
-        self.cog = cog
         self.team1 = team1
         self.team2 = team2
         self.season = season
@@ -98,41 +86,15 @@ class ForceTradeAssetSelectionView(discord.ui.View):
         self.initiator_discord_id = initiator_discord_id
         self.guild_id = guild_id
 
-        # Add selects for team1 assets (going to team2)
+        # Add dropdowns
         if team1_player_assets:
-            self.add_item(ForceTradeAssetSelect(
-                team1_player_assets,
-                'player',
-                'outbound',
-                team1['code'],
-                max_selections=10
-            ))
+            self.add_item(ForceTradeAssetSelect(team1_player_assets, 'player', 'outbound'))
         if team1_pick_assets:
-            self.add_item(ForceTradeAssetSelect(
-                team1_pick_assets,
-                'pick',
-                'outbound',
-                team1['code'],
-                max_selections=10
-            ))
-
-        # Add selects for team2 assets (going to team1)
+            self.add_item(ForceTradeAssetSelect(team1_pick_assets, 'pick', 'outbound'))
         if team2_player_assets:
-            self.add_item(ForceTradeAssetSelect(
-                team2_player_assets,
-                'player',
-                'inbound',
-                team2['code'],
-                max_selections=10
-            ))
+            self.add_item(ForceTradeAssetSelect(team2_player_assets, 'player', 'inbound'))
         if team2_pick_assets:
-            self.add_item(ForceTradeAssetSelect(
-                team2_pick_assets,
-                'pick',
-                'inbound',
-                team2['code'],
-                max_selections=10
-            ))
+            self.add_item(ForceTradeAssetSelect(team2_pick_assets, 'pick', 'inbound'))
 
     def get_selected_assets(self) -> Dict[str, List[Dict[str, Any]]]:
         """Collect all selected assets by direction."""
@@ -144,106 +106,73 @@ class ForceTradeAssetSelectionView(discord.ui.View):
 
     @discord.ui.button(label="Execute Trade", style=discord.ButtonStyle.danger, row=4)
     async def execute_trade(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Execute the force trade."""
+        """Execute the force trade immediately."""
         if interaction.user.id != self.initiator_discord_id:
-            await interaction.response.send_message(
-                "❌ Only the initiator can execute this trade.",
-                ephemeral=True,
-            )
+            await interaction.response.send_message("❌ Only the initiator can execute this trade.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
 
         assets = self.get_selected_assets()
         if not assets['outbound'] and not assets['inbound']:
-            await interaction.followup.send(
-                "❌ Select at least one asset to trade.",
-                ephemeral=True,
-            )
+            await interaction.followup.send("❌ Select at least one asset to trade.", ephemeral=True)
             return
 
         try:
             repo = TransactionsRepository(self.supabase)
 
-            # Create trade proposal directly as executed
-            trade_payload = {
-                "guild_id": self.guild_id,
-                "season_id": self.season["id"],
-                "initiating_team_id": self.team1["id"],
-                "counterparty_team_id": self.team2["id"],
-                "created_by": interaction.user.id,
-                "status": "executed",
-            }
+            proposal = repo.create_trade_proposal({
+                'guild_id': self.guild_id,
+                'season_id': self.season['id'],
+                'initiating_team_id': self.team1['id'],
+                'counterparty_team_id': self.team2['id'],
+                'status': 'executed',
+                'created_by': interaction.user.id,
+                'metadata': {'force_trade': True}
+            })
 
-            trade = repo.create_trade_proposal(trade_payload)
-            if not trade:
+            if not proposal:
                 await interaction.followup.send("❌ Failed to create trade.", ephemeral=True)
                 return
 
-            trade_id = trade['id'] if isinstance(trade, dict) else trade
-
-            # Attach trade assets
+            # Attach assets
             trade_assets = []
             for asset in assets['outbound']:
                 trade_assets.append({
-                    'proposal_id': trade_id,
+                    'proposal_id': proposal['id'],
                     'direction': 'outbound',
                     'asset_type': asset.get('type', 'player'),
                     'player_id': asset.get('player_id'),
-                    'draft_pick_id': asset.get('draft_pick_id'),
+                    'draft_pick_id': asset.get('pick_id'),
                     'metadata': {}
                 })
             for asset in assets['inbound']:
                 trade_assets.append({
-                    'proposal_id': trade_id,
+                    'proposal_id': proposal['id'],
                     'direction': 'inbound',
                     'asset_type': asset.get('type', 'player'),
                     'player_id': asset.get('player_id'),
-                    'draft_pick_id': asset.get('draft_pick_id'),
+                    'draft_pick_id': asset.get('pick_id'),
                     'metadata': {}
                 })
 
             repo.attach_trade_assets(trade_assets)
-
-            # Refresh cache
             await TeamPlayerCache.refresh(self.supabase)
 
-            # Build confirmation embed
+            # Build result embed
             embed = discord.Embed(
-                title="Trade Executed",
+                title="✅ Trade Executed",
                 description=f"**{self.team1['name']}** ↔ **{self.team2['name']}**",
                 color=0x2B2D31,
             )
 
-            # Team 1 gives
-            outbound_lines = []
-            for asset in assets['outbound']:
-                if asset.get('type') == 'player':
-                    outbound_lines.append(f"🧑 {asset.get('label', 'Unknown')}")
-                elif asset.get('type') == 'pick':
-                    outbound_lines.append(f"📋 {asset.get('label', 'Unknown')}")
-            embed.add_field(
-                name=f"{self.team1['code']} Sends",
-                value="\n".join(outbound_lines) if outbound_lines else "Nothing",
-                inline=True,
-            )
+            outbound_lines = [f"🧑 {a.get('label')}" if a.get('type') == 'player' else f"📋 {a.get('label')}" for a in assets['outbound']]
+            inbound_lines = [f"🧑 {a.get('label')}" if a.get('type') == 'player' else f"📋 {a.get('label')}" for a in assets['inbound']]
 
-            # Team 2 gives
-            inbound_lines = []
-            for asset in assets['inbound']:
-                if asset.get('type') == 'player':
-                    inbound_lines.append(f"🧑 {asset.get('label', 'Unknown')}")
-                elif asset.get('type') == 'pick':
-                    inbound_lines.append(f"📋 {asset.get('label', 'Unknown')}")
-            embed.add_field(
-                name=f"{self.team2['code']} Sends",
-                value="\n".join(inbound_lines) if inbound_lines else "Nothing",
-                inline=True,
-            )
-
+            embed.add_field(name=f"{self.team1['code']} Sends", value="\n".join(outbound_lines) or "Nothing", inline=True)
+            embed.add_field(name=f"{self.team2['code']} Sends", value="\n".join(inbound_lines) or "Nothing", inline=True)
             embed.add_field(name="Executed By", value=interaction.user.mention, inline=False)
-            trade_id_str = trade_id[:8] if isinstance(trade_id, str) else str(trade_id)[:8]
-            embed.set_footer(text=f"Trade ID: {trade_id_str}")
+            embed.set_footer(text=f"Trade ID: {proposal['id'][:8]}")
 
             self.stop()
             await interaction.followup.send(embed=embed, ephemeral=True)
@@ -255,14 +184,9 @@ class ForceTradeAssetSelectionView(discord.ui.View):
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, row=4)
     async def cancel_trade(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Cancel the force trade."""
         if interaction.user.id != self.initiator_discord_id:
-            await interaction.response.send_message(
-                "❌ Only the initiator can cancel this.",
-                ephemeral=True,
-            )
+            await interaction.response.send_message("❌ Only the initiator can cancel.", ephemeral=True)
             return
-
         await interaction.response.defer(ephemeral=True)
         self.stop()
         await interaction.followup.send("Cancelled.", ephemeral=True)
@@ -352,15 +276,10 @@ class ForceTradeCommand(commands.Cog):
             team2_assets.get('players') or team2_assets.get('picks')
         )
         if not has_assets:
-            await interaction.followup.send(
-                "❌ Neither team has any players or picks to trade.",
-                ephemeral=True,
-            )
+            await interaction.followup.send("❌ Neither team has any assets to trade.", ephemeral=True)
             return
 
-        # Create selection view
-        view = ForceTradeAssetSelectionView(
-            cog=self,
+        view = ForceTradeSelectionView(
             team1=team1_record,
             team2=team2_record,
             season=season,
