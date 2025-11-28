@@ -86,7 +86,8 @@ class ForceTradeAssetSelectionView(discord.ui.View):
         team1_pick_assets: List[Dict[str, Any]],
         team2_player_assets: List[Dict[str, Any]],
         team2_pick_assets: List[Dict[str, Any]],
-        initiator_discord_id: int
+        initiator_discord_id: int,
+        guild_id: int
     ):
         super().__init__(timeout=300)
         self.cog = cog
@@ -95,6 +96,7 @@ class ForceTradeAssetSelectionView(discord.ui.View):
         self.season = season
         self.supabase = supabase
         self.initiator_discord_id = initiator_discord_id
+        self.guild_id = guild_id
 
         # Add selects for team1 assets (going to team2)
         if team1_player_assets:
@@ -165,6 +167,7 @@ class ForceTradeAssetSelectionView(discord.ui.View):
 
             # Create trade proposal directly as executed
             trade_payload = {
+                "guild_id": self.guild_id,
                 "season_id": self.season["id"],
                 "initiating_team_id": self.team1["id"],
                 "counterparty_team_id": self.team2["id"],
@@ -366,7 +369,8 @@ class ForceTradeCommand(commands.Cog):
             team1_pick_assets=team1_assets.get('picks', []),
             team2_player_assets=team2_assets.get('players', []),
             team2_pick_assets=team2_assets.get('picks', []),
-            initiator_discord_id=interaction.user.id
+            initiator_discord_id=interaction.user.id,
+            guild_id=interaction.guild_id
         )
 
         # Build embed
