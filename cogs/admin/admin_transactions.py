@@ -164,7 +164,7 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for draft picks management: %s", exc)
 
-    @discord.ui.button(label="Overrides", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Overrides", style=discord.ButtonStyle.primary, row=1)
     async def transactions(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open transaction overrides interface."""
         if not await self._safe_defer(interaction):
@@ -203,7 +203,7 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for pending offers: %s", exc)
 
-    @discord.ui.button(label="Trades", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="Trades", style=discord.ButtonStyle.success, row=2)
     async def trades(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open trade management interface."""
         if not await self._safe_defer(interaction):
@@ -216,7 +216,7 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for trade management: %s", exc)
 
-    @discord.ui.button(label="Audit", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="Audit", style=discord.ButtonStyle.success, row=2)
     async def audit_reports(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open audit reports interface."""
         if not await self._safe_defer(interaction):
@@ -229,7 +229,7 @@ class AdminDashboardView(discord.ui.View):
         except AttributeError:
             pass
 
-    @discord.ui.button(label="Blocker", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="Blocker", style=discord.ButtonStyle.success, row=2)
     async def transaction_blocker(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open transaction blocker interface."""
         if not await self._safe_defer(interaction):

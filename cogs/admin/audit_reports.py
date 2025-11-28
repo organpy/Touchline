@@ -24,6 +24,84 @@ if TYPE_CHECKING:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
+def _get_player_name(player_id: Optional[str]) -> str:
+    """Get player name from cache or return formatted ID."""
+    if not player_id:
+        return "N/A"
+    cache = TeamPlayerCache()
+    player = cache.get_player(player_id)
+    if player:
+        return player.get("display_name", f"ID:{player_id[:8]}")
+    return f"ID:{player_id[:8]}"
+
+
+def _get_team_name(team_id: Optional[str]) -> str:
+    """Get team name from cache or return formatted ID."""
+    if not team_id:
+        return "N/A"
+    cache = TeamPlayerCache()
+    team = cache.get_team(team_id)
+    if team:
+        return team.get("name", team.get("code", f"ID:{team_id[:8]}"))
+    return f"ID:{team_id[:8]}"
+
+
+def _format_event_details(event: Dict[str, Any]) -> str:
+    """Format event details into a readable string."""
+    event_type = event.get("event_type", "").upper()
+    payload = event.get("payload") or event.get("details") or {}
+    
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (json.JSONDecodeError, TypeError):
+            payload = {}
+    
+    lines = []
+    
+    # Common fields
+    if payload.get("player_id"):
+        lines.append(f"**Player:** {_get_player_name(payload.get('player_id'))}")
+    if payload.get("team_id"):
+        lines.append(f"**Team:** {_get_team_name(payload.get('team_id'))}")
+    if payload.get("from_team_id"):
+        lines.append(f"**From:** {_get_team_name(payload.get('from_team_id'))}")
+    if payload.get("to_team_id"):
+        lines.append(f"**To:** {_get_team_name(payload.get('to_team_id'))}")
+    
+    # Trade-specific
+    if event_type == "TRADE":
+        initiating = payload.get("initiating_team_id")
+        counterparty = payload.get("counterparty_team_id")
+        if initiating:
+            lines.append(f"**Initiator:** {_get_team_name(initiating)}")
+        if counterparty:
+            lines.append(f"**Partner:** {_get_team_name(counterparty)}")
+    
+    # Status
+    status = payload.get("status")
+    if status:
+        status_emoji = {"pending": "⏳", "accepted": "✅", "declined": "❌", "executed": "✅", "cancelled": "🚫"}.get(status, "•")
+        lines.append(f"**Status:** {status_emoji} {status}")
+    
+    # Reason (for voids/edits)
+    reason = payload.get("reason")
+    if reason:
+        lines.append(f"**Reason:** {reason[:50]}")
+    
+    # Actor
+    created_by = payload.get("created_by") or payload.get("actor_id")
+    if created_by:
+        lines.append(f"**By:** <@{created_by}>")
+    
+    if not lines:
+        # Fallback: show raw payload truncated
+        raw = str(payload)[:100]
+        return raw + "..." if len(str(payload)) > 100 else raw
+    
+    return "\n".join(lines)
+
+
 class ExportDataModal(discord.ui.Modal, title="Export Transaction Data"):
     """Modal for exporting audit data."""
 
@@ -183,28 +261,35 @@ class ViewActivityTimelineView(LazyInitView):
         """Build activity timeline embed."""
         if not self.events_list:
             embed = discord.Embed(
-                title="📊 Activity Timeline",
+                title="Activity Timeline",
                 description="No transaction events recorded.",
-                color=discord.Color.blue(),
+                color=0x2B2D31,
             )
             return embed
 
         # Calculate pagination
-        total_pages = (len(self.events_list) + self.per_page - 1) // self.per_page
+        total_pages = max(1, (len(self.events_list) + self.per_page - 1) // self.per_page)
         start_idx = self.current_page * self.per_page
         end_idx = start_idx + self.per_page
         page_events = self.events_list[start_idx:end_idx]
 
         embed = discord.Embed(
-            title="📊 Activity Timeline",
-            description=f"Recent transactions ({len(self.events_list)} total)",
-            color=discord.Color.blue(),
+            title="Activity Timeline",
+            description=f"Recent transactions • {len(self.events_list)} total",
+            color=0x2B2D31,
         )
 
         for event in page_events:
             event_type = event.get("event_type", "unknown").upper()
-            created = event.get("created_at", "Unknown")[:10]
-            details = event.get("details", {})
+            created = event.get("created_at", "")
+            if created:
+                try:
+                    dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                    created = dt.strftime("%Y-%m-%d %H:%M")
+                except (ValueError, TypeError):
+                    created = created[:16]
+            else:
+                created = "Unknown date"
 
             # Emoji based on event type
             type_emoji = {
@@ -214,12 +299,14 @@ class ViewActivityTimelineView(LazyInitView):
                 "LOAN": "📋",
                 "VOID": "❌",
                 "EDIT": "✏️",
+                "DRAFT": "📝",
             }.get(event_type, "📝")
 
+            details = _format_event_details(event)
+
             embed.add_field(
-                name=f"{type_emoji} {event_type} - {created}",
-                value=f"**Status:** {details.get('status', 'pending')}\n"
-                      f"**Details:** {str(details)[:150]}...",
+                name=f"{type_emoji} {event_type} • {created}",
+                value=details[:1024],
                 inline=False,
             )
 
@@ -289,35 +376,43 @@ class ViewFlaggedActionsView(LazyInitView):
         """Build flagged actions embed."""
         if not self.flagged_list:
             embed = discord.Embed(
-                title="🚩 Flagged Actions",
+                title="Flagged Actions",
                 description="No flagged actions recorded.",
-                color=discord.Color.green(),
+                color=0x2B2D31,
             )
             return embed
 
         # Calculate pagination
-        total_pages = (len(self.flagged_list) + self.per_page - 1) // self.per_page
+        total_pages = max(1, (len(self.flagged_list) + self.per_page - 1) // self.per_page)
         start_idx = self.current_page * self.per_page
         end_idx = start_idx + self.per_page
         page_actions = self.flagged_list[start_idx:end_idx]
 
         embed = discord.Embed(
-            title="🚩 Flagged Actions (Voids & Edits)",
-            description=f"Actions reviewed by admins ({len(self.flagged_list)} total)",
-            color=discord.Color.orange(),
+            title="Flagged Actions",
+            description=f"Voids & edits • {len(self.flagged_list)} total",
+            color=0x2B2D31,
         )
 
         for action in page_actions:
             event_type = action.get("event_type", "unknown").upper()
-            created = action.get("created_at", "Unknown")[:10]
-            details = action.get("details", {})
+            created = action.get("created_at", "")
+            if created:
+                try:
+                    dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                    created = dt.strftime("%Y-%m-%d %H:%M")
+                except (ValueError, TypeError):
+                    created = created[:16]
+            else:
+                created = "Unknown date"
 
             type_emoji = "❌" if event_type == "VOID" else "✏️"
 
+            details = _format_event_details(action)
+
             embed.add_field(
-                name=f"{type_emoji} {event_type} - {created}",
-                value=f"**Reason:** {details.get('reason', 'No reason provided')}\n"
-                      f"**Target:** {details.get('transaction_id', 'Unknown')[:8]}...",
+                name=f"{type_emoji} {event_type} • {created}",
+                value=details[:1024],
                 inline=False,
             )
 

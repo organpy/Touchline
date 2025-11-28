@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import abc
 import logging
+from typing import Optional
 
 import discord
 
@@ -16,6 +17,7 @@ class LazyInitView(discord.ui.View, metaclass=abc.ABCMeta):
     def __init__(self, *, timeout: Optional[float] = 300) -> None:
         super().__init__(timeout=timeout)
         self._is_prepared = False
+        self.original_message: Optional[discord.Message] = None
 
     async def prepare(self) -> None:
         """Populate the view if it has not been populated yet."""
@@ -32,6 +34,21 @@ class LazyInitView(discord.ui.View, metaclass=abc.ABCMeta):
     @abc.abstractmethod
     async def populate(self) -> None:
         """Populate the view with components. Must be implemented by subclasses."""
+
+    def create_embed(self) -> discord.Embed:
+        """Create the embed for this view. Override in subclasses."""
+        return discord.Embed(title="View", color=0x2B2D31)
+
+    async def update_display(self) -> None:
+        """Update the message with the current embed and view state."""
+        if not self.original_message:
+            return
+        try:
+            await self.original_message.edit(embed=self.create_embed(), view=self)
+        except discord.NotFound:
+            logger.warning("Message not found when updating display for %s", self.__class__.__name__)
+        except Exception as exc:
+            logger.error("Failed to update display for %s: %s", self.__class__.__name__, exc)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not self._is_prepared:
