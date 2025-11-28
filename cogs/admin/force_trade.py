@@ -15,6 +15,7 @@ from utils.team_player_cache import TeamPlayerCache
 from utils.embed_builder import EmbedBuilder
 from utils.team_display import format_team_label_from_record
 from utils.embed_assets import apply_league_badge, apply_team_badge, target_thumbnail
+from utils.autocomplete_helper import AutocompleteHelper
 from cogs.admin.common import LazyInitView
 from cogs.transactions.trade_utils import can_trade_picks, get_available_trade_assets
 
@@ -22,26 +23,6 @@ if TYPE_CHECKING:  # pragma: no cover - hints only
     pass
 
 logger = logging.getLogger(__name__)
-
-
-async def autocomplete_team_force_trade(
-    interaction: discord.Interaction,
-    current: str,
-) -> list[app_commands.Choice[str]]:
-    """Autocomplete for team selection in force trade."""
-    cache = TeamPlayerCache()
-    teams = cache.get_all_teams()
-    
-    filtered = [
-        t for t in teams
-        if current.lower() in t.get('code', '').lower()
-        or current.lower() in t.get('name', '').lower()
-    ]
-    
-    return [
-        app_commands.Choice(name=f"{t['code']} - {t['name']}", value=t['code'])
-        for t in filtered[:25]
-    ]
 
 
 class ForceTradeModal(discord.ui.Modal):
@@ -183,8 +164,8 @@ class ForceTradeCommand(commands.Cog):
         team1="First team in the trade",
         team2="Second team in the trade",
     )
-    @app_commands.autocomplete(team1=autocomplete_team_force_trade)
-    @app_commands.autocomplete(team2=autocomplete_team_force_trade)
+    @app_commands.autocomplete(team1=AutocompleteHelper.team_code_choices)
+    @app_commands.autocomplete(team2=AutocompleteHelper.team_code_choices)
     async def force_trade(
         self,
         interaction: discord.Interaction,
