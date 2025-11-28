@@ -901,12 +901,6 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                 ephemeral=True,
             )
             return
-        if counterparty['division_id'] != team['division_id']:
-            await interaction.response.send_message(
-                "❌ That team is not in your division.",
-                ephemeral=True,
-            )
-            return
         if counterparty['id'] == team['id']:
             await interaction.response.send_message(
                 "❌ You cannot trade with your own team.",
@@ -914,11 +908,31 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             )
             return
 
+        # For cross-division trades, get the counterparty's active season
+        counterparty_season = season
+        if counterparty['division_id'] != team['division_id']:
+            counterparty_season = cache.get_active_season_for_division(counterparty['division_id'])
+            if not counterparty_season:
+                # Try DB fallback
+                try:
+                    resp = self.supabase.table('seasons').select('*').eq('division_id', counterparty['division_id']).eq('active', True).limit(1).execute()
+                    if resp.data:
+                        counterparty_season = resp.data[0]
+                except Exception:
+                    pass
+            if not counterparty_season:
+                await interaction.response.send_message(
+                    f"❌ No active season found for {counterparty.get('name', counterparty_team)}'s division.",
+                    ephemeral=True,
+                )
+                return
+
         modal = TradeAssetModal(
             cog=self,
             initiating_team=team,
             counterparty_team=counterparty,
             season=season,
+            counterparty_season=counterparty_season,
             supabase=self.supabase
         )
 

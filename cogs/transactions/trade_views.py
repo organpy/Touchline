@@ -83,13 +83,15 @@ class TradeAssetModal(discord.ui.Modal):
         initiating_team: Dict[str, Any],
         counterparty_team: Dict[str, Any],
         season: Dict[str, Any],
-        supabase
+        supabase,
+        counterparty_season: Optional[Dict[str, Any]] = None
     ):
         super().__init__(title="Propose Trade")
         self.cog = cog
         self.initiating_team = initiating_team
         self.counterparty_team = counterparty_team
         self.season = season
+        self.counterparty_season = counterparty_season or season  # Use same season if not cross-division
         self.supabase = supabase
 
         self.notes = discord.ui.TextInput(
@@ -107,14 +109,15 @@ class TradeAssetModal(discord.ui.Modal):
         # Import division-checking utility
         from cogs.transactions.trade_utils import can_trade_picks
 
-        # Fetch available rosters and picks
+        # Fetch available rosters for initiating team (from their season)
         initiating_rosters = await queries.get_active_rosters(self.supabase, self.season['id'])
         initiating_players = [
             r for r in initiating_rosters
             if r.get('team_id') == self.initiating_team['id']
         ]
 
-        counterparty_rosters = await queries.get_active_rosters(self.supabase, self.season['id'])
+        # Fetch available rosters for counterparty (from THEIR season - may be different division)
+        counterparty_rosters = await queries.get_active_rosters(self.supabase, self.counterparty_season['id'])
         counterparty_players = [
             r for r in counterparty_rosters
             if r.get('team_id') == self.counterparty_team['id']
@@ -127,6 +130,7 @@ class TradeAssetModal(discord.ui.Modal):
             self.supabase
         )
 
+        # Get initiating team's picks (from their season)
         initiating_picks = self.cog.repo.list_draft_picks(self.season['id'])
         initiating_picks = [
             p for p in initiating_picks
@@ -137,7 +141,8 @@ class TradeAssetModal(discord.ui.Modal):
         if not allow_picks:
             initiating_picks = []
 
-        counterparty_picks = self.cog.repo.list_draft_picks(self.season['id'])
+        # Get counterparty's picks (from THEIR season)
+        counterparty_picks = self.cog.repo.list_draft_picks(self.counterparty_season['id'])
         counterparty_picks = [
             p for p in counterparty_picks
             if p.get('current_owner_team_id') == self.counterparty_team['id']
@@ -209,6 +214,9 @@ class TradeAssetModal(discord.ui.Modal):
 
         league_display, league_code = self.cog._get_league_display(self.season)
         
+        # Check if this is a cross-division trade
+        is_cross_division = self.initiating_team['division_id'] != self.counterparty_team['division_id']
+        
         builder = EmbedBuilder(
             title="Trade Proposal Builder",
             description=f"**{self.initiating_team['name']}** ↔ **{self.counterparty_team['name']}**",
@@ -216,6 +224,15 @@ class TradeAssetModal(discord.ui.Modal):
             division_code=league_code
         )
         builder.add_field("Select Assets", "Choose players and/or picks from each team below.", inline=False)
+        
+        # Show cross-division note if applicable
+        if is_cross_division:
+            builder.add_field(
+                "⚠️ Cross-Division Trade",
+                "Pick trading is not allowed between different divisions.\nOnly players can be traded.",
+                inline=False
+            )
+        
         if self.notes.value:
             builder.add_field("Notes", self.notes.value, inline=False)
         builder.set_footer_text(league_display or league_code or "Trade Proposal")
