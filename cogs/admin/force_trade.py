@@ -188,9 +188,10 @@ class ForceTradeCommand(commands.Cog):
             await interaction.followup.send("❌ Database connection failed.", ephemeral=True)
             return
 
-        # Get teams
-        team1_record = await queries.get_team_by_code(supabase, team1.upper())
-        team2_record = await queries.get_team_by_code(supabase, team2.upper())
+        # Get teams from cache (case-insensitive)
+        cache = TeamPlayerCache()
+        team1_record = cache.get_team_by_code(team1)
+        team2_record = cache.get_team_by_code(team2)
 
         if not team1_record:
             await interaction.followup.send(f"❌ Team **{team1}** not found.", ephemeral=True)

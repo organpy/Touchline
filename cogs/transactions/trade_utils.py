@@ -62,9 +62,9 @@ async def can_trade_picks(team1_division_id: str, team2_division_id: str, supaba
     Determine if draft picks can be traded between two teams.
     
     Rules:
-    - Different divisions: NO picks
+    - Different divisions: NO picks (regardless of league)
     - Same division + NBL: YES picks
-    - Same division + not NBL: NO picks
+    - Same division + MBL/NCBA: NO picks
     """
     if not supabase:
         supabase = get_supabase()
@@ -72,17 +72,17 @@ async def can_trade_picks(team1_division_id: str, team2_division_id: str, supaba
     if not supabase:
         return False
     
-    # If different divisions, no picks
+    # If different divisions, no picks allowed
     if team1_division_id != team2_division_id:
         return False
     
-    # Get division info
+    # Same division - check if it's NBL
     try:
         response = supabase.table('divisions').select('league_type').eq('id', team1_division_id).execute()
         if response.data and len(response.data) > 0:
             division = response.data[0]
             league_type = division.get('league_type', '').upper()
-            # Only NBL can trade picks within same division
+            # Only NBL teams in the same division can trade picks
             return league_type == 'NBL'
     except Exception as e:
         logger.warning(f"Failed to check division for pick trading: {e}")
