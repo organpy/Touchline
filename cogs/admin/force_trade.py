@@ -47,13 +47,13 @@ class ForceTradeModal(discord.ui.Modal):
         
         self.team1_assets = discord.ui.TextInput(
             label=f"Assets FROM {team1['code']} to {team2['code']}",
-            placeholder="player_name, player_name, draft_pick_1, cash_amount" + pick_note,
+            placeholder="player_name, player_name, draft_pick_1" + pick_note,
             required=False,
             style=discord.TextStyle.paragraph,
         )
         self.team2_assets = discord.ui.TextInput(
             label=f"Assets FROM {team2['code']} to {team1['code']}",
-            placeholder="player_name, player_name, draft_pick_1, cash_amount" + pick_note,
+            placeholder="player_name, player_name, draft_pick_1" + pick_note,
             required=False,
             style=discord.TextStyle.paragraph,
         )
@@ -101,7 +101,7 @@ class ForceTradeModal(discord.ui.Modal):
                 asset_payload = {
                     "trade_proposal_id": trade_id,
                     "direction": "outbound",
-                    "asset_type": "player" if not asset.startswith("draft") and not asset.isdigit() else "pick" if asset.startswith("draft") else "cash",
+                    "asset_type": "pick" if asset.startswith("draft") else "player",
                     "asset_name": asset,
                 }
                 repo.create_trade_asset(asset_payload)
@@ -110,7 +110,7 @@ class ForceTradeModal(discord.ui.Modal):
                 asset_payload = {
                     "trade_proposal_id": trade_id,
                     "direction": "inbound",
-                    "asset_type": "player" if not asset.startswith("draft") and not asset.isdigit() else "pick" if asset.startswith("draft") else "cash",
+                    "asset_type": "pick" if asset.startswith("draft") else "player",
                     "asset_name": asset,
                 }
                 repo.create_trade_asset(asset_payload)
