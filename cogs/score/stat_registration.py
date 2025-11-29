@@ -41,14 +41,6 @@ class StatRegistrationCog(commands.Cog):
         else:
             await interaction.response.send_message(**kwargs)
 
-    @commands.Cog.listener()
-    async def on_ready(self):
-        """Load roster cache when bot starts"""
-        if not self.roster_cache.loaded:
-            logger.info("📦 Loading roster cache...")
-            await self.roster_cache.load_cache(self.supabase)
-            logger.info("✅ Roster cache ready!")
-
     @app_commands.command(
         name="report-stats",
         description="[MEMBERS] Start recording a match with individual player statistics"

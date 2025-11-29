@@ -365,12 +365,6 @@ class BulkStatsCog(commands.Cog):
         self.roster_cache = RosterCache()
         self.active_entries: Dict[int, Dict[str, Any]] = {}  # user_id -> entry state
     
-    @commands.Cog.listener()
-    async def on_ready(self):
-        if not self.roster_cache.loaded:
-            logger.info("📦 Loading roster cache for bulk stats...")
-            await self.roster_cache.load_cache(self.supabase)
-    
     @app_commands.command(
         name="report-stats-bulk",
         description="[MEMBERS] Report match with bulk player stats (single text input)"

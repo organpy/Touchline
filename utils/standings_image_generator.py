@@ -412,9 +412,10 @@ def generate_standings_image(
         title_shadow = theme.get("header_title_shadow")
         subtitle_shadow = theme.get("header_subtitle_shadow")
 
-        # Measure text
+        # Measure text with proper baseline accounting
         title_bbox = card_draw.textbbox((0, 0), league_name, font=title_font)
         title_height = title_bbox[3] - title_bbox[1]
+        title_offset = title_bbox[1]  # Top offset from baseline
         
         season_label = (season_name or "Season").upper()
         clubs_text = f"{len(standings_data)} TEAMS" if standings_data else "STANDINGS"
@@ -422,12 +423,17 @@ def generate_standings_image(
         
         subtitle_bbox = card_draw.textbbox((0, 0), subtitle_text, font=subtitle_font)
         subtitle_height = subtitle_bbox[3] - subtitle_bbox[1]
+        subtitle_offset = subtitle_bbox[1]
         
-        # Center text block to match logo's middle (equal gaps above/below)
+        # Calculate actual visual heights without internal padding
         line_gap = 4
-        text_block_height = title_height + line_gap + subtitle_height
-        title_y = header_center_y - text_block_height // 2
-        subtitle_y = title_y + title_height + line_gap
+        visual_text_block_height = (title_height - abs(title_offset)) + line_gap + (subtitle_height - abs(subtitle_offset))
+        text_block_top = header_center_y - visual_text_block_height // 2
+        
+        # Position title from top of block, accounting for its top offset
+        title_y = text_block_top - title_offset
+        # Position subtitle below title (without offset compensation for bottom-aligned text)
+        subtitle_y = title_y + title_height + line_gap - subtitle_offset
 
         if title_shadow:
             card_draw.text((text_x + 2, title_y + 2), league_name, fill=title_shadow, font=title_font)

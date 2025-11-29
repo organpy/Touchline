@@ -20,6 +20,7 @@ from db import get_supabase
 from utils.config_manager import init_config_manager
 from utils.team_player_cache import TeamPlayerCache
 from utils.season_cache import SeasonCache
+from cogs.score.roster_cache import RosterCache
 
 # ============================================================================
 # CONFIG
@@ -119,6 +120,14 @@ class NBLBot(commands.Bot):
             logger.info("✅ SeasonCache initialized")
         except Exception as e:
             logger.error(f"❌ Failed to initialize SeasonCache: {e}", exc_info=True)
+        
+        logger.info("🔄 Initializing RosterCache...")
+        try:
+            roster_cache = RosterCache()
+            await roster_cache.load_cache(self.supabase)
+            logger.info("✅ RosterCache initialized")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize RosterCache: {e}", exc_info=True)
         
         logger.info("🔄 Discovering cogs...")
         extensions = self.discover_cogs()
