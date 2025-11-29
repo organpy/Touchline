@@ -362,15 +362,11 @@ def generate_match_table_image(
         # Position text to the right of logo
         text_x = logo_x + MATCH_HEADER_LOGO_SIZE + MATCH_HEADER_GAP
         
-        # Vertically center text block to match logo's middle (equal gaps above/below)
-        # Account for font baseline offsets for proper visual centering
-        line_gap = 4
-        visual_text_block_height = (title_height - abs(title_offset)) + line_gap + (subtitle_height - abs(subtitle_offset))
-        text_block_top = header_center_y - visual_text_block_height // 2
+        # Position title centered on logo's middle
+        title_y = header_center_y - title_height // 2 - title_offset
         
-        # Position title from top of block, accounting for its top offset
-        title_y = text_block_top - title_offset
-        # Position subtitle below title with gap
+        # Position subtitle below title with moderate gap to avoid overlap
+        line_gap = 10  # Moderate gap
         subtitle_y = title_y + title_height + line_gap - subtitle_offset
 
         # Draw logo (or fallback avatar)

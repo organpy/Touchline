@@ -344,8 +344,8 @@ def generate_simple_standings_image(
         # Position title centered on logo's middle
         title_y = header_center_y - title_height // 2 - title_offset
         
-        # Position subtitle well below title to avoid overlap
-        line_gap = 16  # Large gap to prevent any overlap
+        # Position subtitle below title with moderate gap
+        line_gap = 10  # Moderate gap to prevent overlap without too much space
         subtitle_y = title_y + title_height + line_gap - subtitle_offset
         
         card_draw.text((text_x, title_y), league_name, fill=theme["header_title_color"], font=title_font)
