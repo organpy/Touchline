@@ -177,7 +177,7 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for transaction overrides: %s", exc)
 
-    @discord.ui.button(label="Seasons", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Seasons", style=discord.ButtonStyle.primary, row=1)
     async def seasons(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open season management interface."""
         if not await self._safe_defer(interaction):
@@ -203,7 +203,7 @@ class AdminDashboardView(discord.ui.View):
         except Exception as exc:  # pragma: no cover
             logger.error("Unable to fetch original response for pending offers: %s", exc)
 
-    @discord.ui.button(label="Trades", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="Trades", style=discord.ButtonStyle.primary, row=1)
     async def trades(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         """Open trade management interface."""
         if not await self._safe_defer(interaction):

@@ -11,7 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 from utils.caching import TTLCache
 
@@ -370,6 +370,71 @@ def calculate_star_rating(stats: Dict[str, Any]) -> float:
     return round(raw_rating * 2) / 2
 
 
+def _draw_rating_bar(
+    draw: ImageDraw.ImageDraw,
+    position: Tuple[int, int],
+    rating: float,
+    theme: Dict[str, Any],
+    *,
+    segment_count: int = 5,
+    segment_width: int = 42,
+    segment_height: int = 18,
+    gap: int = 8,
+) -> Tuple[int, int]:
+    """Draw a segmented rating bar with gradient fill and partial segment support.
+    Returns (total_width, height)."""
+    x, y = position
+    # Clamp rating
+    rating = max(0.0, min(segment_count, rating))
+    full_segments = int(rating)
+    partial = rating - full_segments
+
+    total_width = segment_count * segment_width + (segment_count - 1) * gap
+    # Glow backdrop
+    glow_rect = (x - 6, y - 6, x + total_width + 6, y + segment_height + 6)
+    draw.rounded_rectangle(glow_rect, radius=segment_height, fill=(0, 0, 0, 40))
+
+    for i in range(segment_count):
+        seg_x0 = x + i * (segment_width + gap)
+        seg_x1 = seg_x0 + segment_width
+        seg_y0 = y
+        seg_y1 = y + segment_height
+        # Base segment background
+        draw.rounded_rectangle(
+            (seg_x0, seg_y0, seg_x1, seg_y1),
+            radius=segment_height // 2,
+            fill=_to_rgba(theme["badge_bg"]),
+            outline=_to_rgba(theme["badge_border"]),
+            width=2,
+        )
+        fill_ratio = 0.0
+        if i < full_segments:
+            fill_ratio = 1.0
+        elif i == full_segments and partial > 0:
+            fill_ratio = partial
+        if fill_ratio > 0:
+            # Gradient fill within this segment proportional to fill_ratio
+            inner_w = int((segment_width - 4) * fill_ratio)
+            grad_x0 = seg_x0 + 2
+            grad_x1 = grad_x0 + inner_w
+            grad_y0 = seg_y0 + 2
+            grad_y1 = seg_y1 - 2
+            start_col = theme.get("accent_color", (255, 215, 0, 255))
+            end_col = (
+                int(start_col[0] * 0.7),
+                int(start_col[1] * 0.7),
+                int(start_col[2] * 0.9),
+                start_col[3],
+            )
+            for px in range(grad_x0, grad_x1):
+                ratio = (px - grad_x0) / max(inner_w, 1)
+                r = int(start_col[0] * (1 - ratio) + end_col[0] * ratio)
+                g = int(start_col[1] * (1 - ratio) + end_col[1] * ratio)
+                b = int(start_col[2] * (1 - ratio) + end_col[2] * ratio)
+                draw.line([(px, grad_y0), (px, grad_y1)], fill=(r, g, b, 255))
+    return total_width, segment_height
+
+
 def generate_player_card_image(
     player_id: str,
     player_name: str,
@@ -412,12 +477,54 @@ def generate_player_card_image(
         theme = _get_theme(league_code)
         name_font, label_font, value_font, small_font = _load_fonts()
         
-        # Create canvas with gradient background
+        # Create base canvas
         canvas = Image.new("RGBA", (CARD_WIDTH, CARD_HEIGHT), (0, 0, 0, 0))
         draw = ImageDraw.Draw(canvas)
-        
-        # Draw rounded card background with gradient
-        # First draw the rounded rect as a mask
+
+        # --- Drop Shadow Layer ---
+        shadow = Image.new("RGBA", (CARD_WIDTH, CARD_HEIGHT), (0, 0, 0, 0))
+        shadow_draw = ImageDraw.Draw(shadow)
+        shadow_draw.rounded_rectangle(
+            (8, 8, CARD_WIDTH - 4, CARD_HEIGHT - 4),
+            radius=CARD_CORNER_RADIUS + 2,
+            fill=(0, 0, 0, 120),
+        )
+        shadow = shadow.filter(ImageFilter.GaussianBlur(12))
+        canvas.alpha_composite(shadow)
+
+        # --- Card Gradient Background (multi-layer) ---
+        base = Image.new("RGBA", (CARD_WIDTH, CARD_HEIGHT), (0, 0, 0, 0))
+        base_draw = ImageDraw.Draw(base)
+        # Primary vertical gradient
+        _draw_vertical_gradient(
+            base_draw,
+            (0, 0, CARD_WIDTH, CARD_HEIGHT),
+            theme["bg_gradient_top"],
+            theme["bg_gradient_bottom"],
+        )
+        # Diagonal overlay gradient (top-left to bottom-right)
+        overlay = Image.new("RGBA", (CARD_WIDTH, CARD_HEIGHT), (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+        for i in range(CARD_WIDTH):
+            ratio = i / CARD_WIDTH
+            alpha = int(70 * (1 - ratio))  # Fade out to right
+            col = theme.get("accent_color", (255, 255, 255, 255))
+            overlay_draw.line([(i, 0), (i, CARD_HEIGHT)], fill=(col[0], col[1], col[2], alpha))
+        base.alpha_composite(overlay)
+        # Radial highlight center
+        radial = Image.new("RGBA", (CARD_WIDTH, CARD_HEIGHT), (0, 0, 0, 0))
+        radial_draw = ImageDraw.Draw(radial)
+        cx, cy = CARD_WIDTH // 2, CARD_HEIGHT // 3
+        max_r = int(CARD_WIDTH * 0.6)
+        highlight = theme.get("text_primary", (255, 255, 255, 255))
+        for r in range(max_r, 0, -4):
+            alpha = int(50 * (r / max_r))
+            radial_draw.ellipse(
+                (cx - r, cy - r, cx + r, cy + r),
+                fill=(highlight[0], highlight[1], highlight[2], alpha),
+            )
+        base.alpha_composite(radial)
+        # Mask for rounded corners
         mask = Image.new("L", (CARD_WIDTH, CARD_HEIGHT), 0)
         mask_draw = ImageDraw.Draw(mask)
         mask_draw.rounded_rectangle(
@@ -425,22 +532,8 @@ def generate_player_card_image(
             radius=CARD_CORNER_RADIUS,
             fill=255,
         )
-        
-        # Create gradient image
-        gradient = Image.new("RGBA", (CARD_WIDTH, CARD_HEIGHT), (0, 0, 0, 0))
-        gradient_draw = ImageDraw.Draw(gradient)
-        _draw_vertical_gradient(
-            gradient_draw,
-            (0, 0, CARD_WIDTH, CARD_HEIGHT),
-            theme["bg_gradient_top"],
-            theme["bg_gradient_bottom"],
-        )
-        
-        # Apply mask to gradient
-        canvas.paste(gradient, (0, 0), mask)
+        canvas.paste(base, (0, 0), mask)
         draw = ImageDraw.Draw(canvas)
-        
-        # Draw card border
         draw.rounded_rectangle(
             (0, 0, CARD_WIDTH - 1, CARD_HEIGHT - 1),
             radius=CARD_CORNER_RADIUS,
@@ -457,22 +550,7 @@ def generate_player_card_image(
             if logo_img:
                 canvas.paste(logo_img, (logo_x, logo_y), logo_img)
         
-        # === LEFT SIDE: Stat badges (compact layout) ===
-        badge_x = CARD_PADDING
-        badge_y = logo_y + LOGO_SIZE + 16
-        badge_spacing = 8
-        
-        stat_badges = [
-            ("Goals", stats.get('total_goals', 0)),
-            ("Assists", stats.get('total_assists', 0)),
-            ("Saves", stats.get('total_saves', 0)),
-            ("OGs", stats.get('total_own_goals', 0)),
-        ]
-        
-        for label, value in stat_badges:
-            badge_text = f"{label}: {value}"
-            w, h = _draw_rounded_badge(draw, (badge_x, badge_y), badge_text, label_font, theme, min_width=110)
-            badge_y += h + badge_spacing
+        # (Top stats removed per redesign; moved to bottom row)
         
         # === CENTER: Player Avatar Circle (smaller) ===
         avatar_size = 160
@@ -493,77 +571,69 @@ def generate_player_card_image(
         name_x = (CARD_WIDTH - name_width) // 2
         draw.text((name_x, name_y), player_name, fill=_to_rgba(theme["text_primary"]), font=name_font)
         
-        # === BELOW NAME: Team Name + Star Rating on same line ===
-        team_star_y = name_y + 32
-        
+        # === Team row with logo ===
+        team_row_y = name_y + 30
+        logo_inline_size = 40
+        logo_img_inline = None
+        if team_code:
+            team_logo_path = _find_logo_path(team_code, team_name)
+            if team_logo_path:
+                logo_img_inline = _load_logo(team_logo_path, logo_inline_size)
         if team_name:
             team_bbox = draw.textbbox((0, 0), team_name, font=value_font)
-            team_width = team_bbox[2] - team_bbox[0]
-            team_x = (CARD_WIDTH - team_width) // 2
-            draw.text((team_x, team_star_y), team_name, fill=_to_rgba(theme["text_secondary"]), font=value_font)
+            team_text_w = team_bbox[2] - team_bbox[0]
+            total_inline_w = team_text_w + (logo_inline_size + 10 if logo_img_inline else 0)
+            start_x = (CARD_WIDTH - total_inline_w) // 2
+            if logo_img_inline:
+                canvas.paste(logo_img_inline, (start_x, team_row_y - logo_inline_size // 4), logo_img_inline)
+                text_x = start_x + logo_inline_size + 10
+            else:
+                text_x = start_x
+            draw.text((text_x, team_row_y), team_name, fill=_to_rgba(theme["text_secondary"]), font=value_font)
+
+        # === Rating bar below team ===
+        rating_y = team_row_y + 42
+        bar_w, bar_h = _draw_rating_bar(
+            draw,
+            ((CARD_WIDTH - (5 * 42 + 4 * 8)) // 2, rating_y),
+            star_rating,
+            theme,
+        )
         
-        # === Star Rating below team ===
-        star_y = team_star_y + 30
-        star_total_width = MAX_STARS * STAR_SIZE + (MAX_STARS - 1) * STAR_SPACING
-        star_x = (CARD_WIDTH - star_total_width) // 2
-        _draw_star_rating(draw, (star_x, star_y), star_rating, theme)
-        
-        # === MIDDLE SECTION: 2x2 Stats Grid ===
-        grid_y = star_y + 50
-        col_width = (CARD_WIDTH - CARD_PADDING * 2) // 2
-        left_col = CARD_PADDING
-        right_col = CARD_PADDING + col_width + 8
-        
+        # === Middle performance badges row ===
+        perf_row_y = rating_y + 50
         ppg = stats.get('ppg', 0) or 0
         games = stats.get('games_played', 0) or 0
         total_points = stats.get('total_points', 0) or 0
+        perf_badges = [
+            (f"PPG: {ppg:.1f}", 140),
+            (f"Games: {games}", 140),
+            (f"Points: {total_points}", 160),
+        ]
+        total_perf_width = sum(w for _, w in perf_badges) + (len(perf_badges) - 1) * 16
+        start_x_perf = (CARD_WIDTH - total_perf_width) // 2
+        current_x = start_x_perf
+        max_h = 0
+        for text, mw in perf_badges:
+            bw, bh = _draw_rounded_badge(draw, (current_x, perf_row_y), text, label_font, theme, min_width=mw)
+            current_x += bw + 16
+            max_h = max(max_h, bh)
         
-        # Top-left: PPG
-        ppg_text = f"PPG: {ppg:.1f}"
-        ppg_badge_width, ppg_badge_height = _draw_rounded_badge(
-            draw, (left_col, grid_y), ppg_text, label_font, theme, min_width=col_width - 16
-        )
-        
-        # Top-right: Games
-        games_text = f"Games: {games}"
-        _draw_rounded_badge(
-            draw, (right_col, grid_y), games_text, label_font, theme, min_width=col_width - 16
-        )
-        
-        # Bottom-left: Total Points
-        pts_text = f"Points: {total_points}"
-        _draw_rounded_badge(
-            draw, (left_col, grid_y + ppg_badge_height + 12), pts_text, label_font, theme, min_width=col_width - 16
-        )
-        
-        # Bottom-right: Rank placeholder
-        rank_text = "#"
-        rank_font_size = 32
-        try:
-            rank_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), rank_font_size)
-        except Exception:
-            rank_font = name_font
-        
-        rank_bbox = draw.textbbox((0, 0), rank_text, font=rank_font)
-        rank_width = rank_bbox[2] - rank_bbox[0]
-        rank_x = right_col + (col_width - 16 - rank_width) // 2
-        draw.text((rank_x, grid_y + ppg_badge_height + 8), rank_text, fill=_to_rgba(theme["accent_color"]), font=rank_font)
-        
-        # === BOTTOM SECTION: Additional Action Badges ===
-        bottom_section_y = grid_y + ppg_badge_height + 100
-        bottom_spacing = 12
-        
-        # Left: Teams badge
-        left_x = CARD_PADDING
-        _draw_rounded_badge(
-            draw, (left_x, bottom_section_y), "Teams", label_font, theme, min_width=110
-        )
-        
-        # Right: Awards badge
-        right_x = CARD_WIDTH - CARD_PADDING - 130
-        _draw_rounded_badge(
-            draw, (right_x, bottom_section_y), "Awards", label_font, theme, min_width=110
-        )
+        # === Bottom stats row (Goals / Assists / Saves / OGs) ===
+        stats_row_y = perf_row_y + max_h + 48
+        core_stats = [
+            ("Goals", stats.get("total_goals", 0)),
+            ("Assists", stats.get("total_assists", 0)),
+            ("Saves", stats.get("total_saves", 0)),
+            ("OGs", stats.get("total_own_goals", 0)),
+        ]
+        badge_min_w = 120
+        total_core_width = len(core_stats) * badge_min_w + (len(core_stats) - 1) * 14
+        start_x_core = (CARD_WIDTH - total_core_width) // 2
+        cx = start_x_core
+        for label, value in core_stats:
+            _draw_rounded_badge(draw, (cx, stats_row_y), f"{label}: {value}", label_font, theme, min_width=badge_min_w)
+            cx += badge_min_w + 14
         
         # Save to buffer
         buffer = io.BytesIO()
