@@ -263,6 +263,7 @@ class ReleaseConfirmationModal(discord.ui.Modal):
 
         logger.info("🔄 Invalidating roster cache for release")
         RosterCache().invalidate()
+        # Note: RosterCache reload happens lazily on next stat command - it's not critical for transactions
         logger.info("🔄 Invalidating team player cache for release - team %s", self.team['id'])
         cache = TeamPlayerCache()
         await cache.invalidate_team(self.team['id'])

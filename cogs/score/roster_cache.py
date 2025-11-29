@@ -157,7 +157,14 @@ class RosterCache:
         cls._instance = None
 
     def invalidate(self):
-        """Clear cache"""
+        """Clear cache - NOTE: Call reload() after to repopulate"""
         self.teams.clear()
         self.players.clear()
         self.loaded = False
+        logger.info("🔄 RosterCache invalidated (loaded=False)")
+
+    async def reload(self, supabase_client):
+        """Invalidate and reload cache from database"""
+        self.invalidate()
+        await self.load_cache(supabase_client)
+        logger.info("✅ RosterCache reloaded")

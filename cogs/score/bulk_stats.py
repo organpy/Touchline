@@ -371,9 +371,14 @@ class BulkStatsCog(commands.Cog):
     )
     async def report_stats_bulk(self, interaction: discord.Interaction):
         """Start bulk stats entry flow."""
+        # Auto-reload cache if it was invalidated (e.g., after a transaction)
+        if not self.roster_cache.loaded:
+            logger.info("📦 Roster cache not loaded, reloading for bulk stats...")
+            await self.roster_cache.load_cache(self.supabase)
+            
         if not self.roster_cache.loaded:
             await interaction.response.send_message(
-                "❌ Bot is still loading roster data. Try again in a moment.",
+                "❌ Failed to load roster data. Please try again or contact an admin.",
                 ephemeral=True
             )
             return
@@ -726,9 +731,14 @@ class BulkStatsCog(commands.Cog):
     )
     async def report_score(self, interaction: discord.Interaction):
         """Report just the match score without player stats."""
+        # Auto-reload cache if it was invalidated (e.g., after a transaction)
+        if not self.roster_cache.loaded:
+            logger.info("📦 Roster cache not loaded, reloading for score report...")
+            await self.roster_cache.load_cache(self.supabase)
+            
         if not self.roster_cache.loaded:
             await interaction.response.send_message(
-                "❌ Bot is still loading roster data. Try again in a moment.",
+                "❌ Failed to load roster data. Please try again or contact an admin.",
                 ephemeral=True
             )
             return

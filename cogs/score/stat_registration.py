@@ -48,9 +48,14 @@ class StatRegistrationCog(commands.Cog):
     async def report_stats(self, interaction: discord.Interaction):
         """Main command to initiate stat registration flow"""
 
+        # Auto-reload cache if it was invalidated (e.g., after a transaction)
+        if not self.roster_cache.loaded:
+            logger.info("📦 Roster cache not loaded, reloading...")
+            await self.roster_cache.load_cache(self.supabase)
+            
         if not self.roster_cache.loaded:
             await interaction.response.send_message(
-                "❌ Bot is still loading roster data. Try again in a moment.",
+                "❌ Failed to load roster data. Please try again or contact an admin.",
                 ephemeral=True
             )
             return
