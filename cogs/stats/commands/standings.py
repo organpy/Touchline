@@ -158,6 +158,30 @@ class StandingsCog(StatsCogBase):
 
         season_league_display = self._format_league_display(league_meta)
 
+        # Compute recent results markers per team (last 5)
+        recent_map = {}
+        for row in standings_data:
+            team_id = row.get('team_id') or row.get('id')
+            if not team_id:
+                continue
+            recent = await queries.get_team_recent_matches(self.supabase, season_row['id'], team_id, limit=5)
+            markers = []
+            for m in recent:
+                t1 = m.get('team1_id')
+                t2 = m.get('team2_id')
+                s1 = m.get('team1_score', 0)
+                s2 = m.get('team2_score', 0)
+                if s1 == 0 and s2 == 0:
+                    markers.append('N')
+                else:
+                    if (t1 == team_id and s1 > s2) or (t2 == team_id and s2 > s1):
+                        markers.append('W')
+                    else:
+                        markers.append('L')
+            while len(markers) < 5:
+                markers.append('N')
+            recent_map[team_id] = markers
+
         # Generate simple standings image
         standings_image = generate_simple_standings_image(
             standings_data,
