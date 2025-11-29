@@ -193,7 +193,12 @@ class TradeApprovalView(discord.ui.View):
                     continue
                 pick_id = asset.get('draft_pick_id')
                 if pick_id:
-                    self.cog.repo.update_draft_pick_owner(pick_id, self.counterparty_team['id'])
+                    logger.info("🔄 Transferring pick %s to counterparty %s", pick_id, self.counterparty_team['id'])
+                    result = self.cog.repo.update_draft_pick_owner(pick_id, self.counterparty_team['id'])
+                    if not result:
+                        logger.error("Failed to transfer pick %s to counterparty", pick_id)
+                        return False
+                    logger.info("✅ Pick %s transferred to %s", pick_id, self.counterparty_team['code'])
 
             # Update picks (inbound picks come from counterparty)
             for asset in inbound_assets:
@@ -201,7 +206,12 @@ class TradeApprovalView(discord.ui.View):
                     continue
                 pick_id = asset.get('draft_pick_id')
                 if pick_id:
-                    self.cog.repo.update_draft_pick_owner(pick_id, self.initiating_team['id'])
+                    logger.info("🔄 Transferring pick %s to initiating team %s", pick_id, self.initiating_team['id'])
+                    result = self.cog.repo.update_draft_pick_owner(pick_id, self.initiating_team['id'])
+                    if not result:
+                        logger.error("Failed to transfer pick %s to initiating team", pick_id)
+                        return False
+                    logger.info("✅ Pick %s transferred to %s", pick_id, self.initiating_team['code'])
 
             # Insert transaction record
             transaction = self.cog.repo.insert_transaction({

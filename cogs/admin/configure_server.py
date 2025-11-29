@@ -239,6 +239,35 @@ class ConfigurationView(discord.ui.View):
             self.set_buttons_state(False)
             await self.update_display()
 
+    @discord.ui.button(label="Games Limits", emoji="🎮", style=discord.ButtonStyle.primary, row=1)
+    async def games_limits(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        """Configure games limit per division."""
+        if self.is_busy:
+            await interaction.response.send_message(
+                "⏳ Please wait for the current operation to complete.",
+                ephemeral=True,
+            )
+            return
+
+        self.is_busy = True
+        self.set_buttons_state(True)
+        await self.update_display()
+
+        try:
+            games_config = self.config_data.get("games_limits", {}) or {}
+            view = GamesLimitConfigView(games_config)
+            embed = view.create_embed()
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+            await view.wait()
+
+            if view.changes_made:
+                self.config_data["games_limits"] = view.games_config
+                self.mark_changes()
+        finally:
+            self.is_busy = False
+            self.set_buttons_state(False)
+            await self.update_display()
+
     @discord.ui.button(label="Save Configuration", emoji="💾", style=discord.ButtonStyle.success, row=1)
     async def save_config(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         if self.is_busy:
