@@ -187,41 +187,27 @@ def _draw_vertical_gradient(draw, bbox, start, end):
         draw.rectangle((x0, y0 + i, x1, y0 + i + 1), fill=(r, g, b))
 
 
-def _draw_rounded_badge(
-    draw: ImageDraw.ImageDraw,
-    position: Tuple[int, int],
-    text: str,
-    font: ImageFont.FreeTypeFont,
-    theme: Dict[str, Any],
-    min_width: int = 100,
-) -> Tuple[int, int]:
-    """Draw a rounded badge with text and return its dimensions."""
-    x, y = position
-    
-    # Measure text
-    text_bbox = draw.textbbox((0, 0), text, font=font)
-    text_width = text_bbox[2] - text_bbox[0]
-    text_height = text_bbox[3] - text_bbox[1]
-    
-    # Calculate badge dimensions
-    badge_width = max(text_width + BADGE_PADDING * 2, min_width)
-    badge_height = BADGE_HEIGHT
-    
-    # Draw badge background
+def _draw_rounded_badge(draw, pos, text, font, theme, width):
+    x, y = pos
+    pad = BADGE_PADDING
+
+    tw, th = draw.textbbox((0, 0), text, font=font)[2:]
+
+    bw = max(tw + pad * 2, width)
+    bh = BADGE_HEIGHT
+
     draw.rounded_rectangle(
-        (x, y, x + badge_width, y + badge_height),
+        (x, y, x + bw, y + bh),
         radius=BADGE_CORNER_RADIUS,
         fill=_to_rgba(theme["badge_bg"]),
         outline=_to_rgba(theme["badge_border"]),
-        width=2,
+        width=2
     )
-    
-    # Draw text centered
-    text_x = x + (badge_width - text_width) // 2
-    text_y = y + (badge_height - text_height) // 2 - 2  # Slight adjustment for visual centering
-    draw.text((text_x, text_y), text, fill=_to_rgba(theme["text_primary"]), font=font)
-    
-    return badge_width, badge_height
+
+    tx = x + (bw - tw) // 2
+    ty = y + (bh - th) // 2 - 1
+
+    draw.text((tx, ty), text, fill=_to_rgba(theme["text_primary"]), font=font)
 
 
 def _draw_star_rating(
