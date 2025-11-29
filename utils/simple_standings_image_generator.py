@@ -84,15 +84,15 @@ LEAGUE_THEME_OVERRIDES = {
 }
 
 # Compact layout constants - standardized sizing (NCBA baseline)
-CANVAS_PADDING = 36
+CANVAS_PADDING = 40
 CARD_CORNER_RADIUS = 28
 HEADER_BLOCK_HEIGHT = 90
-HEADER_SIDE_PADDING = 24
-ROW_HEIGHT = 56
-HEADER_HEIGHT = 44
-INNER_MARGIN_X = 32
-TABLE_MARGIN_TOP = 20
-TABLE_MARGIN_BOTTOM = 28
+HEADER_SIDE_PADDING = 28
+ROW_HEIGHT = 58
+HEADER_HEIGHT = 46
+INNER_MARGIN_X = 40
+TABLE_MARGIN_TOP = 24
+TABLE_MARGIN_BOTTOM = 32
 
 # Compact column widths - fixed for all leagues (wider stats area)
 COL_RANK = 54
@@ -373,10 +373,10 @@ def generate_simple_standings_image(
 
         for rank, team in enumerate(standings_data, 1):
             row_top = y
-            row_bottom = y + ROW_HEIGHT - 4  # Leave 4px gap between rows
+            row_bottom = y + ROW_HEIGHT
             row_color = theme["row_primary"] if rank % 2 else theme["row_alt"]
             card_draw.rectangle((table_x, row_top, table_x + table_width, row_bottom), fill=row_color)
-            # No divider line - gaps provide separation
+            card_draw.line((table_x, row_bottom, table_x + table_width, row_bottom), fill=theme["row_divider"], width=1)
 
             # Rank accent bar
             rank_accent = theme["rank_accent"].get(rank)
