@@ -351,17 +351,23 @@ def generate_match_table_image(
         combined_x = (card_width - combined_width) // 2
         header_center_y = HEADER_HEIGHT // 2
 
-        # Positions
+        # Vertically center the logo
+        logo_x = combined_x
+        logo_y = header_center_y - MATCH_HEADER_LOGO_SIZE // 2
+        
+        # Position text to the right of logo
+        text_x = logo_x + MATCH_HEADER_LOGO_SIZE + MATCH_HEADER_GAP
+        
+        # Vertically center text block to match logo's middle
+        title_y = header_center_y - (title_height + 2 + subtitle_height) // 2
+        subtitle_y = title_y + title_height + 4
+
+        # Draw logo (or fallback avatar)
         if has_logo:
-            logo_x = combined_x
-            logo_y = header_center_y - MATCH_HEADER_LOGO_SIZE // 2
             card.paste(logo_img, (logo_x, logo_y), logo_img)
-            text_x = logo_x + MATCH_HEADER_LOGO_SIZE + MATCH_HEADER_GAP
         else:
-            # Draw a simple avatar placeholder with league initials for consistent centering
+            # Draw a simple avatar placeholder with league initials
             initials = (league_code or "L")[:2].upper()
-            logo_x = combined_x
-            logo_y = header_center_y - MATCH_HEADER_LOGO_SIZE // 2
             _draw_circle_avatar(
                 card,
                 (logo_x + MATCH_HEADER_LOGO_SIZE // 2, logo_y + MATCH_HEADER_LOGO_SIZE // 2),
@@ -371,11 +377,6 @@ def generate_match_table_image(
                 outline_color=_to_rgba(theme["card_border"]),
                 text_color=_to_rgba(theme["text_primary"]),
             )
-            text_x = logo_x + MATCH_HEADER_LOGO_SIZE + MATCH_HEADER_GAP
-
-        # Vertically center text to match logo's middle
-        title_y = header_center_y - title_height // 2
-        subtitle_y = title_y + title_height + 4
 
         card_draw.text((text_x, title_y), title_text, fill=_to_rgba(theme["text_primary"]), font=title_font)
         card_draw.text((text_x, subtitle_y), subtitle_text, fill=_to_rgba(theme["text_muted"]), font=subtitle_font)
