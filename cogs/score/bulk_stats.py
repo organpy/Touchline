@@ -17,6 +17,7 @@ from db import get_supabase, queries
 from .models import MatchEntry, TeamMatchEntry, PlayerStatEntry
 from .roster_cache import RosterCache
 from utils.team_player_cache import TeamPlayerCache
+from utils.config_manager import get_config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -414,10 +415,22 @@ class BulkStatsCog(commands.Cog):
             played = len(matches)
             scheduled = len(schedules)
 
+            # Get configured games limit for this division
+            division = await queries.get_division_by_id(self.supabase, team1.division_id)
+            league_type = (division.get('league_type') or '').upper() if division else ''
+            config_mgr = get_config_manager()
+            games_limit = await config_mgr.get_division_games_limit(teams_interaction.guild_id, league_type)
+            
+            # Use configured limit if schedules not set, otherwise use scheduled count
+            max_games = scheduled if scheduled > 0 else games_limit
+
             desc_lines = [
                 f"**{team1.name}** vs **{team2.name}**",
-                f"Scheduled: **{scheduled}** • Played: **{played}**",
             ]
+            if max_games:
+                desc_lines.append(f"Limit: **{max_games}** • Played: **{played}**")
+            else:
+                desc_lines.append(f"Scheduled: **{scheduled}** • Played: **{played}**")
             if matches:
                 for m in matches[:10]:
                     t1 = m.get('team1_score', 0)
@@ -433,8 +446,13 @@ class BulkStatsCog(commands.Cog):
             view = discord.ui.View(timeout=180)
 
             async def proceed(btn_interaction: discord.Interaction):
-                if scheduled and played >= scheduled:
-                    await btn_interaction.response.send_message("⚠️ All scheduled games are already recorded.", ephemeral=True)
+                # Block if at or over the games limit
+                effective_limit = max_games
+                if effective_limit and played >= effective_limit:
+                    await btn_interaction.response.send_message(
+                        f"⚠️ All {effective_limit} games between these teams are already recorded.",
+                        ephemeral=True
+                    )
                     return
                 score_modal = BulkScoreModal(team1.name, team2.name, self, interaction.user.id)
                 await btn_interaction.response.send_modal(score_modal)
@@ -769,10 +787,22 @@ class BulkStatsCog(commands.Cog):
             played = len(matches)
             scheduled = len(schedules)
 
+            # Get configured games limit for this division
+            division = await queries.get_division_by_id(self.supabase, team1.division_id)
+            league_type = (division.get('league_type') or '').upper() if division else ''
+            config_mgr = get_config_manager()
+            games_limit = await config_mgr.get_division_games_limit(teams_interaction.guild_id, league_type)
+            
+            # Use configured limit if schedules not set, otherwise use scheduled count
+            max_games = scheduled if scheduled > 0 else games_limit
+
             lines = [
                 f"**{team1.name}** vs **{team2.name}**",
-                f"Scheduled: **{scheduled}** • Played: **{played}**",
             ]
+            if max_games:
+                lines.append(f"Limit: **{max_games}** • Played: **{played}**")
+            else:
+                lines.append(f"Scheduled: **{scheduled}** • Played: **{played}**")
             for m in matches[:10]:
                 t1 = m.get('team1_score', 0)
                 t2 = m.get('team2_score', 0)
@@ -782,8 +812,13 @@ class BulkStatsCog(commands.Cog):
             view = discord.ui.View(timeout=180)
 
             async def proceed(btn_interaction: discord.Interaction):
-                if scheduled and played >= scheduled:
-                    await btn_interaction.response.send_message("⚠️ All scheduled games are already recorded.", ephemeral=True)
+                # Block if at or over the games limit
+                effective_limit = max_games
+                if effective_limit and played >= effective_limit:
+                    await btn_interaction.response.send_message(
+                        f"⚠️ All {effective_limit} games between these teams are already recorded.",
+                        ephemeral=True
+                    )
                     return
                 score_modal = ScoreOnlyModal(team1.name, team2.name, self, interaction.user.id)
                 await btn_interaction.response.send_modal(score_modal)

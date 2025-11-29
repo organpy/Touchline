@@ -392,6 +392,20 @@ class TeamPlayerCache:
         players = cls.get_team_players(team_id)
         return sorted([p.get('display_name', '?') for p in players])
 
+    @classmethod
+    def get_team_by_player_id(cls, player_id: str) -> Optional[dict]:
+        """Get the team that a player is currently on, if any."""
+        for team_id, players in cls._team_players.items():
+            for player in players:
+                if player.get('id') == player_id:
+                    return cls._teams.get(team_id)
+        return None
+
+    @classmethod
+    def get_player_by_id(cls, player_id: str) -> Optional[dict]:
+        """Alias for get_player - get player by ID."""
+        return cls._players.get(player_id)
+
     # ==================== CACHE STATUS ====================
     
     @classmethod

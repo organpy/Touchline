@@ -135,6 +135,27 @@ async def get_all_active_seasons(supabase) -> List[Dict[str, Any]]:
         return []
 
 
+async def get_all_seasons(supabase) -> List[Dict[str, Any]]:
+    """Get all seasons (active and inactive) across all divisions"""
+    try:
+        response = supabase.table('seasons').select(
+            '*, divisions(id, league_type, name)'
+        ).order('name', desc=True).execute()
+        
+        # Enrich seasons with division league type and name
+        if response.data:
+            for season in response.data:
+                division = season.get('divisions', {})
+                if isinstance(division, dict):
+                    season['league_type'] = division.get('league_type')
+                    season['league_name'] = division.get('name')
+        
+        return response.data if response.data else []
+    except Exception as e:
+        logger.error(f"Error fetching all seasons: {e}")
+        return []
+
+
 async def get_division_by_type(supabase, league_type: str = 'NBL') -> Optional[Dict[str, Any]]:
     """Get division by league type (NBL, MBL, NCBA, etc.)"""
     try:
@@ -142,6 +163,16 @@ async def get_division_by_type(supabase, league_type: str = 'NBL') -> Optional[D
         return response.data[0] if response.data else None
     except Exception as e:
         logger.error(f"Error fetching division {league_type}: {e}")
+        return None
+
+
+async def get_division_by_id(supabase, division_id: str) -> Optional[Dict[str, Any]]:
+    """Get division by ID."""
+    try:
+        response = supabase.table('divisions').select('*').eq('id', division_id).limit(1).execute()
+        return response.data[0] if response.data else None
+    except Exception as e:
+        logger.error(f"Error fetching division {division_id}: {e}")
         return None
 
 

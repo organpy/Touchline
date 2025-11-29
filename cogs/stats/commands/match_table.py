@@ -19,6 +19,7 @@ from cogs.stats.autocomplete import (
     _season_autocomplete,
 )
 from utils.match_table_image_generator import generate_match_table_image
+from utils.config_manager import get_config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,17 @@ class MatchTableCog(StatsCogBase):
             )
             return
 
+        # Get games_per_matchup from config (default 2)
+        games_per_matchup = 2
+        if interaction.guild_id and league_code:
+            try:
+                config_mgr = get_config_manager()
+                limit = await config_mgr.get_division_games_limit(interaction.guild_id, league_code)
+                if limit and limit in [2, 3, 4, 6]:
+                    games_per_matchup = limit
+            except Exception as exc:
+                logger.warning(f"Failed to get games_per_matchup config: {exc}")
+
         # Generate the match table image
         match_table_image = generate_match_table_image(
             matches,
@@ -85,6 +97,7 @@ class MatchTableCog(StatsCogBase):
             season_row.get('name', 'Unknown'),
             league_display or league_code or 'League',
             league_code,
+            games_per_matchup,
         )
 
         if not match_table_image:
