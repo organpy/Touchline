@@ -10,10 +10,10 @@ from typing import Any, Dict, Optional, List
 import discord
 from discord import ui
 
+from db import get_supabase
 from utils.config_manager import get_config_manager
 from utils.team_player_cache import TeamPlayerCache
 from cogs.admin.common import LazyInitView
-from cogs.admin.picks_controller import PicksStatusButton
 
 logger = logging.getLogger(__name__)
 
@@ -54,11 +54,18 @@ class TransactionSettingsView(LazyInitView):
         self.toggle_releases.style = discord.ButtonStyle.success if releases_enabled else discord.ButtonStyle.danger
         self.toggle_releases.label = "Releases: ON" if releases_enabled else "Releases: OFF"
         self.toggle_releases.emoji = "✅" if releases_enabled else "🚫"
+        
+        # Picks
+        picks_paused = self.config_data.get('picks_paused', False)
+        self.toggle_picks.style = discord.ButtonStyle.danger if picks_paused else discord.ButtonStyle.success
+        self.toggle_picks.label = "Picks: OFF" if picks_paused else "Picks: ON"
+        self.toggle_picks.emoji = "⏸️" if picks_paused else "▶️"
 
     def create_embed(self) -> discord.Embed:
         """Build dark minimalistic settings embed."""
         tx_config = self.config_data.get('transaction_rules', {})
         banned_teams = tx_config.get('banned_teams', [])
+        picks_paused = self.config_data.get('picks_paused', False)
         
         embed = discord.Embed(
             title="Transaction Settings",
@@ -69,7 +76,8 @@ class TransactionSettingsView(LazyInitView):
         status_text = (
             f"**Signings:** {'Enabled' if tx_config.get('signings_enabled', True) else 'Disabled'}\n"
             f"**Trades:** {'Enabled' if tx_config.get('trades_enabled', True) else 'Disabled'}\n"
-            f"**Releases:** {'Enabled' if tx_config.get('releases_enabled', True) else 'Disabled'}"
+            f"**Releases:** {'Enabled' if tx_config.get('releases_enabled', True) else 'Disabled'}\n"
+            f"**Picks:** {'Paused' if picks_paused else 'Active'}"
         )
         embed.add_field(name="Status", value=status_text, inline=False)
         
@@ -122,20 +130,54 @@ class TransactionSettingsView(LazyInitView):
     @discord.ui.button(label="Releases: ON", style=discord.ButtonStyle.success, row=0)
     async def toggle_releases(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._toggle_setting(interaction, 'releases_enabled')
+    
+    @discord.ui.button(label="Picks: ON", style=discord.ButtonStyle.success, row=0)
+    async def toggle_picks(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Toggle NBL draft picks on/off."""
+        await interaction.response.defer()
+        
+        try:
+            config_mgr = get_config_manager()
+            supabase = get_supabase()
+            if not supabase:
+                await interaction.followup.send("❌ Database unavailable.", ephemeral=True)
+                return
+            
+            # Get NBL division and active season
+            nbl_div_response = supabase.table('divisions').select('*').eq('name', 'NBL').execute()
+            if not nbl_div_response.data:
+                await interaction.followup.send("❌ NBL division not found.", ephemeral=True)
+                return
+            
+            nbl_div_id = nbl_div_response.data[0]['id']
+            
+            # Get active season for NBL
+            seasons_response = supabase.table('seasons').select('*').eq('division_id', nbl_div_id).eq('active', True).execute()
+            if not seasons_response.data:
+                await interaction.followup.send("❌ No active NBL season found.", ephemeral=True)
+                return
+            
+            active_season = seasons_response.data[0]
+            
+            # Toggle picks state
+            config = await config_mgr.get_config(self.guild_id)
+            picks_paused = config.get('picks_paused', False)
+            new_state = not picks_paused
+            
+            await config_mgr.set_config(self.guild_id, 'picks_paused', new_state)
+            self.config_data['picks_paused'] = new_state
+            
+            await self.update_display(interaction)
+        
+        except Exception as e:
+            logger.error(f"Error toggling picks: {e}", exc_info=True)
+            await interaction.followup.send("❌ Failed to toggle picks.", ephemeral=True)
 
     @discord.ui.button(label="Manage Bans", style=discord.ButtonStyle.secondary, row=1)
     async def manage_bans(self, interaction: discord.Interaction, button: discord.ui.Button):
         view = TeamBanSelectView(self.bot, self.guild_id, self)
         await view.populate()
         await interaction.response.send_message("Select teams to ban/unban from transactions:", view=view, ephemeral=True)
-
-    @discord.ui.button(label="Picks Manager", style=discord.ButtonStyle.primary, row=1)
-    async def picks_manager(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Open picks status button for NBL draft picks."""
-        await interaction.response.defer(ephemeral=True)
-        view = PicksStatusButton(self.bot, self.guild_id)
-        await view.update_button_state()
-        message = await interaction.followup.send("🎯 **NBL Draft Picks**", view=view, ephemeral=True)
 
 
 
