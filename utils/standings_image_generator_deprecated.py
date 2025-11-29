@@ -415,7 +415,12 @@ def generate_standings_image(
         # Measure text
         title_bbox = card_draw.textbbox((0, 0), league_name, font=title_font)
         title_height = title_bbox[3] - title_bbox[1]
-        subtitle_bbox = card_draw.textbbox((0, 0), f"{(season_name or 'Season').upper()}", font=subtitle_font)
+        
+        season_label = (season_name or "Season").upper()
+        clubs_text = f"{len(standings_data)} TEAMS" if standings_data else "STANDINGS"
+        subtitle_text = f"{season_label} • {clubs_text}"
+        
+        subtitle_bbox = card_draw.textbbox((0, 0), subtitle_text, font=subtitle_font)
         subtitle_height = subtitle_bbox[3] - subtitle_bbox[1]
         
         # Center text block to match logo's middle (equal gaps above/below)
@@ -428,9 +433,6 @@ def generate_standings_image(
             card_draw.text((text_x + 2, title_y + 2), league_name, fill=title_shadow, font=title_font)
         card_draw.text((text_x, title_y), league_name, fill=title_color, font=title_font)
 
-        season_label = (season_name or "Season").upper()
-        clubs_text = f"{len(standings_data)} CLUBS" if standings_data else "STANDINGS"
-        subtitle_text = f"{season_label} • {clubs_text}"
         if subtitle_shadow:
             card_draw.text((text_x + 1, subtitle_y + 1), subtitle_text, fill=subtitle_shadow, font=subtitle_font)
         card_draw.text((text_x, subtitle_y), subtitle_text, fill=subtitle_color, font=subtitle_font)

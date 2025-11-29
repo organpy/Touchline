@@ -17,7 +17,7 @@ from cogs.stats.autocomplete import (
     _league_autocomplete,
     _season_autocomplete,
 )
-from utils.standings_image_generator import generate_standings_image
+from utils.standings_image_generator_deprecated import generate_standings_image
 from utils.simple_standings_image_generator import generate_simple_standings_image
 
 logger = logging.getLogger(__name__)

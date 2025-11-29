@@ -334,7 +334,7 @@ def generate_simple_standings_image(
         # Measure text
         title_bbox = card_draw.textbbox((0, 0), league_name, font=title_font)
         title_height = title_bbox[3] - title_bbox[1]
-        subtitle = f"{(season_name or 'Season').upper()} • {len(standings_data)} CLUBS"
+        subtitle = f"{(season_name or 'Season').upper()} • {len(standings_data)} TEAMS"
         subtitle_bbox = card_draw.textbbox((0, 0), subtitle, font=subtitle_font)
         subtitle_height = subtitle_bbox[3] - subtitle_bbox[1]
         

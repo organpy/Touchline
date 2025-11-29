@@ -1,6 +1,6 @@
 import io
 
-from utils import standings_image_generator as sig
+from utils import standings_image_generator_deprecated as sig
 
 
 def _sample_standings():
