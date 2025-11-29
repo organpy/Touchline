@@ -10,7 +10,6 @@ from discord.ext import commands
 from cogs.admin.teams import TeamActionsView
 from cogs.admin.rosters import RosterActionsView
 from cogs.admin.picks import PicksActionsView
-from cogs.admin.picks_controller import PicksControllerView
 from cogs.admin.players import PlayerActionsView
 from cogs.admin.seasons import SeasonActionsView
 from cogs.admin.overrides import OverridesActionsView
@@ -282,16 +281,6 @@ class AdminDashboardView(discord.ui.View):
             view.original_message = message
         except AttributeError:
             pass
-
-    @discord.ui.button(label="Picks Manager", style=discord.ButtonStyle.primary, row=2)
-    async def picks_manager(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        """Open picks controller interface."""
-        if not await self._safe_defer(interaction):
-            return
-        view = PicksControllerView(self.bot, interaction.guild_id)
-        embed = view.create_embed()
-        message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-        view.original_message = message
 
     @discord.ui.button(label="Close", style=discord.ButtonStyle.danger, row=3)
     async def close(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:

@@ -13,6 +13,7 @@ from discord import ui
 from utils.config_manager import get_config_manager
 from utils.team_player_cache import TeamPlayerCache
 from cogs.admin.common import LazyInitView
+from cogs.admin.picks_controller import PicksControllerView
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,15 @@ class TransactionSettingsView(LazyInitView):
         view = TeamBanSelectView(self.bot, self.guild_id, self)
         await view.populate()
         await interaction.response.send_message("Select teams to ban/unban from transactions:", view=view, ephemeral=True)
+
+    @discord.ui.button(label="Picks Manager", style=discord.ButtonStyle.primary, row=1)
+    async def picks_manager(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Open picks controller interface."""
+        await interaction.response.defer(ephemeral=True)
+        view = PicksControllerView(self.bot, self.guild_id)
+        embed = view.create_embed()
+        message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        view.original_message = message
 
 
 class TeamBanSelectView(LazyInitView):
