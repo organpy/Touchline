@@ -386,10 +386,14 @@ def apply_vignette(canvas: Image.Image, intensity: float = 0.6):
     vign = Image.new("L", (w, h), 0)
     vdraw = ImageDraw.Draw(vign)
     # Draw gradient by concentric ellipses (cheap & effective)
-    steps = max(w, h) // 2
+    steps = max(min(w, h) // 2, 1)
     for i in range(steps):
+        left, top = i, i
+        right, bottom = w - i - 1, h - i - 1
+        if right <= left or bottom <= top:
+            break
         alpha = int(255 * (i / steps) ** 2 * intensity)
-        vdraw.ellipse((i, i, w - i, h - i), outline=alpha)
+        vdraw.ellipse((left, top, right, bottom), outline=alpha)
     vign = vign.filter(ImageFilter.GaussianBlur(8))
     # Apply as darkening layer
     dark = Image.new("RGBA", (w, h), (0, 0, 0, 0))
