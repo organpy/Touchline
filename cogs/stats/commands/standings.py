@@ -24,11 +24,11 @@ logger = logging.getLogger(__name__)
 
 
 class StandingsCog(StatsCogBase):
-    """Standings command: /standings"""
+    """Standings command: /standings (now uses simple compact view)"""
 
     @app_commands.command(name="standings", description="[STATS] Show current season standings for a league")
     @app_commands.describe(
-        league="League code or name (defaults to active season league)",
+        league="League code or name",
         season="Season name (e.g., S10). Defaults to active season",
     )
     @app_commands.autocomplete(
@@ -41,88 +41,7 @@ class StandingsCog(StatsCogBase):
         league: Optional[str] = None,
         season: Optional[str] = None,
     ) -> None:
-        await interaction.response.defer(thinking=True)
-
-        # Resolve season
-        season_row, league_meta = await self._resolve_season_context(
-            league_input=league,
-            season_input=season,
-            default_season_id=None,
-            default_league_code=None,
-        )
-        if not season_row:
-            await interaction.followup.send("❌ Could not locate a season matching your request.")
-            return
-
-        league_season_display = self._format_league_season_display(league_meta, season_row)
-        league_code = ((league_meta or {}).get('code') or season_row.get('league_type') or '').upper()
-        # Fetch standings
-        try:
-            standings_data = await queries.get_standings(
-                self.supabase,
-                season_row['id'],
-                league_type=league_code or None,
-            )
-        except Exception as exc:
-            logger.error(f"Failed to fetch standings for season {season_row['id']}: {exc}")
-            standings_data = None
-
-        if not standings_data:
-            await interaction.followup.send(
-                f"ℹ️ No standings recorded for {league_season_display} yet."
-            )
-            return
-
-        season_league_display = self._format_league_display(league_meta)
-
-        # Generate standings image
-        standings_image = generate_standings_image(
-            standings_data,
-            season_row.get('name', 'Unknown'),
-            season_league_display,
-            league_code=league_code,
-        )
-
-        if standings_image:
-            standings_file = discord.File(standings_image, filename="standings.png")
-            await interaction.followup.send(file=standings_file)
-        else:
-            # Fallback to text table if image generation fails
-            header = f"Standings — {season_league_display} ({season_row.get('name', 'Unknown')})"
-            table_lines = [header, "```", "Rk  Team              W  L  PF   PA   Diff"]
-            table_lines.append("-" * 50)
-
-            for rank, team in enumerate(standings_data, 1):
-                emoji = team.get('emoji', '⚽')
-                team_name = team.get('name', 'Unknown')[:12].ljust(12)
-                wins = str(team.get('wins', 0)).rjust(2)
-                losses = str(team.get('losses', 0)).rjust(2)
-                pf = str(team.get('points_for', 0)).rjust(4)
-                pa = str(team.get('points_against', 0)).rjust(4)
-                diff = str(team.get('point_diff', 0)).rjust(5)
-
-                line = f"{rank:<2} {emoji} {team_name}  {wins}  {losses}  {pf}  {pa}  {diff}"
-                table_lines.append(line)
-
-            table_lines.append("```")
-            await interaction.followup.send("\n".join(table_lines))
-
-    @app_commands.command(name="standings-simple", description="[STATS] Compact standings (W/L, PF/PA only)")
-    @app_commands.describe(
-        league="League code or name",
-        season="Season name (e.g., S10). Defaults to active season",
-    )
-    @app_commands.autocomplete(
-        league=_league_autocomplete,
-        season=_season_autocomplete,
-    )
-    async def standings_simple(
-        self,
-        interaction: discord.Interaction,
-        league: Optional[str] = None,
-        season: Optional[str] = None,
-    ) -> None:
-        """Compact standings image with just W, L, PF, PA, Diff."""
+        """Compact standings image with W, L, PF, PA, Diff, and last 5 results."""
         await interaction.response.defer(thinking=True)
 
         # Resolve season
@@ -192,7 +111,7 @@ class StandingsCog(StatsCogBase):
         )
 
         if standings_image:
-            standings_file = discord.File(standings_image, filename="standings_simple.png")
+            standings_file = discord.File(standings_image, filename="standings.png")
             await interaction.followup.send(file=standings_file)
         else:
             # Fallback to text
