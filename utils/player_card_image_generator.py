@@ -135,7 +135,7 @@ def _get_theme(league_type: str) -> Dict[str, Any]:
     return LEAGUE_THEME_OVERRIDES.get(league_type.upper(), DEFAULT_THEME)
 
 
-def _calculate_star_rating(stats: Dict[str, Any]) -> float:
+def calculate_star_rating(stats: Dict[str, Any]) -> float:
     """
     Calculate star rating (0-5) based on player stats.
     Formula: (ppg * 0.5) + (avg_goals * 3) + (avg_assists * 2) + (avg_saves * 1)
@@ -150,6 +150,10 @@ def _calculate_star_rating(stats: Dict[str, Any]) -> float:
     # Normalize to 0-5 stars (assuming max reasonable score ~30)
     stars = min(5.0, max(0.0, raw_score / 6))
     return round(stars, 1)
+
+
+# Alias for internal use
+_calculate_star_rating = calculate_star_rating
 
 
 def _bytes_to_buffer(image_bytes: bytes) -> io.BytesIO:

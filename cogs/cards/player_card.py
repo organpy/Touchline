@@ -13,7 +13,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from db import get_supabase, queries
-from utils.player_card_image_generator import generate_player_card_image, calculate_star_rating
+from utils.player_card_image_generator import generate_player_card, calculate_star_rating
 from utils.team_player_cache import TeamPlayerCache
 
 logger = logging.getLogger(__name__)
@@ -136,13 +136,30 @@ class PlayerCardCog(commands.Cog):
                 logger.error(f"Failed to fetch player stats: {exc}")
         
         # Generate the card image
-        card_image = generate_player_card_image(
-            player_id=player_id,
+        # Get avatar URL from Discord user if available
+        avatar_url = None
+        if player_record.get('discord_id'):
+            try:
+                user = await self.bot.fetch_user(int(player_record['discord_id']))
+                if user and user.avatar:
+                    avatar_url = user.avatar.url
+            except Exception:
+                pass
+        
+        card_image = await generate_player_card(
             player_name=player_name,
-            team_name=team_name,
-            team_code=team_code,
-            league_code=league_code,
-            stats=stats,
+            team_name=team_name or 'Free Agent',
+            team_code=team_code or 'FA',
+            league_type=league_code or 'NBL',
+            avatar_url=avatar_url,
+            stats={
+                'ppg': stats.get('ppg', 0),
+                'games': stats.get('games_played', 0),
+                'avg_goals': stats.get('total_goals', 0) / max(stats.get('games_played', 1), 1),
+                'avg_assists': stats.get('total_assists', 0) / max(stats.get('games_played', 1), 1),
+                'avg_saves': stats.get('total_saves', 0) / max(stats.get('games_played', 1), 1),
+                'total_points': stats.get('total_points', 0),
+            },
         )
         
         if not card_image:
@@ -150,7 +167,8 @@ class PlayerCardCog(commands.Cog):
             return
         
         # Send the card
-        file = discord.File(card_image, filename=f"player_card_{player_name.replace(' ', '_')}.png")
+        import io
+        file = discord.File(io.BytesIO(card_image), filename=f"player_card_{player_name.replace(' ', '_')}.png")
         
         # Add a simple embed with context
         star_rating = calculate_star_rating(stats)
