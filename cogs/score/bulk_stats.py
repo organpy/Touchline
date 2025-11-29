@@ -535,14 +535,19 @@ class BulkStatsCog(commands.Cog):
             return
         
         try:
-            # Get active season
-            season = await queries.get_active_season(self.supabase)
-            if not season:
-                await interaction.followup.send("❌ No active season found.", ephemeral=True)
-                return
-            
             team1 = entry['team1']
             team2 = entry['team2']
+            
+            # Verify teams are in same division
+            if not team1.division_id or not team2.division_id or team1.division_id != team2.division_id:
+                await interaction.followup.send("❌ Teams must be in the same division.", ephemeral=True)
+                return
+            
+            # Get active season for this division
+            season = await queries.get_active_season(self.supabase, division_id=team1.division_id)
+            if not season:
+                await interaction.followup.send("❌ No active season found for this division.", ephemeral=True)
+                return
             
             # Build match entry
             match_entry = MatchEntry(
@@ -568,8 +573,8 @@ class BulkStatsCog(commands.Cog):
             for stat in entry['team2_stats']:
                 match_entry.team2.add_player_stats(stat)
             
-            # Insert match
-            match_data = match_entry.to_supabase_match(season['id'], season['division_id'])
+            # Insert match - use the team's division_id
+            match_data = match_entry.to_supabase_match(season['id'], team1.division_id)
             match_response = self.supabase.table('matches').insert(match_data).execute()
             
             if not match_response.data:
@@ -731,14 +736,19 @@ class BulkStatsCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         
         try:
-            # Get active season
-            season = await queries.get_active_season(self.supabase)
-            if not season:
-                await interaction.followup.send("❌ No active season found.", ephemeral=True)
-                return
-            
             team1 = entry['team1']
             team2 = entry['team2']
+            
+            # Verify teams are in same division
+            if not team1.division_id or not team2.division_id or team1.division_id != team2.division_id:
+                await interaction.followup.send("❌ Teams must be in the same division.", ephemeral=True)
+                return
+            
+            # Get active season for this division
+            season = await queries.get_active_season(self.supabase, division_id=team1.division_id)
+            if not season:
+                await interaction.followup.send("❌ No active season found for this division.", ephemeral=True)
+                return
             
             # Build match entry (no player stats)
             match_entry = MatchEntry(
@@ -758,8 +768,8 @@ class BulkStatsCog(commands.Cog):
                 )
             )
             
-            # Insert match only (no player stats)
-            match_data = match_entry.to_supabase_match(season['id'], season['division_id'])
+            # Insert match - use the team's division_id
+            match_data = match_entry.to_supabase_match(season['id'], team1.division_id)
             match_response = self.supabase.table('matches').insert(match_data).execute()
             
             if not match_response.data:

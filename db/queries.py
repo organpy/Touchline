@@ -9,10 +9,13 @@ from typing import Optional, Dict, List, Any
 logger = logging.getLogger(__name__)
 
 
-async def get_active_season(supabase) -> Optional[Dict[str, Any]]:
-    """Get the current active season"""
+async def get_active_season(supabase, division_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Get the current active season, optionally for a specific division"""
     try:
-        response = supabase.table('seasons').select('*').eq('active', True).limit(1).execute()
+        query = supabase.table('seasons').select('*').eq('active', True)
+        if division_id:
+            query = query.eq('division_id', division_id)
+        response = query.limit(1).execute()
         return response.data[0] if response.data else None
     except Exception as e:
         logger.error(f"Error fetching active season: {e}")
