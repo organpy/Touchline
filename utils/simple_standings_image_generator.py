@@ -83,16 +83,13 @@ LEAGUE_THEME_OVERRIDES = {
     },
 }
 
-# Compact layout constants - standardized sizing (NCBA baseline)
-CANVAS_PADDING = 50
+# Compact layout constants - standardized sizing (centered content)
+CANVAS_PADDING = 40
 CARD_CORNER_RADIUS = 28
+CARD_PADDING = 40  # Equal padding on all sides of card content
 HEADER_BLOCK_HEIGHT = 90
-HEADER_SIDE_PADDING = 36
-ROW_HEIGHT = 62
-HEADER_HEIGHT = 50
-INNER_MARGIN_X = 50
-TABLE_MARGIN_TOP = 32
-TABLE_MARGIN_BOTTOM = 40
+ROW_HEIGHT = 58
+HEADER_HEIGHT = 46
 
 # Compact column widths - fixed for all leagues (wider stats area)
 COL_RANK = 54
@@ -268,8 +265,12 @@ def generate_simple_standings_image(
         table_width = COL_RANK + COL_LOGO + team_column_width + COL_W + COL_L + COL_PF + COL_PA + COL_DIFF + recent_width
         table_height = HEADER_HEIGHT + ROW_HEIGHT * len(standings_data)
         
-        card_width = table_width + (INNER_MARGIN_X * 2)
-        card_height = HEADER_BLOCK_HEIGHT + TABLE_MARGIN_TOP + table_height + TABLE_MARGIN_BOTTOM
+        # Card with equal padding on all sides
+        content_width = table_width
+        content_height = HEADER_BLOCK_HEIGHT + table_height
+        
+        card_width = content_width + (CARD_PADDING * 2)
+        card_height = content_height + (CARD_PADDING * 2)
         
         canvas_width = card_width + CANVAS_PADDING * 2
         canvas_height = card_height + CANVAS_PADDING * 2
@@ -292,10 +293,10 @@ def generate_simple_standings_image(
 
         title_font, subtitle_font, header_font, body_font = _load_fonts()
 
-        # Header with gradient
-        header_width = card_width - (HEADER_SIDE_PADDING * 2)
-        header_x = HEADER_SIDE_PADDING
-        header_y = 8
+        # Header with gradient - centered with equal padding
+        header_width = content_width
+        header_x = CARD_PADDING
+        header_y = CARD_PADDING
 
         header_layer = Image.new("RGBA", (header_width, HEADER_BLOCK_HEIGHT), (0, 0, 0, 0))
         header_layer_draw = ImageDraw.Draw(header_layer)
@@ -333,9 +334,9 @@ def generate_simple_standings_image(
         subtitle = f"{(season_name or 'Season').upper()} • {len(standings_data)} CLUBS"
         card_draw.text((text_x, header_center_y + 6), subtitle, fill=theme["header_subtitle_color"], font=subtitle_font)
 
-        # Table header
-        table_x = INNER_MARGIN_X
-        table_y = HEADER_BLOCK_HEIGHT + TABLE_MARGIN_TOP
+        # Table header - directly below header block
+        table_x = CARD_PADDING
+        table_y = CARD_PADDING + HEADER_BLOCK_HEIGHT
         card_draw.rectangle((table_x, table_y, table_x + table_width, table_y + HEADER_HEIGHT), fill=theme["row_primary"])
 
         columns = [
