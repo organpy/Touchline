@@ -187,13 +187,22 @@ def _draw_vertical_gradient(draw, bbox, start, end):
         draw.rectangle((x0, y0 + i, x1, y0 + i + 1), fill=(r, g, b))
 
 
-def _draw_rounded_badge(draw, pos, text, font, theme, width):
+def _load_fonts() -> Tuple[ImageFont.FreeTypeFont, ImageFont.FreeTypeFont, ImageFont.FreeTypeFont, ImageFont.FreeTypeFont]:
+    """Load and return the required fonts."""
+    name_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 32)
+    label_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 16)
+    value_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), 18)
+    small_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), 14)
+    return name_font, label_font, value_font, small_font
+
+
+def _draw_rounded_badge(draw, pos, text, font, theme, min_width=0):
     x, y = pos
     pad = BADGE_PADDING
 
     tw, th = draw.textbbox((0, 0), text, font=font)[2:]
 
-    bw = max(tw + pad * 2, width)
+    bw = max(tw + pad * 2, min_width)
     bh = BADGE_HEIGHT
 
     draw.rounded_rectangle(
@@ -470,14 +479,14 @@ def generate_player_card_image(
         star_total_width = MAX_STARS * STAR_SIZE + (MAX_STARS - 1) * STAR_SPACING
         star_x = (CARD_WIDTH - star_total_width) // 2
         _draw_star_rating(draw, (star_x, star_y), star_rating, theme)
-        badge_spacing = 12
         # === BOTTOM SECTION: Stats Grid (3x2 layout) ===
         stats_section_y = star_y + 40
         grid_gap = 14
         row_height = BADGE_HEIGHT + grid_gap
+        col_width = (CARD_WIDTH - CARD_PADDING * 2) // 2
 
         left_col = CARD_PADDING
-        right_col = CARD_WIDTH // 2 + 4
+        right_col = CARD_PADDING + col_width + 8
         
         ppg = stats.get('ppg', 0) or 0
         games = stats.get('games_played', 0) or 0
@@ -496,18 +505,18 @@ def generate_player_card_image(
         
         # Row 2
         _draw_rounded_badge(
-            draw, (left_col, stats_section_y + row_height + badge_spacing), f"Goals: {total_goals}", label_font, theme, min_width=col_width - 16
+            draw, (left_col, stats_section_y + row_height + grid_gap), f"Goals: {total_goals}", label_font, theme, min_width=col_width - 16
         )
         _draw_rounded_badge(
-            draw, (right_col, stats_section_y + row_height + badge_spacing), f"Assists: {total_assists}", label_font, theme, min_width=col_width - 16
+            draw, (right_col, stats_section_y + row_height + grid_gap), f"Assists: {total_assists}", label_font, theme, min_width=col_width - 16
         )
         
         # Row 3
         _draw_rounded_badge(
-            draw, (left_col, stats_section_y + (row_height + badge_spacing) * 2), f"Saves: {total_saves}", label_font, theme, min_width=col_width - 16
+            draw, (left_col, stats_section_y + (row_height + grid_gap) * 2), f"Saves: {total_saves}", label_font, theme, min_width=col_width - 16
         )
         _draw_rounded_badge(
-            draw, (right_col, stats_section_y + (row_height + badge_spacing) * 2), f"Points: {total_points}", label_font, theme, min_width=col_width - 16
+            draw, (right_col, stats_section_y + (row_height + grid_gap) * 2), f"Points: {total_points}", label_font, theme, min_width=col_width - 16
         )
         
         # Save to buffer
