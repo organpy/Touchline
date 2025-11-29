@@ -373,10 +373,10 @@ def generate_simple_standings_image(
 
         for rank, team in enumerate(standings_data, 1):
             row_top = y
-            row_bottom = y + ROW_HEIGHT
+            row_bottom = y + ROW_HEIGHT - 4  # Leave 4px gap between rows
             row_color = theme["row_primary"] if rank % 2 else theme["row_alt"]
             card_draw.rectangle((table_x, row_top, table_x + table_width, row_bottom), fill=row_color)
-            card_draw.line((table_x, row_bottom, table_x + table_width, row_bottom), fill=theme["row_divider"], width=1)
+            # No divider line - gaps provide separation
 
             # Rank accent bar
             rank_accent = theme["rank_accent"].get(rank)
