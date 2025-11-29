@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class StandingsCog(StatsCogBase):
-    """Standings command: /standings (now uses simple compact view)"""
+    """Standings command: /standings (uses compact standings view with recent results)"""
 
     @app_commands.command(name="standings", description="[STATS] Show current season standings for a league")
     @app_commands.describe(
