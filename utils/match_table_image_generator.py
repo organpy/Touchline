@@ -373,11 +373,9 @@ def generate_match_table_image(
             )
             text_x = logo_x + MATCH_HEADER_LOGO_SIZE + MATCH_HEADER_GAP
 
-        # Vertically center the two lines as a block with a small gap
-        line_gap = 10
-        text_block_height = title_height + line_gap + subtitle_height
-        title_y = header_center_y - text_block_height // 2
-        subtitle_y = title_y + title_height + line_gap
+        # Vertically center text to match logo's middle
+        title_y = header_center_y - title_height // 2
+        subtitle_y = title_y + title_height + 4
 
         card_draw.text((text_x, title_y), title_text, fill=_to_rgba(theme["text_primary"]), font=title_font)
         card_draw.text((text_x, subtitle_y), subtitle_text, fill=_to_rgba(theme["text_muted"]), font=subtitle_font)
