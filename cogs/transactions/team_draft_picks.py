@@ -56,73 +56,84 @@ class TeamDraftPicksCog(commands.Cog):
     async def autocomplete_available_players(
         self, interaction: discord.Interaction, current: str
     ) -> List[app_commands.Choice[str]]:
-        """Autocomplete for available players (not yet picked). Only shows non-NBL players."""
+        """Autocomplete for available players (not yet picked). Uses 30s TTL cache."""
         try:
-            # Get user's team
-            team = await queries.get_team_by_owner(self.supabase, interaction.user.id)
-            if not team:
-                return []
+            user_id = interaction.user.id
+            now = time.time()
 
-            # Get active season for this division
-            try:
-                seasons_response = self.supabase.table('seasons').select('id').eq(
-                    'division_id', team['division_id']
-                ).eq('active', True).limit(1).execute()
-                if not seasons_response.data:
-                    return []
-                season_id = seasons_response.data[0]['id']
-            except Exception as e:
-                logger.warning(f"Failed to get active season: {e}")
-                return []
-
-            # ONE QUERY: Get available players (non-NBL, on roster, not picked)
-            # Using RPC or direct query to join: teams (non-NBL) -> rosters -> players -> exclude drafted
-            try:
-                # Get all available players from non-NBL rosters in this season
-                response = self.supabase.table('rosters').select(
-                    'players(id, display_name)'
-                ).eq('season_id', season_id).is_(
-                    'left_at', 'null'
-                ).execute()
-                
-                # Extract player IDs from rosters
-                roster_player_ids = set()
-                for roster in (response.data or []):
-                    player_data = roster.get('players')
-                    if player_data and isinstance(player_data, dict):
-                        roster_player_ids.add(player_data['id'])
-
-                if not roster_player_ids:
+            # Check cache
+            cached = _autocomplete_cache.get(user_id)
+            if cached and (now - cached['timestamp']) < _AUTOCOMPLETE_TTL:
+                all_players = cached['players']
+            else:
+                # Get user's team
+                team = await queries.get_team_by_owner(self.supabase, interaction.user.id)
+                if not team:
                     return []
 
-            except Exception as e:
-                logger.warning(f"Failed to get rosters: {e}")
-                return []
+                # Get active season for this division
+                try:
+                    seasons_response = self.supabase.table('seasons').select('id').eq(
+                        'division_id', team['division_id']
+                    ).eq('active', True).limit(1).execute()
+                    if not seasons_response.data:
+                        return []
+                    season_id = seasons_response.data[0]['id']
+                except Exception as e:
+                    logger.warning(f"Failed to get active season: {e}")
+                    return []
 
-            # Get picked player IDs (already drafted this season)
-            try:
-                picked_response = self.supabase.table('draft_picks').select(
-                    'selected_player_id'
-                ).eq('season_id', season_id).not_.is_('selected_player_id', 'null').execute()
-                picked_ids = {p['selected_player_id'] for p in (picked_response.data or [])}
-            except Exception as e:
-                logger.warning(f"Failed to get picked players: {e}")
-                picked_ids = set()
+                # Get all available players from rosters in this season
+                try:
+                    response = self.supabase.table('rosters').select(
+                        'players(id, display_name)'
+                    ).eq('season_id', season_id).is_(
+                        'left_at', 'null'
+                    ).execute()
+                    
+                    roster_player_ids = set()
+                    for roster in (response.data or []):
+                        player_data = roster.get('players')
+                        if player_data and isinstance(player_data, dict):
+                            roster_player_ids.add(player_data['id'])
 
-            # Filter by: on roster + not picked yet + matches search
-            available_ids = roster_player_ids - picked_ids
-            if not available_ids:
-                return []
+                    if not roster_player_ids:
+                        return []
 
-            # Get full player details for available players (only fetch what we need)
-            try:
-                all_players_response = self.supabase.table('players').select(
-                    'id, display_name'
-                ).in_('id', list(available_ids)).execute()
-                all_players = all_players_response.data or []
-            except Exception as e:
-                logger.warning(f"Failed to get available players: {e}")
-                return []
+                except Exception as e:
+                    logger.warning(f"Failed to get rosters: {e}")
+                    return []
+
+                # Get picked player IDs (already drafted this season)
+                try:
+                    picked_response = self.supabase.table('draft_picks').select(
+                        'selected_player_id'
+                    ).eq('season_id', season_id).not_.is_('selected_player_id', 'null').execute()
+                    picked_ids = {p['selected_player_id'] for p in (picked_response.data or [])}
+                except Exception as e:
+                    logger.warning(f"Failed to get picked players: {e}")
+                    picked_ids = set()
+
+                # Filter by: on roster + not picked yet
+                available_ids = roster_player_ids - picked_ids
+                if not available_ids:
+                    return []
+
+                # Get full player details for available players
+                try:
+                    all_players_response = self.supabase.table('players').select(
+                        'id, display_name'
+                    ).in_('id', list(available_ids)).execute()
+                    all_players = all_players_response.data or []
+                except Exception as e:
+                    logger.warning(f"Failed to get available players: {e}")
+                    return []
+
+                # Store in cache
+                _autocomplete_cache[user_id] = {
+                    'players': all_players,
+                    'timestamp': now
+                }
 
             # Filter by current input (case-insensitive)
             current_lower = current.lower()
