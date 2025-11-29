@@ -338,10 +338,11 @@ def generate_simple_standings_image(
         subtitle_bbox = card_draw.textbbox((0, 0), subtitle, font=subtitle_font)
         subtitle_height = subtitle_bbox[3] - subtitle_bbox[1]
         
-        # Center text block to match logo's middle
-        text_block_height = title_height + subtitle_height + 4
+        # Center text block to match logo's middle (equal gaps above/below)
+        line_gap = 4
+        text_block_height = title_height + line_gap + subtitle_height
         title_y = header_center_y - text_block_height // 2
-        subtitle_y = title_y + title_height + 4
+        subtitle_y = title_y + title_height + line_gap
         
         card_draw.text((text_x, title_y), league_name, fill=theme["header_title_color"], font=title_font)
         card_draw.text((text_x, subtitle_y), subtitle, fill=theme["header_subtitle_color"], font=subtitle_font)

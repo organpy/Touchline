@@ -358,9 +358,11 @@ def generate_match_table_image(
         # Position text to the right of logo
         text_x = logo_x + MATCH_HEADER_LOGO_SIZE + MATCH_HEADER_GAP
         
-        # Vertically center text block to match logo's middle
-        title_y = header_center_y - (title_height + 2 + subtitle_height) // 2
-        subtitle_y = title_y + title_height + 4
+        # Vertically center text block to match logo's middle (equal gaps above/below)
+        line_gap = 4
+        text_block_height = title_height + line_gap + subtitle_height
+        title_y = header_center_y - text_block_height // 2
+        subtitle_y = title_y + title_height + line_gap
 
         # Draw logo (or fallback avatar)
         if has_logo:
