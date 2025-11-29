@@ -294,6 +294,14 @@ from PIL import ImageFont
 # -----------------------------
 _image_cache: Dict[str, bytes] = {}
 
+
+def _bytes_to_buffer(image_bytes: bytes) -> io.BytesIO:
+    """Convert raw bytes to a seeked BytesIO buffer."""
+    buffer = io.BytesIO(image_bytes)
+    buffer.seek(0)
+    return buffer
+
+
 # -----------------------------
 # Helper: image index / logos
 # -----------------------------
