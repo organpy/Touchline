@@ -457,27 +457,10 @@ def generate_player_card_image(
             if logo_img:
                 canvas.paste(logo_img, (logo_x, logo_y), logo_img)
         
-        # === LEFT SIDE: Stat badges (compact layout) ===
-        badge_x = CARD_PADDING
-        badge_y = logo_y + LOGO_SIZE + 16
-        badge_spacing = 8
-        
-        stat_badges = [
-            ("Goals", stats.get('total_goals', 0)),
-            ("Assists", stats.get('total_assists', 0)),
-            ("Saves", stats.get('total_saves', 0)),
-            ("OGs", stats.get('total_own_goals', 0)),
-        ]
-        
-        for label, value in stat_badges:
-            badge_text = f"{label}: {value}"
-            w, h = _draw_rounded_badge(draw, (badge_x, badge_y), badge_text, label_font, theme, min_width=110)
-            badge_y += h + badge_spacing
-        
-        # === CENTER: Player Avatar Circle (smaller) ===
+        # === CENTER: Player Avatar Circle ===
         avatar_size = 160
         avatar_x = (CARD_WIDTH - avatar_size) // 2
-        avatar_y = CARD_PADDING + 40
+        avatar_y = CARD_PADDING + 20
         _draw_avatar_circle(
             canvas,
             (avatar_x, avatar_y),
@@ -493,76 +476,66 @@ def generate_player_card_image(
         name_x = (CARD_WIDTH - name_width) // 2
         draw.text((name_x, name_y), player_name, fill=_to_rgba(theme["text_primary"]), font=name_font)
         
-        # === BELOW NAME: Team Name + Star Rating on same line ===
-        team_star_y = name_y + 32
+        # === BELOW NAME: Team Logo + Team Name (horizontal layout) ===
+        team_row_y = name_y + 36
+        team_logo_size = 40
+        team_logo_x = (CARD_WIDTH - team_logo_size - 120) // 2 - 30
+        team_logo_y = team_row_y - 6
+        
+        if team_code:
+            team_logo_path = _find_logo_path(team_code)
+            if team_logo_path:
+                team_logo_img = _load_logo(team_logo_path, team_logo_size)
+                if team_logo_img:
+                    canvas.paste(team_logo_img, (team_logo_x, team_logo_y), team_logo_img)
         
         if team_name:
-            team_bbox = draw.textbbox((0, 0), team_name, font=value_font)
-            team_width = team_bbox[2] - team_bbox[0]
-            team_x = (CARD_WIDTH - team_width) // 2
-            draw.text((team_x, team_star_y), team_name, fill=_to_rgba(theme["text_secondary"]), font=value_font)
+            team_x = team_logo_x + team_logo_size + 12
+            draw.text((team_x, team_row_y), team_name, fill=_to_rgba(theme["text_secondary"]), font=value_font)
         
         # === Star Rating below team ===
-        star_y = team_star_y + 30
+        star_y = team_row_y + 36
         star_total_width = MAX_STARS * STAR_SIZE + (MAX_STARS - 1) * STAR_SPACING
         star_x = (CARD_WIDTH - star_total_width) // 2
         _draw_star_rating(draw, (star_x, star_y), star_rating, theme)
         
-        # === MIDDLE SECTION: 2x2 Stats Grid ===
-        grid_y = star_y + 50
+        # === BOTTOM SECTION: Stats Grid (3x2 layout) ===
+        stats_section_y = star_y + 50
         col_width = (CARD_WIDTH - CARD_PADDING * 2) // 2
         left_col = CARD_PADDING
-        right_col = CARD_PADDING + col_width + 8
+        right_col = CARD_PADDING + col_width + 12
+        row_height = 50
+        badge_spacing = 8
         
         ppg = stats.get('ppg', 0) or 0
         games = stats.get('games_played', 0) or 0
         total_points = stats.get('total_points', 0) or 0
+        total_goals = stats.get('total_goals', 0) or 0
+        total_assists = stats.get('total_assists', 0) or 0
+        total_saves = stats.get('total_saves', 0) or 0
         
-        # Top-left: PPG
-        ppg_text = f"PPG: {ppg:.1f}"
-        ppg_badge_width, ppg_badge_height = _draw_rounded_badge(
-            draw, (left_col, grid_y), ppg_text, label_font, theme, min_width=col_width - 16
+        # Row 1
+        _draw_rounded_badge(
+            draw, (left_col, stats_section_y), f"PPG: {ppg:.1f}", label_font, theme, min_width=col_width - 16
+        )
+        _draw_rounded_badge(
+            draw, (right_col, stats_section_y), f"Games: {games}", label_font, theme, min_width=col_width - 16
         )
         
-        # Top-right: Games
-        games_text = f"Games: {games}"
+        # Row 2
         _draw_rounded_badge(
-            draw, (right_col, grid_y), games_text, label_font, theme, min_width=col_width - 16
+            draw, (left_col, stats_section_y + row_height + badge_spacing), f"Goals: {total_goals}", label_font, theme, min_width=col_width - 16
+        )
+        _draw_rounded_badge(
+            draw, (right_col, stats_section_y + row_height + badge_spacing), f"Assists: {total_assists}", label_font, theme, min_width=col_width - 16
         )
         
-        # Bottom-left: Total Points
-        pts_text = f"Points: {total_points}"
+        # Row 3
         _draw_rounded_badge(
-            draw, (left_col, grid_y + ppg_badge_height + 12), pts_text, label_font, theme, min_width=col_width - 16
+            draw, (left_col, stats_section_y + (row_height + badge_spacing) * 2), f"Saves: {total_saves}", label_font, theme, min_width=col_width - 16
         )
-        
-        # Bottom-right: Rank placeholder
-        rank_text = "#"
-        rank_font_size = 32
-        try:
-            rank_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), rank_font_size)
-        except Exception:
-            rank_font = name_font
-        
-        rank_bbox = draw.textbbox((0, 0), rank_text, font=rank_font)
-        rank_width = rank_bbox[2] - rank_bbox[0]
-        rank_x = right_col + (col_width - 16 - rank_width) // 2
-        draw.text((rank_x, grid_y + ppg_badge_height + 8), rank_text, fill=_to_rgba(theme["accent_color"]), font=rank_font)
-        
-        # === BOTTOM SECTION: Additional Action Badges ===
-        bottom_section_y = grid_y + ppg_badge_height + 100
-        bottom_spacing = 12
-        
-        # Left: Teams badge
-        left_x = CARD_PADDING
         _draw_rounded_badge(
-            draw, (left_x, bottom_section_y), "Teams", label_font, theme, min_width=110
-        )
-        
-        # Right: Awards badge
-        right_x = CARD_WIDTH - CARD_PADDING - 130
-        _draw_rounded_badge(
-            draw, (right_x, bottom_section_y), "Awards", label_font, theme, min_width=110
+            draw, (right_col, stats_section_y + (row_height + badge_spacing) * 2), f"Points: {total_points}", label_font, theme, min_width=col_width - 16
         )
         
         # Save to buffer
