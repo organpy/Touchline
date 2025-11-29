@@ -342,7 +342,7 @@ def generate_simple_standings_image(
         subtitle_offset = subtitle_bbox[1]
         
         # Calculate actual visual heights without internal padding
-        line_gap = 4
+        line_gap = 8  # Increased gap to prevent overlap
         visual_text_block_height = (title_height - abs(title_offset)) + line_gap + (subtitle_height - abs(subtitle_offset))
         text_block_top = header_center_y - visual_text_block_height // 2
         

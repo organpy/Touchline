@@ -330,13 +330,17 @@ def generate_match_table_image(
         title_text = f"{league_name} — {season_name}"
         subtitle_text = "Match Results Grid"
 
-        # Measure text sizes
+        # Measure text sizes with baseline accounting
         title_bbox = card_draw.textbbox((0, 0), title_text, font=title_font)
         title_width = title_bbox[2] - title_bbox[0]
         title_height = title_bbox[3] - title_bbox[1]
+        title_offset = title_bbox[1]  # Top offset from baseline
+        
         subtitle_bbox = card_draw.textbbox((0, 0), subtitle_text, font=subtitle_font)
         subtitle_width = subtitle_bbox[2] - subtitle_bbox[0]
         subtitle_height = subtitle_bbox[3] - subtitle_bbox[1]
+        subtitle_offset = subtitle_bbox[1]  # Top offset from baseline
+        
         text_block_width = max(title_width, subtitle_width)
 
         # Load league logo (or fallback avatar)
@@ -359,10 +363,15 @@ def generate_match_table_image(
         text_x = logo_x + MATCH_HEADER_LOGO_SIZE + MATCH_HEADER_GAP
         
         # Vertically center text block to match logo's middle (equal gaps above/below)
+        # Account for font baseline offsets for proper visual centering
         line_gap = 4
-        text_block_height = title_height + line_gap + subtitle_height
-        title_y = header_center_y - text_block_height // 2
-        subtitle_y = title_y + title_height + line_gap
+        visual_text_block_height = (title_height - abs(title_offset)) + line_gap + (subtitle_height - abs(subtitle_offset))
+        text_block_top = header_center_y - visual_text_block_height // 2
+        
+        # Position title from top of block, accounting for its top offset
+        title_y = text_block_top - title_offset
+        # Position subtitle below title with gap
+        subtitle_y = title_y + title_height + line_gap - subtitle_offset
 
         # Draw logo (or fallback avatar)
         if has_logo:
