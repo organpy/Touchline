@@ -385,8 +385,9 @@ def generate_standings_image(
         card.paste(header_layer, (header_x, header_y), header_mask)
 
         league_logo = _find_logo_path(league_code, league_name)
-        logo_y = header_y + (HEADER_BLOCK_HEIGHT - LEAGUE_LOGO_SIZE) // 2
-        logo_x = header_x + 8
+        header_center_y = header_y + HEADER_BLOCK_HEIGHT // 2
+        logo_y = header_center_y - LEAGUE_LOGO_SIZE // 2
+        logo_x = header_x + 12
         if league_logo:
             logo_img = _load_logo(league_logo, LEAGUE_LOGO_SIZE)
         else:
@@ -405,26 +406,33 @@ def generate_standings_image(
                 text_color=_to_rgba(theme["text_primary"]),
             )
 
-        text_x = logo_x + LEAGUE_LOGO_SIZE + 32
-        header_center_y = header_y + HEADER_BLOCK_HEIGHT // 2
+        text_x = logo_x + LEAGUE_LOGO_SIZE + 20
         title_color = theme.get("header_title_color", theme["text_primary"])
         subtitle_color = theme.get("header_subtitle_color", theme["text_muted"])
         title_shadow = theme.get("header_title_shadow")
         subtitle_shadow = theme.get("header_subtitle_shadow")
 
-        title_position = (text_x, header_center_y - 28)
-        subtitle_position = (text_x, header_center_y + 8)
+        # Measure text
+        title_bbox = card_draw.textbbox((0, 0), league_name, font=title_font)
+        title_height = title_bbox[3] - title_bbox[1]
+        subtitle_bbox = card_draw.textbbox((0, 0), f"{(season_name or 'Season').upper()}", font=subtitle_font)
+        subtitle_height = subtitle_bbox[3] - subtitle_bbox[1]
+        
+        # Center text block to match logo's middle
+        text_block_height = title_height + subtitle_height + 4
+        title_y = header_center_y - text_block_height // 2
+        subtitle_y = title_y + title_height + 4
 
         if title_shadow:
-            card_draw.text((title_position[0] + 2, title_position[1] + 2), league_name, fill=title_shadow, font=title_font)
-        card_draw.text(title_position, league_name, fill=title_color, font=title_font)
+            card_draw.text((text_x + 2, title_y + 2), league_name, fill=title_shadow, font=title_font)
+        card_draw.text((text_x, title_y), league_name, fill=title_color, font=title_font)
 
         season_label = (season_name or "Season").upper()
         clubs_text = f"{len(standings_data)} CLUBS" if standings_data else "STANDINGS"
         subtitle_text = f"{season_label} • {clubs_text}"
         if subtitle_shadow:
-            card_draw.text((subtitle_position[0] + 1, subtitle_position[1] + 1), subtitle_text, fill=subtitle_shadow, font=subtitle_font)
-        card_draw.text(subtitle_position, subtitle_text, fill=subtitle_color, font=subtitle_font)
+            card_draw.text((text_x + 1, subtitle_y + 1), subtitle_text, fill=subtitle_shadow, font=subtitle_font)
+        card_draw.text((text_x, subtitle_y), subtitle_text, fill=subtitle_color, font=subtitle_font)
 
         # Table header - directly below header block
         table_x = CARD_PADDING

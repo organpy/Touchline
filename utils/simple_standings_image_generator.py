@@ -320,7 +320,8 @@ def generate_simple_standings_image(
 
         # League logo
         league_logo = _find_logo_path(league_code, league_name)
-        logo_y = header_y + (HEADER_BLOCK_HEIGHT - LEAGUE_LOGO_SIZE) // 2
+        header_center_y = header_y + HEADER_BLOCK_HEIGHT // 2
+        logo_y = header_center_y - LEAGUE_LOGO_SIZE // 2
         logo_x = header_x + 12
         if league_logo:
             logo_img = _load_logo(league_logo, LEAGUE_LOGO_SIZE)
@@ -328,13 +329,22 @@ def generate_simple_standings_image(
                 card.paste(logo_img, (logo_x, logo_y), logo_img)
 
         # Title and subtitle
-        text_x = logo_x + LEAGUE_LOGO_SIZE + 16
-        header_center_y = header_y + HEADER_BLOCK_HEIGHT // 2
+        text_x = logo_x + LEAGUE_LOGO_SIZE + 20
         
-        card_draw.text((text_x, header_center_y - 18), league_name, fill=theme["header_title_color"], font=title_font)
-        
+        # Measure text
+        title_bbox = card_draw.textbbox((0, 0), league_name, font=title_font)
+        title_height = title_bbox[3] - title_bbox[1]
         subtitle = f"{(season_name or 'Season').upper()} • {len(standings_data)} CLUBS"
-        card_draw.text((text_x, header_center_y + 6), subtitle, fill=theme["header_subtitle_color"], font=subtitle_font)
+        subtitle_bbox = card_draw.textbbox((0, 0), subtitle, font=subtitle_font)
+        subtitle_height = subtitle_bbox[3] - subtitle_bbox[1]
+        
+        # Center text block to match logo's middle
+        text_block_height = title_height + subtitle_height + 4
+        title_y = header_center_y - text_block_height // 2
+        subtitle_y = title_y + title_height + 4
+        
+        card_draw.text((text_x, title_y), league_name, fill=theme["header_title_color"], font=title_font)
+        card_draw.text((text_x, subtitle_y), subtitle, fill=theme["header_subtitle_color"], font=subtitle_font)
 
         # Table header - directly below header block
         table_x = CARD_PADDING
