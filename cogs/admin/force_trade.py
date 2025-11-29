@@ -157,6 +157,47 @@ class ForceTradeSelectionView(discord.ui.View):
                 })
 
             repo.attach_trade_assets(trade_assets)
+
+            # ===== ACTUALLY TRANSFER ASSETS (critical fix) =====
+            # Transfer players: outbound players go from team1 to team2
+            for asset in assets['outbound']:
+                if asset.get('type') == 'player' and asset.get('player_id'):
+                    success = repo.transfer_player_between_teams(
+                        self.season['id'],
+                        asset['player_id'],
+                        self.team1['id'],
+                        self.team2['id']
+                    )
+                    if not success:
+                        logger.error(f"Failed to transfer player {asset['player_id']} in force trade")
+
+            # Transfer players: inbound players go from team2 to team1
+            for asset in assets['inbound']:
+                if asset.get('type') == 'player' and asset.get('player_id'):
+                    success = repo.transfer_player_between_teams(
+                        self.season['id'],
+                        asset['player_id'],
+                        self.team2['id'],
+                        self.team1['id']
+                    )
+                    if not success:
+                        logger.error(f"Failed to transfer player {asset['player_id']} in force trade")
+
+            # Transfer picks: outbound picks go from team1 to team2
+            for asset in assets['outbound']:
+                if asset.get('type') == 'pick' and asset.get('pick_id'):
+                    result = repo.update_draft_pick_owner(asset['pick_id'], self.team2['id'])
+                    if not result:
+                        logger.error(f"Failed to transfer pick {asset['pick_id']} in force trade")
+
+            # Transfer picks: inbound picks go from team2 to team1
+            for asset in assets['inbound']:
+                if asset.get('type') == 'pick' and asset.get('pick_id'):
+                    result = repo.update_draft_pick_owner(asset['pick_id'], self.team1['id'])
+                    if not result:
+                        logger.error(f"Failed to transfer pick {asset['pick_id']} in force trade")
+            # ===== END TRANSFER ASSETS =====
+
             await TeamPlayerCache.refresh(self.supabase)
 
             # Build result embed
