@@ -108,10 +108,10 @@ MATCH_HEADER_GAP = 18
 
 # Supported games per matchup configurations
 GAMES_PER_MATCHUP_CONFIGS = {
-    2: {"subcells": 2, "cell_height": 70},   # 2 games: 1 home, 1 away (default)
-    3: {"subcells": 3, "cell_height": 84},   # 3 games: alternating home/away/home
-    4: {"subcells": 4, "cell_height": 96},   # 4 games: 2 home, 2 away
-    6: {"subcells": 6, "cell_height": 108},  # 6 games: 3 home, 3 away
+    2: {"subcells": 2, "cell_height": 70, "layout": "vertical"},   # 2 games: 1 home, 1 away (default)
+    3: {"subcells": 3, "cell_height": 84, "layout": "vertical"},   # 3 games: alternating home/away/home
+    4: {"subcells": 4, "cell_height": 96, "layout": "vertical"},   # 4 games: 2 home, 2 away
+    6: {"subcells": 6, "cell_height": 108, "layout": "grid"},     # 6 games: 3x2 grid (3 rows of 2)
 }
 
 
@@ -226,12 +226,19 @@ def _draw_vertical_gradient(draw: ImageDraw.ImageDraw, bbox: Tuple[int, int, int
         draw.line([(x0, y0 + i), (x1, y0 + i)], fill=(r, g, b))
 
 
-def _load_fonts():
+def _load_fonts(games_per_matchup: int = 2):
+    """Load fonts with size scaling based on games_per_matchup."""
+    # Scale factor: 2 games = 1.0, 6 games = 0.85
+    scale_factor = max(0.85, 1.0 - (games_per_matchup - 2) * 0.025)
+    
+    score_font_size = max(10, int(14 * scale_factor))
+    score_label_size = max(8, int(10 * scale_factor))
+    
     try:
         title_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 24)
         subtitle_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), 14)
-        score_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 14)
-        score_label_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), 10)
+        score_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), score_font_size)
+        score_label_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), score_label_size)
     except Exception:
         title_font = ImageFont.load_default()
         subtitle_font = ImageFont.load_default()
@@ -281,7 +288,7 @@ def generate_match_table_image(
             return _bytes_to_buffer(cached_image)
 
         theme = _get_theme(league_code)
-        title_font, subtitle_font, score_font, score_label_font = _load_fonts()
+        title_font, subtitle_font, score_font, score_label_font = _load_fonts(games_per_matchup)
 
         num_teams = len(teams)
         
@@ -467,56 +474,108 @@ def generate_match_table_image(
                 home_matches = match_lookup.get((row_team['id'], col_team['id']), [])  # row_team is home
                 away_matches = match_lookup.get((col_team['id'], row_team['id']), [])  # row_team is away
                 
-                # Combine and distribute across subcells
-                # Even subcells: home games; Odd subcells: away games (from row_team perspective)
-                # For 2 games: [home, away]
-                # For 3 games: [home, away, home]
-                # For 4 games: [home, away, home, away]
-                # For 6 games: [home, away, home, away, home, away]
+                # For 6 games: use 3x2 grid (3 rows, 2 columns)
+                # For others: use vertical stack (N rows, 1 column)
+                layout = config.get("layout", "vertical")
                 
-                for subcell_idx in range(num_subcells):
-                    subcell_y = base_y + (subcell_idx * subcell_height)
-                    subcell_rect = (base_x, subcell_y, base_x + CELL_SIZE, subcell_y + subcell_height)
+                if layout == "grid" and num_subcells == 6:
+                    # 3x2 grid: 3 rows, 2 columns
+                    grid_rows = 3
+                    grid_cols = 2
+                    subcell_width = CELL_SIZE // grid_cols
+                    subcell_height_grid = cell_height // grid_rows
                     
-                    # Determine if this is a home or away slot (for row_team)
-                    is_home = (subcell_idx % 2 == 0)
-                    
-                    # Get the appropriate match for this slot
-                    if is_home:
-                        home_idx = subcell_idx // 2
-                        match = home_matches[home_idx] if home_idx < len(home_matches) else None
-                    else:
-                        away_idx = subcell_idx // 2
-                        match = away_matches[away_idx] if away_idx < len(away_matches) else None
-                    
-                    if match and match.get('status') == 'final':
-                        score1 = match.get('team1_score', 0) or 0
-                        score2 = match.get('team2_score', 0) or 0
+                    for subcell_idx in range(num_subcells):
+                        grid_row = subcell_idx // grid_cols
+                        grid_col = subcell_idx % grid_cols
                         
-                        # Determine win/loss from row_team perspective
+                        subcell_x = base_x + (grid_col * subcell_width)
+                        subcell_y = base_y + (grid_row * subcell_height_grid)
+                        subcell_rect = (subcell_x, subcell_y, subcell_x + subcell_width, subcell_y + subcell_height_grid)
+                        
+                        # Determine if this is a home or away slot (for row_team)
+                        # Grid order: [0,1] = [home1, away1], [2,3] = [home2, away2], [4,5] = [home3, away3]
+                        is_home = (subcell_idx % 2 == 0)
+                        
+                        # Get the appropriate match for this slot
                         if is_home:
-                            # row_team is home (team1), they win if score1 > score2
-                            row_team_won = score1 > score2
-                            score_text = f"{score1}-{score2}"
+                            home_idx = subcell_idx // 2
+                            match = home_matches[home_idx] if home_idx < len(home_matches) else None
                         else:
-                            # row_team is away (team2), they win if score2 > score1
-                            row_team_won = score2 > score1
-                            score_text = f"{score2}-{score1}"  # Show from row_team perspective
+                            away_idx = subcell_idx // 2
+                            match = away_matches[away_idx] if away_idx < len(away_matches) else None
                         
-                        cell_color = theme["cell_win"] if row_team_won else theme["cell_loss"]
-                        card_draw.rectangle(subcell_rect, fill=_to_rgba(cell_color), outline=_to_rgba(theme["cell_border"]))
+                        if match and match.get('status') == 'final':
+                            score1 = match.get('team1_score', 0) or 0
+                            score2 = match.get('team2_score', 0) or 0
+                            
+                            # Determine win/loss from row_team perspective
+                            if is_home:
+                                # row_team is home (team1), they win if score1 > score2
+                                row_team_won = score1 > score2
+                                score_text = f"{score1}-{score2}"
+                            else:
+                                # row_team is away (team2), they win if score2 > score1
+                                row_team_won = score2 > score1
+                                score_text = f"{score2}-{score1}"  # Show from row_team perspective
+                            
+                            cell_color = theme["cell_win"] if row_team_won else theme["cell_loss"]
+                            card_draw.rectangle(subcell_rect, fill=_to_rgba(cell_color), outline=_to_rgba(theme["cell_border"]))
+                            
+                            # Draw score centered in subcell
+                            score_bbox = card_draw.textbbox((0, 0), score_text, font=score_font)
+                            score_width = score_bbox[2] - score_bbox[0]
+                            score_height = score_bbox[3] - score_bbox[1]
+                            score_x = subcell_x + (subcell_width - score_width) // 2
+                            score_y = subcell_y + (subcell_height_grid - score_height) // 2
+                            card_draw.text((score_x, score_y), score_text, fill=_to_rgba(theme["text_primary"]), font=score_font)
+                        else:
+                            # Not played yet
+                            card_draw.rectangle(subcell_rect, fill=_to_rgba(theme["cell_pending"]), outline=_to_rgba(theme["cell_border"]))
+                else:
+                    # Vertical layout (default for 2, 3, 4 games)
+                    for subcell_idx in range(num_subcells):
+                        subcell_y = base_y + (subcell_idx * subcell_height)
+                        subcell_rect = (base_x, subcell_y, base_x + CELL_SIZE, subcell_y + subcell_height)
                         
-                        # Draw score centered in subcell
-                        score_bbox = card_draw.textbbox((0, 0), score_text, font=score_font)
-                        score_width = score_bbox[2] - score_bbox[0]
-                        score_height = score_bbox[3] - score_bbox[1]
-                        score_x = base_x + (CELL_SIZE - score_width) // 2
-                        score_y = subcell_y + (subcell_height - score_height) // 2
-                        card_draw.text((score_x, score_y), score_text, fill=_to_rgba(theme["text_primary"]), font=score_font)
-                    else:
-                        # Not played yet
-                        card_draw.rectangle(subcell_rect, fill=_to_rgba(theme["cell_pending"]), outline=_to_rgba(theme["cell_border"]))
-
+                        # Determine if this is a home or away slot (for row_team)
+                        is_home = (subcell_idx % 2 == 0)
+                        
+                        # Get the appropriate match for this slot
+                        if is_home:
+                            home_idx = subcell_idx // 2
+                            match = home_matches[home_idx] if home_idx < len(home_matches) else None
+                        else:
+                            away_idx = subcell_idx // 2
+                            match = away_matches[away_idx] if away_idx < len(away_matches) else None
+                        
+                        if match and match.get('status') == 'final':
+                            score1 = match.get('team1_score', 0) or 0
+                            score2 = match.get('team2_score', 0) or 0
+                            
+                            # Determine win/loss from row_team perspective
+                            if is_home:
+                                # row_team is home (team1), they win if score1 > score2
+                                row_team_won = score1 > score2
+                                score_text = f"{score1}-{score2}"
+                            else:
+                                # row_team is away (team2), they win if score2 > score1
+                                row_team_won = score2 > score1
+                                score_text = f"{score2}-{score1}"  # Show from row_team perspective
+                            
+                            cell_color = theme["cell_win"] if row_team_won else theme["cell_loss"]
+                            card_draw.rectangle(subcell_rect, fill=_to_rgba(cell_color), outline=_to_rgba(theme["cell_border"]))
+                            
+                            # Draw score centered in subcell
+                            score_bbox = card_draw.textbbox((0, 0), score_text, font=score_font)
+                            score_width = score_bbox[2] - score_bbox[0]
+                            score_height = score_bbox[3] - score_bbox[1]
+                            score_x = base_x + (CELL_SIZE - score_width) // 2
+                            score_y = subcell_y + (subcell_height - score_height) // 2
+                            card_draw.text((score_x, score_y), score_text, fill=_to_rgba(theme["text_primary"]), font=score_font)
+                        else:
+                            # Not played yet
+                            card_draw.rectangle(subcell_rect, fill=_to_rgba(theme["cell_pending"]), outline=_to_rgba(theme["cell_border"]))
         # Paste card onto canvas
         canvas.paste(card, (CANVAS_PADDING, CANVAS_PADDING), card)
 
