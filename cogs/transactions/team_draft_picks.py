@@ -406,27 +406,7 @@ class TeamDraftPicksCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            # Get active season
-            try:
-                seasons_response = self.supabase.table('seasons').select('*').eq(
-                    'active', True
-                ).limit(1).execute()
-                if not seasons_response.data:
-                    await interaction.followup.send(
-                        "❌ No active season found.",
-                        ephemeral=True,
-                    )
-                    return
-                season = seasons_response.data[0]
-            except Exception as e:
-                logger.error(f"Failed to get active season: {e}")
-                await interaction.followup.send(
-                    "❌ Error getting season. Check server logs.",
-                    ephemeral=True,
-                )
-                return
-
-            # Resolve team by code
+            # Resolve team by code FIRST (need division_id for season lookup)
             try:
                 team_response = self.supabase.table('teams').select('*').ilike(
                     'code', team_code
@@ -442,6 +422,28 @@ class TeamDraftPicksCog(commands.Cog):
                 logger.error(f"Failed to get team: {e}")
                 await interaction.followup.send(
                     "❌ Error getting team. Check server logs.",
+                    ephemeral=True,
+                )
+                return
+
+            # Get active season FOR THIS TEAM'S DIVISION (critical fix)
+            try:
+                seasons_response = self.supabase.table('seasons').select('*').eq(
+                    'division_id', team['division_id']
+                ).eq(
+                    'active', True
+                ).limit(1).execute()
+                if not seasons_response.data:
+                    await interaction.followup.send(
+                        f"❌ No active season found for {team['code']}'s division.",
+                        ephemeral=True,
+                    )
+                    return
+                season = seasons_response.data[0]
+            except Exception as e:
+                logger.error(f"Failed to get active season: {e}")
+                await interaction.followup.send(
+                    "❌ Error getting season. Check server logs.",
                     ephemeral=True,
                 )
                 return
