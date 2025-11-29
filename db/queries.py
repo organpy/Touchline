@@ -22,6 +22,74 @@ async def get_active_season(supabase, division_id: Optional[str] = None) -> Opti
         return None
 
 
+async def get_matches_between_teams(
+    supabase,
+    season_id: str,
+    team1_id: str,
+    team2_id: str,
+) -> List[Dict[str, Any]]:
+    """Get all matches played between two teams in a season (both orders)."""
+    try:
+        response = (
+            supabase
+            .table('matches')
+            .select('*')
+            .eq('season_id', season_id)
+            .or_(f"and(team1_id.eq.{team1_id},team2_id.eq.{team2_id}),and(team1_id.eq.{team2_id},team2_id.eq.{team1_id})")
+            .order('played_at', desc=True)
+            .execute()
+        )
+        return response.data or []
+    except Exception as e:
+        logger.error(f"Error fetching matches between teams: {e}")
+        return []
+
+
+async def get_schedules_between_teams(
+    supabase,
+    season_id: str,
+    team1_id: str,
+    team2_id: str,
+) -> List[Dict[str, Any]]:
+    """Get all scheduled fixtures between two teams for a season (both orders)."""
+    try:
+        response = (
+            supabase
+            .table('schedules')
+            .select('*')
+            .eq('season_id', season_id)
+            .or_(f"and(team1_id.eq.{team1_id},team2_id.eq.{team2_id}),and(team1_id.eq.{team2_id},team2_id.eq.{team1_id})")
+            .execute()
+        )
+        return response.data or []
+    except Exception as e:
+        logger.error(f"Error fetching schedules between teams: {e}")
+        return []
+
+
+async def is_ncba_player(supabase, player_id: str) -> bool:
+    """Return True if the player belongs to NCBA division based on current roster/team."""
+    try:
+        # Join rosters -> teams -> divisions to infer league_type
+        response = (
+            supabase
+            .table('rosters')
+            .select('players!inner(id), teams!inner(id, division_id), divisions!inner(id, league_type)')
+            .eq('player_id', player_id)
+            .is_('left_at', 'null')
+            .limit(1)
+            .execute()
+        )
+        row = (response.data or [None])[0]
+        if not row:
+            return False
+        division = row.get('divisions') or {}
+        return (division.get('league_type') or '').upper() == 'NCBA'
+    except Exception as e:
+        logger.error(f"Error checking NCBA player: {e}")
+        return False
+
+
 async def get_all_active_seasons(supabase) -> List[Dict[str, Any]]:
     """Get all active seasons across all divisions"""
     try:

@@ -402,9 +402,49 @@ class BulkStatsCog(commands.Cog):
                 'team2_score': 0,
             }
             
-            # Show score modal (button flow continues from there)
-            score_modal = BulkScoreModal(team1.name, team2.name, self, interaction.user.id)
-            await teams_interaction.response.send_modal(score_modal)
+            # Show match history before entering scores
+            # Resolve active season for division
+            season = await queries.get_active_season(self.supabase, division_id=team1.division_id)
+            if not season:
+                await teams_interaction.response.send_message("❌ No active season for this division.", ephemeral=True)
+                return
+
+            matches = await queries.get_matches_between_teams(self.supabase, season['id'], team1.team_id, team2.team_id)
+            schedules = await queries.get_schedules_between_teams(self.supabase, season['id'], team1.team_id, team2.team_id)
+
+            played = len(matches)
+            scheduled = len(schedules)
+
+            desc_lines = [
+                f"**{team1.name}** vs **{team2.name}**",
+                f"Scheduled: **{scheduled}** • Played: **{played}**",
+            ]
+            if matches:
+                for m in matches[:10]:
+                    t1 = m.get('team1_score', 0)
+                    t2 = m.get('team2_score', 0)
+                    desc_lines.append(f"• {t1} - {t2} ({m.get('status','final')})")
+
+            embed = discord.Embed(
+                title="📜 Head-to-Head",
+                description="\n".join(desc_lines),
+                color=discord.Color.blurple()
+            )
+
+            view = discord.ui.View(timeout=180)
+
+            async def proceed(btn_interaction: discord.Interaction):
+                if scheduled and played >= scheduled:
+                    await btn_interaction.response.send_message("⚠️ All scheduled games are already recorded.", ephemeral=True)
+                    return
+                score_modal = BulkScoreModal(team1.name, team2.name, self, interaction.user.id)
+                await btn_interaction.response.send_modal(score_modal)
+
+            proceed_btn = discord.ui.Button(label="Continue to Enter Score", style=discord.ButtonStyle.primary)
+            proceed_btn.callback = proceed
+            view.add_item(proceed_btn)
+
+            await teams_interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         
         view = BulkTeamSelectView(self.roster_cache, on_teams_selected)
         embed = discord.Embed(
