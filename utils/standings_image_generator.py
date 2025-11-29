@@ -319,8 +319,8 @@ def generate_standings_image(
             # Scale roughly by character count but keep sensible bounds
             team_column_width = min(max(COL_TEAM, longest_name * 12), 360)
 
-        if (league_code or "").upper() == "NCBA":
-            team_column_width = max(team_column_width, COL_TEAM + 40)
+        # NCBA uses same width as other leagues - no special override
+        # (removed NCBA special case to standardize width)
 
         table_width = (
             COL_RANK

@@ -83,26 +83,26 @@ LEAGUE_THEME_OVERRIDES = {
     },
 }
 
-# Compact layout constants
-CANVAS_PADDING = 32
-CARD_CORNER_RADIUS = 24
-HEADER_BLOCK_HEIGHT = 80
-HEADER_SIDE_PADDING = 20
-ROW_HEIGHT = 52
-HEADER_HEIGHT = 40
-INNER_MARGIN_X = 24
-TABLE_MARGIN_TOP = 16
-TABLE_MARGIN_BOTTOM = 24
+# Compact layout constants - standardized sizing (NCBA baseline)
+CANVAS_PADDING = 36
+CARD_CORNER_RADIUS = 28
+HEADER_BLOCK_HEIGHT = 90
+HEADER_SIDE_PADDING = 24
+ROW_HEIGHT = 56
+HEADER_HEIGHT = 44
+INNER_MARGIN_X = 32
+TABLE_MARGIN_TOP = 20
+TABLE_MARGIN_BOTTOM = 28
 
-# Compact column widths
-COL_RANK = 50
-COL_LOGO = 50
-COL_TEAM = 180
-COL_W = 50
-COL_L = 50
-COL_PF = 60
-COL_PA = 60
-COL_DIFF = 70
+# Compact column widths - fixed for all leagues (wider stats area)
+COL_RANK = 54
+COL_LOGO = 54
+COL_TEAM = 220  # Fixed width for all leagues
+COL_W = 56
+COL_L = 56
+COL_PF = 70
+COL_PA = 70
+COL_DIFF = 80
 
 TEAM_LOGO_SIZE = 36
 LEAGUE_LOGO_SIZE = 56
@@ -260,15 +260,11 @@ def generate_simple_standings_image(
 
         theme = _get_theme(league_code)
 
-        # Calculate dynamic team column width
+        # Fixed team column width for all leagues (standardized sizing)
         team_column_width = COL_TEAM
-        if standings_data:
-            longest_name = max(len(team.get("name", "")) for team in standings_data)
-            team_column_width = min(max(COL_TEAM, longest_name * 10), 280)
 
-        # Table dimensions
-        # Extra space for recent results markers (5 circles ~ 20px spacing)
-        recent_width = 120 if recent_results else 0
+        # Table dimensions - extra space for stats and last 5 markers
+        recent_width = 130 if recent_results else 0  # More space for markers
         table_width = COL_RANK + COL_LOGO + team_column_width + COL_W + COL_L + COL_PF + COL_PA + COL_DIFF + recent_width
         table_height = HEADER_HEIGHT + ROW_HEIGHT * len(standings_data)
         
@@ -367,12 +363,13 @@ def generate_simple_standings_image(
 
         # Data rows
         y = table_y + HEADER_HEIGHT
-        def _marker_color(m: str) -> Tuple[int, int, int, int]:
+        def _marker_color(m: str) -> Optional[Tuple[int, int, int, int]]:
+            """Return fill color for marker. None means outline-only (not reported)."""
             if m == 'W':
-                return _to_rgba((46, 204, 113))
+                return _to_rgba((46, 204, 113))  # Green for win
             if m == 'L':
-                return _to_rgba((231, 76, 60))
-            return _to_rgba((120, 120, 120))
+                return _to_rgba((231, 76, 60))   # Red for loss
+            return None  # No fill - draw outline only for unreported
 
         for rank, team in enumerate(standings_data, 1):
             row_top = y
@@ -432,7 +429,7 @@ def generate_simple_standings_image(
                 card_draw.text((x + width / 2 - tw / 2, row_top + ROW_HEIGHT / 2 - th / 2), stat, fill=theme["text_stats"], font=body_font)
                 x += width
 
-            # Recent results markers
+            # Recent results markers (last 5 games)
             if recent_results:
                 markers = None
                 # team id could be under different keys depending on source
@@ -440,12 +437,19 @@ def generate_simple_standings_image(
                 if team_id is not None:
                     markers = (recent_results or {}).get(str(team_id)) or (recent_results or {}).get(team_id)
                 if markers:
-                    cx = x + 12
+                    cx = x + 16
                     cy = row_top + ROW_HEIGHT / 2
                     for m in markers[:5]:
-                        r = 7
-                        card_draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=_marker_color(m))
-                        cx += 22
+                        r = 8  # Slightly bigger markers
+                        fill_color = _marker_color(m)
+                        if fill_color:
+                            # Win or Loss - filled circle
+                            card_draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=fill_color)
+                        else:
+                            # Not reported - dashed outline circle (hollow)
+                            outline_color = _to_rgba((100, 100, 100))
+                            card_draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=outline_color, width=2)
+                        cx += 24  # More spacing between markers
                 x += recent_width
 
             y += ROW_HEIGHT
