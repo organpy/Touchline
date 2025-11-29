@@ -19,7 +19,11 @@ logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 IMAGES_DIR = ROOT_DIR / "images"
+
 FONTS_DIR = ROOT_DIR / "fonts"
+NAME_FONT = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 32)
+LABEL_FONT = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 16)
+VALUE_FONT = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), 18)
 
 # Theme configuration per league (reuses patterns from standings/match table)
 BASE_THEME = {
@@ -172,29 +176,15 @@ def _load_logo(path: Path, size: int) -> Optional[Image.Image]:
         return None
 
 
-def _draw_vertical_gradient(draw: ImageDraw.ImageDraw, bbox: Tuple[int, int, int, int], start_color, end_color):
+def _draw_vertical_gradient(draw, bbox, start, end):
     x0, y0, x1, y1 = bbox
-    height = max(y1 - y0, 1)
+    height = y1 - y0
     for i in range(height):
-        ratio = i / height
-        r = int(start_color[0] * (1 - ratio) + end_color[0] * ratio)
-        g = int(start_color[1] * (1 - ratio) + end_color[1] * ratio)
-        b = int(start_color[2] * (1 - ratio) + end_color[2] * ratio)
-        draw.line([(x0, y0 + i), (x1, y0 + i)], fill=(r, g, b))
-
-
-def _load_fonts():
-    try:
-        name_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 28)
-        label_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 14)
-        value_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), 16)
-        small_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), 12)
-    except Exception:
-        name_font = ImageFont.load_default()
-        label_font = ImageFont.load_default()
-        value_font = ImageFont.load_default()
-        small_font = ImageFont.load_default()
-    return name_font, label_font, value_font, small_font
+        p = i / height
+        r = int(start[0] + (end[0] - start[0]) * p)
+        g = int(start[1] + (end[1] - start[1]) * p)
+        b = int(start[2] + (end[2] - start[2]) * p)
+        draw.rectangle((x0, y0 + i, x1, y0 + i + 1), fill=(r, g, b))
 
 
 def _draw_rounded_badge(
@@ -268,66 +258,48 @@ def _draw_star_rating(
     return total_width
 
 
-def _draw_star(
-    draw: ImageDraw.ImageDraw,
-    position: Tuple[int, int],
-    size: int,
-    color: Tuple[int, int, int, int],
-    half: bool = False,
-    right_half: bool = False,
-):
-    """Draw a simple star shape."""
+def _draw_star(draw, position, size, color, half=False, right_half=False):
     import math
-    
+
     x, y = position
-    center_x = x + size // 2
-    center_y = y + size // 2
-    outer_radius = size // 2
-    inner_radius = outer_radius * 0.4
-    
-    # Calculate star points
-    points = []
+    cx = x + size / 2
+    cy = y + size / 2
+    r_outer = size * 0.48
+    r_inner = r_outer * 0.45
+
+    pts = []
     for i in range(10):
-        angle = math.pi / 2 + i * math.pi / 5  # Start at top
-        radius = outer_radius if i % 2 == 0 else inner_radius
-        px = center_x + radius * math.cos(angle)
-        py = center_y - radius * math.sin(angle)
-        points.append((px, py))
-    
+        angle = math.pi / 2 + i * (math.pi / 5)
+        r = r_outer if i % 2 == 0 else r_inner
+        pts.append((cx + r * math.cos(angle), cy - r * math.sin(angle)))
+
     if half:
-        # Draw only half the star
+        midpoint = cx
         if right_half:
-            # Clip to right half
-            clipped_points = [(max(center_x, px), py) for px, py in points]
+            pts = [(max(px, midpoint), py) for px, py in pts]
         else:
-            # Clip to left half
-            clipped_points = [(min(center_x, px), py) for px, py in points]
-        draw.polygon(clipped_points, fill=color)
-    else:
-        draw.polygon(points, fill=color)
+            pts = [(min(px, midpoint), py) for px, py in pts]
+
+    draw.polygon(pts, fill=color)
 
 
-def _draw_avatar_circle(
-    canvas: Image.Image,
-    position: Tuple[int, int],
-    size: int,
-    border_color: Tuple[int, int, int, int],
-    border_width: int = 4,
-):
-    """Draw a circular avatar placeholder with border."""
+def _draw_avatar_circle(canvas, position, size, border_color, border_width=4):
     draw = ImageDraw.Draw(canvas)
     x, y = position
-    
-    # Draw outer circle (border)
+
+    # Shadow
+    shadow = Image.new("RGBA", (size + 20, size + 20), (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow)
+    shadow_draw.ellipse((10, 10, size + 10, size + 10), fill=(0, 0, 0, 90))
+    canvas.paste(shadow, (x - 10, y - 10), shadow)
+
+    # Border
+    draw.ellipse((x, y, x + size, y + size), fill=_to_rgba(border_color))
+
+    # Inner circle
+    inner = border_width
     draw.ellipse(
-        (x, y, x + size, y + size),
-        fill=_to_rgba(border_color),
-    )
-    
-    # Draw inner circle (background)
-    inner_offset = border_width
-    draw.ellipse(
-        (x + inner_offset, y + inner_offset, x + size - inner_offset, y + size - inner_offset),
+        (x + inner, y + inner, x + size - inner, y + size - inner),
         fill=(255, 255, 255, 255),
     )
 
@@ -476,36 +448,50 @@ def generate_player_card_image(
         name_x = (CARD_WIDTH - name_width) // 2
         draw.text((name_x, name_y), player_name, fill=_to_rgba(theme["text_primary"]), font=name_font)
         
-        # === BELOW NAME: Team Logo + Team Name (horizontal layout) ===
-        team_row_y = name_y + 36
+        # --- BELOW NAME: Team Logo + Team Name (centered row) ---
+        team_row_y = name_y + 34
+
         team_logo_size = 40
-        team_logo_x = (CARD_WIDTH - team_logo_size - 120) // 2 - 30
-        team_logo_y = team_row_y - 6
-        
+        team_logo_img = None
+
         if team_code:
-            team_logo_path = _find_logo_path(team_code)
-            if team_logo_path:
-                team_logo_img = _load_logo(team_logo_path, team_logo_size)
-                if team_logo_img:
-                    canvas.paste(team_logo_img, (team_logo_x, team_logo_y), team_logo_img)
-        
-        if team_name:
-            team_x = team_logo_x + team_logo_size + 12
-            draw.text((team_x, team_row_y), team_name, fill=_to_rgba(theme["text_secondary"]), font=value_font)
-        
+            path = _find_logo_path(team_code)
+            if path:
+                team_logo_img = _load_logo(path, team_logo_size)
+
+        # Measure team text
+        team_text = team_name or ""
+        team_text_bbox = draw.textbbox((0, 0), team_text, font=value_font)
+        team_text_w = team_text_bbox[2] - team_text_bbox[0]
+
+        # Total width incl. logo and gap
+        gap = 10
+        row_width = team_text_w + (team_logo_size + gap if team_logo_img else 0)
+
+        start_x = (CARD_WIDTH - row_width) // 2
+
+        # Draw logo
+        if team_logo_img:
+            canvas.paste(team_logo_img, (start_x, team_row_y), team_logo_img)
+            text_x = start_x + team_logo_size + gap
+        else:
+            text_x = start_x
+
+        draw.text((text_x, team_row_y + 6), team_text, fill=_to_rgba(theme["text_secondary"]), font=value_font)
+
         # === Star Rating below team ===
         star_y = team_row_y + 36
         star_total_width = MAX_STARS * STAR_SIZE + (MAX_STARS - 1) * STAR_SPACING
         star_x = (CARD_WIDTH - star_total_width) // 2
         _draw_star_rating(draw, (star_x, star_y), star_rating, theme)
-        
+        badge_spacing = 12
         # === BOTTOM SECTION: Stats Grid (3x2 layout) ===
-        stats_section_y = star_y + 50
-        col_width = (CARD_WIDTH - CARD_PADDING * 2) // 2
+        stats_section_y = star_y + 40
+        grid_gap = 14
+        row_height = BADGE_HEIGHT + grid_gap
+
         left_col = CARD_PADDING
-        right_col = CARD_PADDING + col_width + 12
-        row_height = 50
-        badge_spacing = 8
+        right_col = CARD_WIDTH // 2 + 4
         
         ppg = stats.get('ppg', 0) or 0
         games = stats.get('games_played', 0) or 0

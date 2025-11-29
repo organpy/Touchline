@@ -13,7 +13,7 @@ from discord import ui
 from utils.config_manager import get_config_manager
 from utils.team_player_cache import TeamPlayerCache
 from cogs.admin.common import LazyInitView
-from cogs.admin.picks_controller import PicksControllerView
+from cogs.admin.picks_controller import PicksStatusButton
 
 logger = logging.getLogger(__name__)
 
@@ -131,12 +131,12 @@ class TransactionSettingsView(LazyInitView):
 
     @discord.ui.button(label="Picks Manager", style=discord.ButtonStyle.primary, row=1)
     async def picks_manager(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Open picks controller interface."""
+        """Open picks status button for NBL draft picks."""
         await interaction.response.defer(ephemeral=True)
-        view = PicksControllerView(self.bot, self.guild_id)
-        embed = view.create_embed()
-        message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-        view.original_message = message
+        view = PicksStatusButton(self.bot, self.guild_id)
+        await view.update_button_state()
+        message = await interaction.followup.send("🎯 **NBL Draft Picks**", view=view, ephemeral=True)
+
 
 
 class TeamBanSelectView(LazyInitView):
