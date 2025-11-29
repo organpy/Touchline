@@ -185,17 +185,21 @@ class ForceTradeSelectionView(discord.ui.View):
 
             # Transfer picks: outbound picks go from team1 to team2
             for asset in assets['outbound']:
-                if asset.get('type') == 'pick' and asset.get('pick_id'):
-                    result = repo.update_draft_pick_owner(asset['pick_id'], self.team2['id'])
-                    if not result:
-                        logger.error(f"Failed to transfer pick {asset['pick_id']} in force trade")
+                if asset.get('type') == 'pick':
+                    pick_id = asset.get('draft_pick_id') or asset.get('pick_id')
+                    if pick_id:
+                        result = repo.update_draft_pick_owner(pick_id, self.team2['id'])
+                        if not result:
+                            logger.error(f"Failed to transfer pick {pick_id} in force trade")
 
             # Transfer picks: inbound picks go from team2 to team1
             for asset in assets['inbound']:
-                if asset.get('type') == 'pick' and asset.get('pick_id'):
-                    result = repo.update_draft_pick_owner(asset['pick_id'], self.team1['id'])
-                    if not result:
-                        logger.error(f"Failed to transfer pick {asset['pick_id']} in force trade")
+                if asset.get('type') == 'pick':
+                    pick_id = asset.get('draft_pick_id') or asset.get('pick_id')
+                    if pick_id:
+                        result = repo.update_draft_pick_owner(pick_id, self.team1['id'])
+                        if not result:
+                            logger.error(f"Failed to transfer pick {pick_id} in force trade")
             # ===== END TRANSFER ASSETS =====
 
             await TeamPlayerCache.refresh(self.supabase)
