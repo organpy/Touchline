@@ -13,6 +13,7 @@ import time
 from db import get_supabase, queries
 from db.transactions_repository import TransactionsRepository
 from utils.team_player_cache import TeamPlayerCache
+from utils.config_manager import get_config_manager
 from utils.embed_assets import (
     apply_league_badge,
     apply_team_badge,
@@ -191,6 +192,16 @@ class TeamDraftPicksCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         try:
+            # Check if picks are paused globally
+            config_mgr = get_config_manager()
+            config = await config_mgr.get_config(interaction.guild_id)
+            if config.get('picks_paused', False):
+                await interaction.followup.send(
+                    "⏸️ Draft picks are currently **paused**. Contact an admin.",
+                    ephemeral=True,
+                )
+                return
+
             # Get user's team
             team = await queries.get_team_by_owner(self.supabase, interaction.user.id)
             
@@ -200,6 +211,22 @@ class TeamDraftPicksCog(commands.Cog):
                     ephemeral=True,
                 )
                 return
+
+            # Check if this is NBL division (picks only work for NBL)
+            try:
+                div_response = self.supabase.table('divisions').select('league_type').eq(
+                    'id', team['division_id']
+                ).limit(1).execute()
+                if div_response.data:
+                    league_type = div_response.data[0].get('league_type', '').upper()
+                    if league_type != 'NBL':
+                        await interaction.followup.send(
+                            f"❌ Draft picks are only available for **NBL** teams.",
+                            ephemeral=True,
+                        )
+                        return
+            except Exception as e:
+                logger.warning(f"Failed to check division type: {e}")
 
             # Get active season
             try:

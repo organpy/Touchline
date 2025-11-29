@@ -10,7 +10,6 @@ from typing import Any, Dict, Optional, List
 import discord
 from discord import ui
 
-from db import get_supabase
 from utils.config_manager import get_config_manager
 from utils.team_player_cache import TeamPlayerCache
 from cogs.admin.common import LazyInitView
@@ -138,28 +137,8 @@ class TransactionSettingsView(LazyInitView):
         
         try:
             config_mgr = get_config_manager()
-            supabase = get_supabase()
-            if not supabase:
-                await interaction.followup.send("❌ Database unavailable.", ephemeral=True)
-                return
             
-            # Get NBL division and active season
-            nbl_div_response = supabase.table('divisions').select('*').eq('name', 'NBL').execute()
-            if not nbl_div_response.data:
-                await interaction.followup.send("❌ NBL division not found.", ephemeral=True)
-                return
-            
-            nbl_div_id = nbl_div_response.data[0]['id']
-            
-            # Get active season for NBL
-            seasons_response = supabase.table('seasons').select('*').eq('division_id', nbl_div_id).eq('active', True).execute()
-            if not seasons_response.data:
-                await interaction.followup.send("❌ No active NBL season found.", ephemeral=True)
-                return
-            
-            active_season = seasons_response.data[0]
-            
-            # Toggle picks state
+            # Toggle picks state (simple toggle, NBL-only is handled in the /pick command)
             config = await config_mgr.get_config(self.guild_id)
             picks_paused = config.get('picks_paused', False)
             new_state = not picks_paused
@@ -168,6 +147,7 @@ class TransactionSettingsView(LazyInitView):
             self.config_data['picks_paused'] = new_state
             
             await self.update_display(interaction)
+            logger.info(f"{'🔴 Picks PAUSED' if new_state else '🟢 Picks RESUMED'} by {interaction.user.id}")
         
         except Exception as e:
             logger.error(f"Error toggling picks: {e}", exc_info=True)
