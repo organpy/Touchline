@@ -1,7 +1,7 @@
 -- Fix duplicate games in get_player_history function
 -- Problem: LEFT JOIN on rosters can create duplicates if player has multiple roster entries
--- Solution: Only use player_stats table (which guarantees one row per player per match)
--- and subquery for team to avoid roster duplicates
+-- Solution: Use player_stats as the source of truth (one row per player per match)
+-- and use subquery to get player's team WITHOUT creating duplicates
 
 DROP FUNCTION IF EXISTS get_player_history(UUID, UUID, INT, INT);
 DROP FUNCTION IF EXISTS get_player_history(UUID, UUID, INT);
@@ -28,14 +28,20 @@ RETURNS TABLE(
 LANGUAGE SQL
 STABLE
 AS $$
+WITH player_team AS (
+    -- Get player's team for this season (latest entry)
+    SELECT DISTINCT ON (player_id, season_id) team_id
+    FROM rosters
+    WHERE player_id = p_player_id AND season_id = p_season_id
+    ORDER BY player_id, season_id, joined_at DESC
+)
 SELECT
     m.id,
     m.played_at,
-    -- Determine opponent: get player's team from roster (first match), then find opponent
     CASE 
-        WHEN (SELECT team_id FROM rosters WHERE player_id = p_player_id AND season_id = p_season_id LIMIT 1) = m.team1_id 
-        THEN t2.name
-        ELSE t1.name
+        WHEN (SELECT team_id FROM player_team) = m.team1_id THEN t2.name
+        WHEN (SELECT team_id FROM player_team) = m.team2_id THEN t1.name
+        ELSE 'Unknown'
     END,
     COALESCE(ps.points, 0)::INT,
     COALESCE(ps.assists, 0)::INT,
