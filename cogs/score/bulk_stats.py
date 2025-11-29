@@ -2,6 +2,8 @@
 Bulk Stats Entry - Single modal with multi-line text input for all player stats.
 Format: PlayerName,Goals,OwnGoals,Points,Assists,Saves,Blocks,PowerupPlays,PowerupsUsed
 One player per line, separated by newlines.
+
+Flow uses buttons between modals since Discord doesn't allow modal->modal responses.
 """
 
 import discord
@@ -119,13 +121,15 @@ class BulkStatsModal(discord.ui.Modal):
         team_name: str,
         team_code: str,
         team_num: int,
-        on_stats_submitted,
+        cog_ref,  # Reference to cog for accessing entry state
+        user_id: int,
         roster_cache: RosterCache
     ):
         super().__init__(title=f"{team_name} Stats ({team_num}/2)")
         self.team_code = team_code
         self.team_num = team_num
-        self.on_stats_submitted = on_stats_submitted
+        self.cog_ref = cog_ref
+        self.user_id = user_id
         self.roster_cache = roster_cache
         
         self.stats_input = discord.ui.TextInput(
@@ -181,15 +185,31 @@ class BulkStatsModal(discord.ui.Modal):
             )
             player_entries.append(entry)
         
-        await self.on_stats_submitted(player_entries, interaction)
+        # Store stats and show next step
+        entry = self.cog_ref.active_entries.get(self.user_id)
+        if not entry:
+            await interaction.response.send_message("❌ Session expired.", ephemeral=True)
+            return
+        
+        if self.team_num == 1:
+            entry['team1_stats'] = player_entries
+            # Show button to enter Team 2 stats
+            await self.cog_ref.show_team2_stats_prompt(interaction, self.user_id)
+        else:
+            entry['team2_stats'] = player_entries
+            # Show confirmation
+            await self.cog_ref.show_confirmation(interaction, self.user_id)
 
 
 class BulkScoreModal(discord.ui.Modal):
-    """Modal for entering team scores."""
+    """Modal for entering team scores - for /report-stats-bulk flow."""
     
-    def __init__(self, team1_name: str, team2_name: str, on_scores_entered):
+    def __init__(self, team1_name: str, team2_name: str, cog_ref, user_id: int):
         super().__init__(title="Enter Match Scores")
-        self.on_scores_entered = on_scores_entered
+        self.cog_ref = cog_ref
+        self.user_id = user_id
+        self.team1_name = team1_name
+        self.team2_name = team2_name
         
         self.team1_score = discord.ui.TextInput(
             label=f"{team1_name} Score",
@@ -216,11 +236,65 @@ class BulkScoreModal(discord.ui.Modal):
                 await interaction.response.send_message("❌ Scores cannot be equal (no draws).", ephemeral=True)
                 return
             
-            if score1 <= 0 or score2 <= 0:
-                await interaction.response.send_message("❌ Both scores must be greater than 0.", ephemeral=True)
+            if score1 < 0 or score2 < 0:
+                await interaction.response.send_message("❌ Scores cannot be negative.", ephemeral=True)
                 return
             
-            await self.on_scores_entered(score1, score2, interaction)
+            entry = self.cog_ref.active_entries.get(self.user_id)
+            if not entry:
+                await interaction.response.send_message("❌ Session expired.", ephemeral=True)
+                return
+            
+            entry['team1_score'] = score1
+            entry['team2_score'] = score2
+            
+            # Show button to enter Team 1 stats (can't chain modals)
+            await self.cog_ref.show_team1_stats_prompt(interaction, self.user_id)
+            
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid score format (must be numbers).", ephemeral=True)
+
+
+class ScoreOnlyModal(discord.ui.Modal):
+    """Modal for entering just scores - for /report-score flow."""
+    
+    def __init__(self, team1_name: str, team2_name: str, cog_ref, user_id: int):
+        super().__init__(title="Enter Match Score")
+        self.cog_ref = cog_ref
+        self.user_id = user_id
+        
+        self.team1_score = discord.ui.TextInput(
+            label=f"{team1_name} Score",
+            placeholder="e.g., 45",
+            min_length=1,
+            max_length=3
+        )
+        self.team2_score = discord.ui.TextInput(
+            label=f"{team2_name} Score",
+            placeholder="e.g., 38",
+            min_length=1,
+            max_length=3
+        )
+        
+        self.add_item(self.team1_score)
+        self.add_item(self.team2_score)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            score1 = int(self.team1_score.value.strip())
+            score2 = int(self.team2_score.value.strip())
+            
+            if score1 == score2:
+                await interaction.response.send_message("❌ Scores cannot be equal (no draws).", ephemeral=True)
+                return
+            
+            if score1 < 0 or score2 < 0:
+                await interaction.response.send_message("❌ Scores cannot be negative.", ephemeral=True)
+                return
+            
+            # Save directly (score-only flow)
+            await self.cog_ref.save_score_only(interaction, self.user_id, score1, score2)
+            
         except ValueError:
             await interaction.response.send_message("❌ Invalid score format (must be numbers).", ephemeral=True)
 
@@ -237,7 +311,7 @@ class BulkTeamSelectView(discord.ui.View):
         
         teams = roster_cache.get_all_teams()
         team_options = [
-            discord.SelectOption(label=t.name, value=t.code, emoji=t.emoji)
+            discord.SelectOption(label=t.name, value=t.code, emoji=t.emoji if t.emoji else None)
             for t in teams
         ][:25]
         
@@ -328,35 +402,8 @@ class BulkStatsCog(commands.Cog):
                 'team2_score': 0,
             }
             
-            async def on_scores_entered(score1: int, score2: int, score_interaction: discord.Interaction):
-                entry = self.active_entries.get(interaction.user.id)
-                if not entry:
-                    await score_interaction.response.send_message("❌ Session expired.", ephemeral=True)
-                    return
-                
-                entry['team1_score'] = score1
-                entry['team2_score'] = score2
-                
-                # Show Team 1 stats modal
-                async def on_team1_stats(stats: List[PlayerStatEntry], stats_interaction: discord.Interaction):
-                    entry['team1_stats'] = stats
-                    
-                    # Show Team 2 stats modal
-                    async def on_team2_stats(stats2: List[PlayerStatEntry], stats2_interaction: discord.Interaction):
-                        entry['team2_stats'] = stats2
-                        await self.show_confirmation(stats2_interaction, interaction.user.id)
-                    
-                    team2_modal = BulkStatsModal(
-                        team2.name, team2.code, 2, on_team2_stats, self.roster_cache
-                    )
-                    await stats_interaction.response.send_modal(team2_modal)
-                
-                team1_modal = BulkStatsModal(
-                    team1.name, team1.code, 1, on_team1_stats, self.roster_cache
-                )
-                await score_interaction.response.send_modal(team1_modal)
-            
-            score_modal = BulkScoreModal(team1.name, team2.name, on_scores_entered)
+            # Show score modal (button flow continues from there)
+            score_modal = BulkScoreModal(team1.name, team2.name, self, interaction.user.id)
             await teams_interaction.response.send_modal(score_modal)
         
         view = BulkTeamSelectView(self.roster_cache, on_teams_selected)
@@ -368,6 +415,67 @@ class BulkStatsCog(commands.Cog):
                         "```\nPlayerName,Goals,OG,Points,Assists,Saves,Blocks,PP,PU\n```",
             color=discord.Color.blue()
         )
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    
+    async def show_team1_stats_prompt(self, interaction: discord.Interaction, user_id: int):
+        """Show button to enter Team 1 stats (can't chain modals directly)."""
+        entry = self.active_entries.get(user_id)
+        if not entry:
+            await interaction.response.send_message("❌ Session expired.", ephemeral=True)
+            return
+        
+        team1 = entry['team1']
+        
+        embed = discord.Embed(
+            title=f"📊 Enter {team1.name} Stats",
+            description=f"Score recorded: **{entry['team1_score']}** - **{entry['team2_score']}**\n\n"
+                        f"Click the button below to enter player stats for **{team1.name}**.",
+            color=discord.Color.blue()
+        )
+        
+        view = discord.ui.View(timeout=300)
+        
+        async def open_team1_modal(btn_interaction: discord.Interaction):
+            modal = BulkStatsModal(
+                team1.name, team1.code, 1, self, user_id, self.roster_cache
+            )
+            await btn_interaction.response.send_modal(modal)
+        
+        btn = discord.ui.Button(label=f"Enter {team1.name} Stats", style=discord.ButtonStyle.primary, emoji="📝")
+        btn.callback = open_team1_modal
+        view.add_item(btn)
+        
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    
+    async def show_team2_stats_prompt(self, interaction: discord.Interaction, user_id: int):
+        """Show button to enter Team 2 stats."""
+        entry = self.active_entries.get(user_id)
+        if not entry:
+            await interaction.response.send_message("❌ Session expired.", ephemeral=True)
+            return
+        
+        team1 = entry['team1']
+        team2 = entry['team2']
+        
+        embed = discord.Embed(
+            title=f"✅ {team1.name} Stats Saved",
+            description=f"**{len(entry['team1_stats'])}** players recorded.\n\n"
+                        f"Click the button below to enter stats for **{team2.name}**.",
+            color=discord.Color.blue()
+        )
+        
+        view = discord.ui.View(timeout=300)
+        
+        async def open_team2_modal(btn_interaction: discord.Interaction):
+            modal = BulkStatsModal(
+                team2.name, team2.code, 2, self, user_id, self.roster_cache
+            )
+            await btn_interaction.response.send_modal(modal)
+        
+        btn = discord.ui.Button(label=f"Enter {team2.name} Stats", style=discord.ButtonStyle.primary, emoji="📝")
+        btn.callback = open_team2_modal
+        view.add_item(btn)
+        
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     
     async def show_confirmation(self, interaction: discord.Interaction, user_id: int):
@@ -594,67 +702,14 @@ class BulkStatsCog(commands.Cog):
                 await teams_interaction.response.send_message("❌ Team not found.", ephemeral=True)
                 return
             
-            async def on_scores_entered(score1: int, score2: int, score_interaction: discord.Interaction):
-                await score_interaction.response.defer()
-                
-                try:
-                    # Get active season
-                    season = await queries.get_active_season(self.supabase)
-                    if not season:
-                        await score_interaction.followup.send("❌ No active season found.", ephemeral=True)
-                        return
-                    
-                    # Build match entry (no player stats)
-                    match_entry = MatchEntry(
-                        team1=TeamMatchEntry(
-                            team_id=team1.team_id,
-                            team_code=team1.code,
-                            team_name=team1.name,
-                            emoji=team1.emoji,
-                            score=score1
-                        ),
-                        team2=TeamMatchEntry(
-                            team_id=team2.team_id,
-                            team_code=team2.code,
-                            team_name=team2.name,
-                            emoji=team2.emoji,
-                            score=score2
-                        )
-                    )
-                    
-                    # Insert match only (no player stats)
-                    match_data = match_entry.to_supabase_match(season['id'], season['division_id'])
-                    match_response = self.supabase.table('matches').insert(match_data).execute()
-                    
-                    if not match_response.data:
-                        await score_interaction.followup.send("❌ Failed to insert match.", ephemeral=True)
-                        return
-                    
-                    match_id = match_response.data[0]['id']
-                    
-                    # Success
-                    winner = team1.name if score1 > score2 else team2.name
-                    embed = discord.Embed(
-                        title="✅ Score Recorded!",
-                        description=f"Match ID: `{match_id}`",
-                        color=discord.Color.green()
-                    )
-                    embed.add_field(
-                        name="Result",
-                        value=f"**{team1.name}** {score1} - {score2} **{team2.name}**",
-                        inline=False
-                    )
-                    embed.add_field(name="Winner", value=f"🏆 {winner}", inline=False)
-                    
-                    await score_interaction.followup.send(embed=embed, ephemeral=True)
-                    
-                    logger.info(f"✅ Score recorded: {team1.code} {score1}-{score2} {team2.code} (match_id={match_id})")
-                
-                except Exception as e:
-                    logger.error(f"Error saving score: {e}", exc_info=True)
-                    await score_interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
+            # Store entry state for score-only
+            self.active_entries[interaction.user.id] = {
+                'team1': team1,
+                'team2': team2,
+                'score_only': True,
+            }
             
-            score_modal = BulkScoreModal(team1.name, team2.name, on_scores_entered)
+            score_modal = ScoreOnlyModal(team1.name, team2.name, self, interaction.user.id)
             await teams_interaction.response.send_modal(score_modal)
         
         view = BulkTeamSelectView(self.roster_cache, on_teams_selected)
@@ -665,6 +720,79 @@ class BulkStatsCog(commands.Cog):
             color=discord.Color.blue()
         )
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    
+    async def save_score_only(self, interaction: discord.Interaction, user_id: int, score1: int, score2: int):
+        """Save score-only match to database."""
+        entry = self.active_entries.get(user_id)
+        if not entry:
+            await interaction.response.send_message("❌ Session expired.", ephemeral=True)
+            return
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Get active season
+            season = await queries.get_active_season(self.supabase)
+            if not season:
+                await interaction.followup.send("❌ No active season found.", ephemeral=True)
+                return
+            
+            team1 = entry['team1']
+            team2 = entry['team2']
+            
+            # Build match entry (no player stats)
+            match_entry = MatchEntry(
+                team1=TeamMatchEntry(
+                    team_id=team1.team_id,
+                    team_code=team1.code,
+                    team_name=team1.name,
+                    emoji=team1.emoji,
+                    score=score1
+                ),
+                team2=TeamMatchEntry(
+                    team_id=team2.team_id,
+                    team_code=team2.code,
+                    team_name=team2.name,
+                    emoji=team2.emoji,
+                    score=score2
+                )
+            )
+            
+            # Insert match only (no player stats)
+            match_data = match_entry.to_supabase_match(season['id'], season['division_id'])
+            match_response = self.supabase.table('matches').insert(match_data).execute()
+            
+            if not match_response.data:
+                await interaction.followup.send("❌ Failed to insert match.", ephemeral=True)
+                return
+            
+            match_id = match_response.data[0]['id']
+            
+            # Success
+            winner = team1.name if score1 > score2 else team2.name
+            embed = discord.Embed(
+                title="✅ Score Recorded!",
+                description=f"Match ID: `{match_id}`",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="Result",
+                value=f"**{team1.name}** {score1} - {score2} **{team2.name}**",
+                inline=False
+            )
+            embed.add_field(name="Winner", value=f"🏆 {winner}", inline=False)
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            
+            # Cleanup
+            if user_id in self.active_entries:
+                del self.active_entries[user_id]
+            
+            logger.info(f"✅ Score recorded: {team1.code} {score1}-{score2} {team2.code} (match_id={match_id})")
+        
+        except Exception as e:
+            logger.error(f"Error saving score: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
