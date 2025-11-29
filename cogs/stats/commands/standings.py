@@ -164,6 +164,7 @@ class StandingsCog(StatsCogBase):
             season_row.get('name', 'Unknown'),
             season_league_display,
             league_code=league_code,
+            recent_results=recent_map,
         )
 
         if standings_image:
