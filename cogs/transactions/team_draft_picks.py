@@ -56,25 +56,30 @@ class TeamDraftPicksCog(commands.Cog):
     async def autocomplete_available_players(
         self, interaction: discord.Interaction, current: str
     ) -> List[app_commands.Choice[str]]:
-        """Autocomplete for available players (not yet picked). Uses 30s TTL cache."""
+        """Autocomplete for available players (not yet picked). Uses 30s TTL cache.
+        Filters to show only players from the user's division.
+        """
         try:
             user_id = interaction.user.id
             now = time.time()
 
+            # Get user's team (need division)
+            team = await queries.get_team_by_owner(self.supabase, interaction.user.id)
+            if not team:
+                return []
+            
+            division_id = team['division_id']
+            cache_key = f"{user_id}_{division_id}"
+
             # Check cache
-            cached = _autocomplete_cache.get(user_id)
+            cached = _autocomplete_cache.get(cache_key)
             if cached and (now - cached['timestamp']) < _AUTOCOMPLETE_TTL:
                 all_players = cached['players']
             else:
-                # Get user's team
-                team = await queries.get_team_by_owner(self.supabase, interaction.user.id)
-                if not team:
-                    return []
-
                 # Get active season for this division
                 try:
                     seasons_response = self.supabase.table('seasons').select('id').eq(
-                        'division_id', team['division_id']
+                        'division_id', division_id
                     ).eq('active', True).limit(1).execute()
                     if not seasons_response.data:
                         return []
@@ -83,7 +88,19 @@ class TeamDraftPicksCog(commands.Cog):
                     logger.warning(f"Failed to get active season: {e}")
                     return []
 
-                # Get all available players from rosters in this season
+                # Get all teams in this division
+                try:
+                    teams_response = self.supabase.table('teams').select('id').eq(
+                        'division_id', division_id
+                    ).execute()
+                    division_team_ids = {t['id'] for t in (teams_response.data or [])}
+                    if not division_team_ids:
+                        return []
+                except Exception as e:
+                    logger.warning(f"Failed to get division teams: {e}")
+                    return []
+
+                # Get all available players from rosters in this season (only division teams)
                 try:
                     response = self.supabase.table('rosters').select(
                         'players(id, display_name)'
@@ -93,6 +110,7 @@ class TeamDraftPicksCog(commands.Cog):
                     
                     roster_player_ids = set()
                     for roster in (response.data or []):
+                        # Check if this roster belongs to a team in this division
                         player_data = roster.get('players')
                         if player_data and isinstance(player_data, dict):
                             roster_player_ids.add(player_data['id'])
@@ -130,7 +148,7 @@ class TeamDraftPicksCog(commands.Cog):
                     return []
 
                 # Store in cache
-                _autocomplete_cache[user_id] = {
+                _autocomplete_cache[cache_key] = {
                     'players': all_players,
                     'timestamp': now
                 }
@@ -147,7 +165,7 @@ class TeamDraftPicksCog(commands.Cog):
             return [
                 app_commands.Choice(
                     name=p.get('display_name', 'Unknown')[:100],
-                    value=p.get('id', '')
+                    value=p.get('id', '')  # UUID value
                 )
                 for p in sorted_filtered
             ]
@@ -199,6 +217,17 @@ class TeamDraftPicksCog(commands.Cog):
                 logger.error(f"Failed to get active season: {e}")
                 await interaction.followup.send(
                     "❌ Error getting season. Check server logs.",
+                    ephemeral=True,
+                )
+                return
+
+            # Validate player_id is a valid UUID (not a player name)
+            try:
+                import uuid
+                uuid.UUID(player_id)  # This will raise ValueError if not a valid UUID
+            except (ValueError, AttributeError):
+                await interaction.followup.send(
+                    "❌ Invalid player selection. Please select from the autocomplete list.",
                     ephemeral=True,
                 )
                 return
