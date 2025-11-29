@@ -1,4 +1,4 @@
-"""Simple standings image - compact view with just scores (W, L, PF, PA, Diff)."""
+"""Standings image generator - compact view with scores (W, L, PF, PA, Diff, Last 5)."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 IMAGES_DIR = ROOT_DIR / "images"
 FONTS_DIR = ROOT_DIR / "fonts"
 
-# Reuse theme system from standings_image_generator
+# Theme system for standings visualization
 BASE_THEME = {
     "canvas_gradient": ((6, 10, 22), (27, 8, 35)),
     "card_bg": (26, 33, 49, 255),
