@@ -230,8 +230,13 @@ def generate_simple_standings_image(
     season_name: str,
     league_name: str,
     league_code: Optional[str] = None,
+    recent_results: Optional[Dict[str, List[str]]] = None,
 ) -> Optional[io.BytesIO]:
-    """Generate a compact standings image with just W, L, PF, PA, Diff."""
+    """Generate compact standings image.
+    standings: list of dicts with keys: team_id, team_name, wins, losses, pf, pa, diff
+    recent_results: optional dict mapping team_id -> list of last 5 markers ['W'|'L'|'N']
+    Returns PNG bytes.
+    """
     try:
         if not standings_data:
             return None
@@ -243,6 +248,7 @@ def generate_simple_standings_image(
             "league_name": league_name,
             "season_name": season_name,
             "standings": standings_data,
+            "recent_results": recent_results or {},
         }
         cache_key = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
         
@@ -261,7 +267,9 @@ def generate_simple_standings_image(
             team_column_width = min(max(COL_TEAM, longest_name * 10), 280)
 
         # Table dimensions
-        table_width = COL_RANK + COL_LOGO + team_column_width + COL_W + COL_L + COL_PF + COL_PA + COL_DIFF
+        # Extra space for recent results markers (5 circles ~ 20px spacing)
+        recent_width = 120 if recent_results else 0
+        table_width = COL_RANK + COL_LOGO + team_column_width + COL_W + COL_L + COL_PF + COL_PA + COL_DIFF + recent_width
         table_height = HEADER_HEIGHT + ROW_HEIGHT * len(standings_data)
         
         card_width = table_width + (INNER_MARGIN_X * 2)
@@ -344,6 +352,8 @@ def generate_simple_standings_image(
             ("PA", COL_PA),
             ("±", COL_DIFF),
         ]
+        if recent_results:
+            columns.append(("Last 5", recent_width))
 
         x = table_x
         for text, width in columns:
@@ -357,6 +367,13 @@ def generate_simple_standings_image(
 
         # Data rows
         y = table_y + HEADER_HEIGHT
+        def _marker_color(m: str) -> Tuple[int, int, int, int]:
+            if m == 'W':
+                return _to_rgba((46, 204, 113))
+            if m == 'L':
+                return _to_rgba((231, 76, 60))
+            return _to_rgba((120, 120, 120))
+
         for rank, team in enumerate(standings_data, 1):
             row_top = y
             row_bottom = y + ROW_HEIGHT
@@ -414,6 +431,22 @@ def generate_simple_standings_image(
                 tw, th = _measure_text(card_draw, stat, body_font)
                 card_draw.text((x + width / 2 - tw / 2, row_top + ROW_HEIGHT / 2 - th / 2), stat, fill=theme["text_stats"], font=body_font)
                 x += width
+
+            # Recent results markers
+            if recent_results:
+                markers = None
+                # team id could be under different keys depending on source
+                team_id = team.get('team_id') or team.get('id') or team.get('teams.id')
+                if team_id is not None:
+                    markers = (recent_results or {}).get(str(team_id)) or (recent_results or {}).get(team_id)
+                if markers:
+                    cx = x + 12
+                    cy = row_top + ROW_HEIGHT / 2
+                    for m in markers[:5]:
+                        r = 7
+                        card_draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=_marker_color(m))
+                        cx += 22
+                x += recent_width
 
             y += ROW_HEIGHT
 
