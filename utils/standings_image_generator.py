@@ -114,17 +114,13 @@ def _get_theme(league_code: Optional[str]) -> Dict[str, Any]:
 
     return theme
 
-# Layout constants
+# Layout constants - centered content with equal padding
 CANVAS_PADDING = 48
 CARD_CORNER_RADIUS = 36
+CARD_PADDING = 40  # Equal padding on all sides of card content
 HEADER_BLOCK_HEIGHT = 150
-HEADER_TOP_PADDING = 32
-HEADER_SIDE_PADDING = 32
 ROW_HEIGHT = 68
 HEADER_HEIGHT = 56
-INNER_MARGIN_X = 70
-TABLE_MARGIN_TOP = 24
-TABLE_MARGIN_BOTTOM = 48
 COL_RANK = 78
 COL_LOGO = 70
 COL_TEAM = 240
@@ -333,14 +329,14 @@ def generate_standings_image(
             + COL_DIFF
         )
         table_height = HEADER_HEIGHT + ROW_HEIGHT * len(standings_data)
-        card_width = table_width + (INNER_MARGIN_X * 2)
-        card_height = (
-            HEADER_TOP_PADDING
-            + HEADER_BLOCK_HEIGHT
-            + TABLE_MARGIN_TOP
-            + table_height
-            + TABLE_MARGIN_BOTTOM
-        )
+        
+        # Card with equal padding on all sides
+        content_width = table_width
+        content_height = HEADER_BLOCK_HEIGHT + table_height
+        
+        card_width = content_width + (CARD_PADDING * 2)
+        card_height = content_height + (CARD_PADDING * 2)
+        
         canvas_width = card_width + CANVAS_PADDING * 2
         canvas_height = card_height + CANVAS_PADDING * 2
 
@@ -360,9 +356,10 @@ def generate_standings_image(
 
         title_font, subtitle_font, header_font, body_font = _load_fonts()
 
-        header_width = card_width - (HEADER_SIDE_PADDING * 2)
-        header_x = HEADER_SIDE_PADDING
-        header_y = HEADER_TOP_PADDING
+        # Header with gradient - centered with equal padding
+        header_width = content_width
+        header_x = CARD_PADDING
+        header_y = CARD_PADDING
         header_bbox = (0, 0, header_width, HEADER_BLOCK_HEIGHT)
 
         header_layer = Image.new("RGBA", (header_width, HEADER_BLOCK_HEIGHT), (0, 0, 0, 0))
@@ -429,8 +426,9 @@ def generate_standings_image(
             card_draw.text((subtitle_position[0] + 1, subtitle_position[1] + 1), subtitle_text, fill=subtitle_shadow, font=subtitle_font)
         card_draw.text(subtitle_position, subtitle_text, fill=subtitle_color, font=subtitle_font)
 
-        table_x = INNER_MARGIN_X
-        table_y = header_y + HEADER_BLOCK_HEIGHT + TABLE_MARGIN_TOP
+        # Table header - directly below header block
+        table_x = CARD_PADDING
+        table_y = CARD_PADDING + HEADER_BLOCK_HEIGHT
         card_draw.rectangle((table_x, table_y, table_x + table_width, table_y + HEADER_HEIGHT), fill=theme["row_primary"])
 
         columns = [
