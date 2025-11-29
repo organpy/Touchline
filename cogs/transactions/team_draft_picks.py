@@ -268,9 +268,10 @@ class TeamDraftPicksCog(commands.Cog):
                 ).is_('selected_player_id', 'null').order('overall', desc=False).limit(1).execute()
                 
                 if not picks_response.data:
-                    league_season_display = self._format_league_season(season)
                     await interaction.followup.send(
-                        f"❌ {team['code']} has no available picks in {league_season_display}.",
+                        f"❌ **{team['code']}** has no available picks remaining.\n\n"
+                        f"**Season:** {season['name']}\n"
+                        f"All allocated picks have been selected.",
                         ephemeral=True,
                     )
                     return
@@ -569,9 +570,10 @@ class TeamDraftPicksCog(commands.Cog):
                     ).order('overall', desc=False).limit(1).execute()
                     
                     if not pick_response.data:
-                        league_season_display = self._format_league_season(season)
                         await interaction.followup.send(
-                            f"❌ {team['code']} has no available picks in {league_season_display}.",
+                            f"❌ **{team['code']}** has no available picks remaining.\n\n"
+                            f"**Season:** {season['name']}\n"
+                            f"All allocated picks have been selected.",
                             ephemeral=True,
                         )
                         return
