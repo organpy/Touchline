@@ -341,14 +341,11 @@ def generate_simple_standings_image(
         subtitle_height = subtitle_bbox[3] - subtitle_bbox[1]
         subtitle_offset = subtitle_bbox[1]
         
-        # Calculate actual visual heights without internal padding
-        line_gap = 8  # Increased gap to prevent overlap
-        visual_text_block_height = (title_height - abs(title_offset)) + line_gap + (subtitle_height - abs(subtitle_offset))
-        text_block_top = header_center_y - visual_text_block_height // 2
+        # Position title centered on logo's middle
+        title_y = header_center_y - title_height // 2 - title_offset
         
-        # Position title from top of block, accounting for its top offset
-        title_y = text_block_top - title_offset
-        # Position subtitle below title (without offset compensation for bottom-aligned text)
+        # Position subtitle well below title to avoid overlap
+        line_gap = 16  # Large gap to prevent any overlap
         subtitle_y = title_y + title_height + line_gap - subtitle_offset
         
         card_draw.text((text_x, title_y), league_name, fill=theme["header_title_color"], font=title_font)
