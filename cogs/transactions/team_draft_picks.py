@@ -8,6 +8,7 @@ from discord.ext import commands
 import logging
 from typing import Optional, Any, Dict, List
 from datetime import datetime
+import time
 
 from db import get_supabase, queries
 from db.transactions_repository import TransactionsRepository
@@ -21,6 +22,10 @@ from utils.embed_assets import (
 from utils.embed_builder import EmbedBuilder
 
 logger = logging.getLogger(__name__)
+
+# TTL cache for autocomplete to reduce DB queries (30 second TTL)
+_autocomplete_cache: Dict[int, Dict[str, Any]] = {}  # user_id -> {data, timestamp}
+_AUTOCOMPLETE_TTL = 30  # seconds
 
 
 class TeamDraftPicksCog(commands.Cog):
