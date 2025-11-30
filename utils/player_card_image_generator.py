@@ -65,6 +65,50 @@ LEAGUE_THEME_OVERRIDES = {
     },
 }
 
+# Tier theming per division/league
+TIER_ORDER = ["Bronze", "Silver", "Gold", "Platinum", "Diamond"]
+
+TIER_THEMES = {
+    "default": {
+        "Bronze": {
+            "accent_color": (205, 127, 50, 255),
+            "star_filled": (205, 127, 50, 255),
+            "badge_border": (130, 82, 30, 255),
+        },
+        "Silver": {
+            "accent_color": (192, 192, 192, 255),
+            "star_filled": (192, 192, 192, 255),
+            "badge_border": (122, 122, 122, 255),
+        },
+        "Gold": {
+            "accent_color": (255, 215, 0, 255),
+            "star_filled": (255, 215, 0, 255),
+            "badge_border": (180, 150, 0, 255),
+        },
+        "Platinum": {
+            "accent_color": (229, 228, 226, 255),
+            "star_filled": (229, 228, 226, 255),
+            "badge_border": (150, 150, 148, 255),
+        },
+        "Diamond": {
+            "accent_color": (185, 242, 255, 255),
+            "star_filled": (126, 199, 255, 255),
+            "badge_border": (80, 170, 220, 255),
+        },
+    },
+    "NBL": {
+        "Gold": {"accent_color": (247, 173, 68, 255)},
+        "Diamond": {"accent_color": (255, 240, 200, 255)},
+    },
+    "MBL": {
+        "Gold": {"accent_color": (255, 149, 0, 255)},
+        "Diamond": {"accent_color": (255, 210, 160, 255)},
+    },
+    "NCBA": {
+        "Diamond": {"accent_color": (126, 199, 255, 255)},
+    },
+}
+
 # Layout constants
 CARD_WIDTH = 500
 CARD_HEIGHT = 750
@@ -99,6 +143,31 @@ def _get_theme(league_code: Optional[str]) -> Dict[str, Any]:
         overrides = LEAGUE_THEME_OVERRIDES.get(league_code.upper())
         if overrides:
             theme.update(overrides)
+    return theme
+
+
+def _rating_to_tier(rating: float, league_code: Optional[str]) -> str:
+    """Map star rating to tier label; can be tuned per league if needed."""
+    # Default mapping
+    if rating < 1.5:
+        return "Bronze"
+    if rating < 2.5:
+        return "Silver"
+    if rating < 3.5:
+        return "Gold"
+    if rating < 4.5:
+        return "Platinum"
+    return "Diamond"
+
+
+def _apply_tier_theme(base: Dict[str, Any], league_code: Optional[str], tier: str) -> Dict[str, Any]:
+    """Return theme merged with tier-specific overrides (league-aware)."""
+    theme = {**base}
+    tier_overrides = TIER_THEMES.get("default", {}).get(tier, {})
+    theme.update(tier_overrides)
+    if league_code:
+        per_league = TIER_THEMES.get(league_code.upper(), {}).get(tier, {})
+        theme.update(per_league)
     return theme
 
 
@@ -299,6 +368,20 @@ def _draw_avatar_circle(canvas, position, size, border_color, border_width=4):
     )
 
 
+def _draw_holo_overlay(canvas: Image.Image, intensity: float = 0.15) -> None:
+    """Add a subtle holographic diagonal stripe overlay for high tiers."""
+    w, h = canvas.size
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    step = 16
+    alpha = int(255 * intensity)
+    for i in range(-h, w, step):
+        draw.line((i, 0, i + h, h), fill=(255, 255, 255, alpha // 6), width=2)
+        draw.line((i + 4, 0, i + h + 4, h), fill=(126, 199, 255, alpha // 6), width=1)
+        draw.line((i + 8, 0, i + h + 8, h), fill=(255, 215, 0, alpha // 6), width=1)
+    canvas.alpha_composite(overlay)
+
+
 def calculate_star_rating(stats: Dict[str, Any]) -> float:
     """
     Calculate star rating (0.5 to 5.0) based on player stats.
@@ -310,11 +393,12 @@ def calculate_star_rating(stats: Dict[str, Any]) -> float:
     
     Returns a rating from 0.5 to 5.0 in 0.5 increments.
     """
+    # Support both normalized and alternative stats keys
     ppg = stats.get('ppg', 0) or 0
-    goals = stats.get('total_goals', 0) or 0
-    assists = stats.get('total_assists', 0) or 0
-    saves = stats.get('total_saves', 0) or 0
-    games = stats.get('games_played', 0) or 0
+    goals = stats.get('total_goals', stats.get('goals', 0) or 0) or 0
+    assists = stats.get('total_assists', stats.get('assists', 0) or 0) or 0
+    saves = stats.get('total_saves', stats.get('saves', 0) or 0) or 0
+    games = stats.get('games_played', stats.get('games', 0) or 0) or 0
     
     if games == 0:
         return 0.5
@@ -368,15 +452,17 @@ def generate_player_card_image(
         # Calculate star rating if not provided
         if star_rating is None:
             star_rating = calculate_star_rating(stats)
+        tier_label = _rating_to_tier(star_rating, league_code)
         
         # Check cache
-        cache_key = _make_cache_key(player_id, player_name, team_code, league_code, stats, star_rating)
+        cache_key = _make_cache_key(player_id, player_name, team_code, league_code, stats, star_rating) + f"|{tier_label}"
         cached_image = player_card_cache.get(cache_key)
         if cached_image is not None:
             logger.debug("Player card cache hit for %s", player_name)
             return _bytes_to_buffer(cached_image)
         
         theme = _get_theme(league_code)
+        theme = _apply_tier_theme(theme, league_code, tier_label)
         name_font, label_font, value_font, small_font = _load_fonts()
         
         # Create canvas with gradient background
@@ -413,6 +499,17 @@ def generate_player_card_image(
             radius=CARD_CORNER_RADIUS,
             outline=_to_rgba(theme["badge_border"]),
             width=3,
+        )
+
+        # Tier badge (top-right)
+        tier_badge_min_width = 120
+        _draw_rounded_badge(
+            draw,
+            (CARD_WIDTH - CARD_PADDING - tier_badge_min_width, CARD_PADDING),
+            tier_label.upper(),
+            LABEL_FONT,
+            theme,
+            min_width=tier_badge_min_width,
         )
         
         # === TOP LEFT: League Logo ===
@@ -489,11 +586,18 @@ def generate_player_card_image(
         right_col = CARD_PADDING + col_width + 8
         
         ppg = stats.get('ppg', 0) or 0
-        games = stats.get('games_played', 0) or 0
+        games = stats.get('games_played', stats.get('games', 0) or 0) or 0
         total_points = stats.get('total_points', 0) or 0
-        total_goals = stats.get('total_goals', 0) or 0
-        total_assists = stats.get('total_assists', 0) or 0
-        total_saves = stats.get('total_saves', 0) or 0
+        # Accept averages by multiplying with games if totals missing
+        total_goals = stats.get('total_goals', 0) or (
+            (stats.get('avg_goals', 0) or 0) * games
+        )
+        total_assists = stats.get('total_assists', 0) or (
+            (stats.get('avg_assists', 0) or 0) * games
+        )
+        total_saves = stats.get('total_saves', 0) or (
+            (stats.get('avg_saves', 0) or 0) * games
+        )
         
         # Row 1
         _draw_rounded_badge(
@@ -519,6 +623,10 @@ def generate_player_card_image(
             draw, (right_col, stats_section_y + (row_height + grid_gap) * 2), f"Points: {total_points}", label_font, theme, min_width=col_width - 16
         )
         
+        # Holographic overlay for top tiers
+        if tier_label in ("Platinum", "Diamond"):
+            _draw_holo_overlay(canvas, intensity=0.12 if tier_label == "Platinum" else 0.18)
+
         # Save to buffer
         buffer = io.BytesIO()
         canvas.save(buffer, format="PNG", optimize=True)
@@ -531,4 +639,56 @@ def generate_player_card_image(
     
     except Exception as e:
         logger.error("Error generating player card image: %s", e, exc_info=True)
+        return None
+
+
+# Convenience async wrapper to match cog expectations
+async def generate_player_card(
+    *,
+    player_name: str,
+    team_name: Optional[str] = None,
+    team_code: Optional[str] = None,
+    league_type: Optional[str] = None,
+    avatar_url: Optional[str] = None,
+    stats: Optional[Dict[str, Any]] = None,
+) -> Optional[bytes]:
+    """Generate a player card PNG as bytes.
+
+    Matches the signature used by cogs.cards.player_card and adapts keys.
+    Currently avatar images are not embedded; the circular avatar is stylistic.
+    """
+    try:
+        normalized_stats = stats or {}
+
+        # Ensure normalized keys for generator and rating
+        games = normalized_stats.get('games_played', normalized_stats.get('games', 0) or 0) or 0
+        if 'games_played' not in normalized_stats and 'games' in normalized_stats:
+            normalized_stats['games_played'] = games
+
+        # Convert averages to totals if totals missing
+        for key in ('goals', 'assists', 'saves'):
+            total_key = f'total_{key}'
+            avg_key = f'avg_{key}'
+            if total_key not in normalized_stats:
+                normalized_stats[total_key] = (normalized_stats.get(avg_key, 0) or 0) * games
+
+        # Compute star rating from normalized stats
+        rating = calculate_star_rating(normalized_stats)
+
+        buffer = generate_player_card_image(
+            player_id=_normalize_key(player_name),
+            player_name=player_name,
+            team_name=team_name,
+            team_code=team_code,
+            league_code=league_type,
+            stats=normalized_stats,
+            star_rating=rating,
+        )
+
+        if buffer is None:
+            return None
+
+        return buffer.getvalue()
+    except Exception as e:
+        logger.error("Error in generate_player_card wrapper: %s", e, exc_info=True)
         return None
