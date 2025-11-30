@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 IMAGES_DIR = ROOT_DIR / "images"
+DATA_DIR = ROOT_DIR / "data"
 
 FONTS_DIR = ROOT_DIR / "fonts"
 NAME_FONT = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 32)
@@ -171,6 +172,24 @@ def _apply_tier_theme(base: Dict[str, Any], league_code: Optional[str], tier: st
     return theme
 
 
+def _apply_team_accent(theme: Dict[str, Any], team_code: Optional[str]) -> Dict[str, Any]:
+    """Blend team accent colors into theme for richer visuals."""
+    if not team_code:
+        return theme
+    palettes = _team_colors_index()
+    pal = palettes.get((team_code or "").upper())
+    if not pal:
+        return theme
+    accent = pal.get("primary") or pal.get("accent")
+    border = pal.get("secondary") or pal.get("dark")
+    new_theme = {**theme}
+    if isinstance(accent, list) and len(accent) >= 3:
+        new_theme["accent_color"] = _to_rgba(tuple(accent[:3]))
+    if isinstance(border, list) and len(border) >= 3:
+        new_theme["badge_border"] = _to_rgba(tuple(border[:3]))
+    return new_theme
+
+
 def _normalize_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", value.lower())
 
@@ -185,6 +204,24 @@ def _image_index() -> Dict[str, Path]:
             continue
         index[_normalize_key(file_path.stem)] = file_path
     return index
+
+
+@lru_cache(maxsize=1)
+def _team_colors_index() -> Dict[str, Dict[str, Any]]:
+    """Load team color palettes from data/team_colors.json if available."""
+    path = DATA_DIR / "team_colors.json"
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        out: Dict[str, Dict[str, Any]] = {}
+        for code, palette in (data or {}).items():
+            out[(code or "").upper()] = palette or {}
+        return out
+    except Exception:
+        logger.warning("Failed to load team colors from %s", path)
+        return {}
 
 
 player_card_cache = TTLCache(ttl_seconds=PLAYER_CARD_CACHE_TTL_SECONDS, max_size=64)
@@ -382,6 +419,56 @@ def _draw_holo_overlay(canvas: Image.Image, intensity: float = 0.15) -> None:
     canvas.alpha_composite(overlay)
 
 
+def _draw_vignette(canvas: Image.Image, intensity: float = 0.18) -> None:
+    """Darken edges for depth using a radial vignette."""
+    w, h = canvas.size
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    steps = 16
+    for i in range(steps):
+        alpha = int(255 * intensity * (i / steps))
+        pad = int(min(w, h) * (i / steps) * 0.06)
+        draw.rounded_rectangle(
+            (0 + pad, 0 + pad, w - pad, h - pad),
+            radius=max(8, int(24 - i)),
+            outline=(0, 0, 0, alpha),
+            width=2,
+        )
+    canvas.alpha_composite(overlay)
+
+
+def _draw_watermark_logo(canvas: Image.Image, team_code: Optional[str], size: int = 280, alpha: int = 24) -> None:
+    """Large faint team logo centered as watermark."""
+    if not team_code:
+        return
+    path = _find_logo_path(team_code)
+    if not path:
+        return
+    logo = _load_logo(path, size)
+    if not logo:
+        return
+    wm = logo.copy()
+    wm.putalpha(alpha)
+    x = (CARD_WIDTH - size) // 2
+    y = CARD_PADDING - 10
+    canvas.paste(wm, (x, y), wm)
+
+
+def _draw_stat_bar(draw: ImageDraw.ImageDraw, x: int, y: int, width: int, value: float, max_value: float, label: str, theme: Dict[str, Any]) -> None:
+    """Draw a horizontal stat bar with label and value."""
+    height = 10
+    radius = 6
+    bg = (255, 255, 255, 40)
+    fg = _to_rgba(theme.get("accent_color", (255, 215, 0, 255)))
+    draw.rounded_rectangle((x, y, x + width, y + height), radius=radius, fill=bg)
+    pct = 0 if max_value <= 0 else max(0.0, min(1.0, float(value) / float(max_value)))
+    val_w = int(width * pct)
+    if val_w >= 2:
+        draw.rounded_rectangle((x, y, x + val_w, y + height), radius=radius, fill=fg)
+    text = f"{label}: {value:.1f}" if isinstance(value, (int, float)) else f"{label}: {value}"
+    draw.text((x, y - 14), text, fill=(255, 255, 255, 200), font=LABEL_FONT)
+
+
 def calculate_star_rating(stats: Dict[str, Any]) -> float:
     """
     Calculate star rating (0.5 to 5.0) based on player stats.
@@ -492,6 +579,9 @@ def generate_player_card_image(
         # Apply mask to gradient
         canvas.paste(gradient, (0, 0), mask)
         draw = ImageDraw.Draw(canvas)
+
+        # Watermark team logo for depth
+        _draw_watermark_logo(canvas, team_code, size=280, alpha=24)
         
         # Draw card border
         draw.rounded_rectangle(
@@ -539,6 +629,17 @@ def generate_player_card_image(
         name_width = name_bbox[2] - name_bbox[0]
         name_x = (CARD_WIDTH - name_width) // 2
         draw.text((name_x, name_y), player_name, fill=_to_rgba(theme["text_primary"]), font=name_font)
+
+        # Accent underline under name using team accent
+        theme = _apply_team_accent(theme, team_code)
+        underline_w = name_width
+        underline_x = name_x
+        underline_y = name_y + (name_bbox[3] - name_bbox[1]) + 6
+        draw.rounded_rectangle(
+            (underline_x, underline_y, underline_x + underline_w, underline_y + 4),
+            radius=2,
+            fill=_to_rgba(theme["accent_color"]),
+        )
         
         # --- BELOW NAME: Team Logo + Team Name (centered row) ---
         team_row_y = name_y + 34
@@ -576,6 +677,11 @@ def generate_player_card_image(
         star_total_width = MAX_STARS * STAR_SIZE + (MAX_STARS - 1) * STAR_SPACING
         star_x = (CARD_WIDTH - star_total_width) // 2
         _draw_star_rating(draw, (star_x, star_y), star_rating, theme)
+        # Numeric rating label below stars
+        rating_label = f"{star_rating:.1f}/5.0"
+        r_bbox = draw.textbbox((0, 0), rating_label, font=small_font)
+        r_w = r_bbox[2] - r_bbox[0]
+        draw.text(((CARD_WIDTH - r_w) // 2, star_y + STAR_SIZE + 6), rating_label, fill=_to_rgba(theme["text_secondary"]), font=small_font)
         # === BOTTOM SECTION: Stats Grid (3x2 layout) ===
         stats_section_y = star_y + 40
         grid_gap = 14
@@ -623,6 +729,21 @@ def generate_player_card_image(
             draw, (right_col, stats_section_y + (row_height + grid_gap) * 2), f"Points: {total_points}", label_font, theme, min_width=col_width - 16
         )
         
+        # Stat bars for richer visuals
+        bars_y = stats_section_y + (row_height + grid_gap) * 3 + 18
+        bars_x = CARD_PADDING
+        bars_w = CARD_WIDTH - CARD_PADDING * 2
+        # Heuristic maxima
+        _draw_stat_bar(draw, bars_x, bars_y, bars_w, ppg, 30, "PPG", theme)
+        _draw_stat_bar(draw, bars_x, bars_y + 26, bars_w, total_goals, max(1, games * 3), "Goals", theme)
+        _draw_stat_bar(draw, bars_x, bars_y + 52, bars_w, total_assists, max(1, games * 3), "Assists", theme)
+        _draw_stat_bar(draw, bars_x, bars_y + 78, bars_w, total_saves, max(1, games * 3), "Saves", theme)
+        _draw_stat_bar(draw, bars_x, bars_y + 104, bars_w, total_points, max(1, games * 30), "Points", theme)
+        _draw_stat_bar(draw, bars_x, bars_y + 130, bars_w, games, 20, "Games", theme)
+
+        # Vignette for depth
+        _draw_vignette(canvas, intensity=0.18)
+
         # Holographic overlay for top tiers
         if tier_label in ("Platinum", "Diamond"):
             _draw_holo_overlay(canvas, intensity=0.12 if tier_label == "Platinum" else 0.18)
