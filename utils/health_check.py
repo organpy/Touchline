@@ -1,0 +1,90 @@
+"""
+Health check HTTP endpoint for monitoring and orchestration.
+Runs a simple HTTP server on a separate thread to respond to health checks.
+"""
+import asyncio
+import logging
+from aiohttp import web
+import os
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
+
+
+class HealthCheckServer:
+    """Simple HTTP server for health checks"""
+    
+    def __init__(self, bot, port: int = 8080):
+        self.bot = bot
+        self.port = port
+        self.app = web.Application()
+        self.runner = None
+        self.site = None
+        self.start_time = datetime.utcnow()
+        
+        # Setup routes
+        self.app.router.add_get('/health', self.health_check)
+        self.app.router.add_get('/ready', self.readiness_check)
+        self.app.router.add_get('/metrics', self.metrics)
+    
+    async def health_check(self, request):
+        """Liveness probe - is the bot process alive?"""
+        return web.json_response({
+            'status': 'healthy',
+            'timestamp': datetime.utcnow().isoformat(),
+            'uptime_seconds': (datetime.utcnow() - self.start_time).total_seconds()
+        })
+    
+    async def readiness_check(self, request):
+        """Readiness probe - is the bot ready to serve traffic?"""
+        ready = (
+            self.bot.is_ready() and
+            self.bot.user is not None and
+            len(self.bot.guilds) > 0
+        )
+        
+        status_code = 200 if ready else 503
+        
+        return web.json_response({
+            'status': 'ready' if ready else 'not_ready',
+            'bot_user': str(self.bot.user) if self.bot.user else None,
+            'guilds_count': len(self.bot.guilds),
+            'latency_ms': round(self.bot.latency * 1000, 2),
+            'timestamp': datetime.utcnow().isoformat()
+        }, status=status_code)
+    
+    async def metrics(self, request):
+        """Basic metrics endpoint"""
+        from utils.metrics import MetricsCollector
+        
+        summary = MetricsCollector.get_summary()
+        
+        return web.json_response({
+            'uptime_seconds': (datetime.utcnow() - self.start_time).total_seconds(),
+            'bot_latency_ms': round(self.bot.latency * 1000, 2),
+            'guilds_count': len(self.bot.guilds),
+            'users_count': len(self.bot.users),
+            'commands_synced': len(self.bot.tree.get_commands()),
+            'cache_stats': summary.get('cache_stats', {}),
+            'query_stats': summary.get('query_stats', {}),
+            'timestamp': datetime.utcnow().isoformat()
+        })
+    
+    async def start(self):
+        """Start the health check server"""
+        try:
+            self.runner = web.AppRunner(self.app)
+            await self.runner.setup()
+            self.site = web.TCPSite(self.runner, '0.0.0.0', self.port)
+            await self.site.start()
+            logger.info(f"✅ Health check server started on port {self.port}")
+        except Exception as e:
+            logger.error(f"❌ Failed to start health check server: {e}", exc_info=True)
+    
+    async def stop(self):
+        """Stop the health check server"""
+        if self.site:
+            await self.site.stop()
+        if self.runner:
+            await self.runner.cleanup()
+        logger.info("Health check server stopped")

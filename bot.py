@@ -21,6 +21,7 @@ from utils.config_manager import init_config_manager
 from utils.team_player_cache import TeamPlayerCache
 from utils.season_cache import SeasonCache
 from cogs.score.roster_cache import RosterCache
+from utils.health_check import HealthCheckServer
 
 # ============================================================================
 # CONFIG
@@ -60,6 +61,10 @@ class NBLBot(commands.Bot):
         except Exception as exc:
             logger.error("❌ Failed to initialize Supabase client", exc_info=True)
             raise exc
+        
+        # Initialize health check server
+        health_port = int(os.getenv("HEALTH_CHECK_PORT", "8080"))
+        self.health_server = HealthCheckServer(self, port=health_port)
 
     def discover_cogs(self, cogs_directory: str = "cogs") -> list:
         """
@@ -158,12 +163,21 @@ class NBLBot(commands.Bot):
             logger.info(f"✅ Synced {len(synced)} app commands")
         except Exception as e:
             logger.error(f"❌ Failed to sync app commands: {e}", exc_info=True)
+        
+        # Start health check server
+        await self.health_server.start()
 
     async def on_ready(self):
         """Called when bot is ready"""
         logger.info(f"✅ Bot ready! Logged in as {self.user}")
         logger.info(f"📡 Latency: {self.latency * 1000:.2f}ms")
 
+    
+    async def close(self):
+        """Cleanup on shutdown"""
+        logger.info("🔄 Shutting down bot...")
+        await self.health_server.stop()
+        await super().close()
     async def on_error(self, event, *args, **kwargs):
         """Global error handler"""
         logger.error(f"Error in {event}:", exc_info=True)
