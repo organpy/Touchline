@@ -19,15 +19,16 @@ def test_default_color_valid():
 
 def test_division_colors_present():
     clear_cache()
-    assert get_division_color("NBL") == int("C08E56", 16)
-    assert get_division_color("MBL") == int("FF5D20", 16)
-    assert get_division_color("NCBA") == int("00ADB5", 16)
+    assert get_division_color("NBL") == int("F7AD44", 16)
+    assert get_division_color("MBL") == int("FF9500", 16)
+    assert get_division_color("NCBA") == int("7EC7FF", 16)
 
 
 def test_team_color_initially_none():
     clear_cache()
-    # Teams are skeleton placeholders; should resolve None so fallback chain applies
-    assert get_team_color("titans") is None
+    # Titans now has a color defined in team_colors.json
+    # Test with a team that doesn't exist instead
+    assert get_team_color("nonexistent-team") is None
 
 
 def test_resolve_priority_force():
@@ -50,7 +51,7 @@ def test_resolve_priority_team_over_division():
 def test_resolve_priority_division_over_default():
     clear_cache()
     c = resolve_color(team_code=None, division_code="MBL")
-    assert c == int("FF5D20", 16)
+    assert c == int("FF9500", 16)
 
 
 def test_resolve_fallback_default():
