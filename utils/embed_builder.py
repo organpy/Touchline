@@ -5,7 +5,7 @@ Leverages teams.json, league emojis, and image assets.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 import discord
@@ -93,7 +93,7 @@ class EmbedBuilder:
 
     def add_timestamp(self) -> "EmbedBuilder":
         """Add current timestamp to embed."""
-        self.embed.timestamp = datetime.utcnow()
+        self.embed.timestamp = datetime.now(timezone.utc)
         return self
 
     # ==================== FIELDS ====================
