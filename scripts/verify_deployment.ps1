@@ -187,26 +187,26 @@ Write-Host "======================================" -ForegroundColor Cyan
 Write-Host ""
 
 if ($Errors -eq 0 -and $Warnings -eq 0) {
-    Write-Host "🎉 All checks passed! Ready for production." -ForegroundColor Green
+    Write-Host "All checks passed! Ready for production." -ForegroundColor Green
     Write-Host ""
     Write-Host "Next steps:"
     Write-Host "1. Review docs\PRODUCTION_CHECKLIST.md"
     Write-Host "2. Follow docs\ORACLE_CLOUD_DEPLOYMENT.md"
-    Write-Host "3. Test health check: curl http://localhost:8080/health"
+    Write-Host "3. Test health check with curl http://localhost:8080/health"
     exit 0
 } elseif ($Errors -eq 0) {
-    Write-Host "⚠️  $Warnings warning(s) found. Review before deploying." -ForegroundColor Yellow
+    Write-Host "$Warnings warning(s) found. Review before deploying." -ForegroundColor Yellow
     Write-Host ""
     Write-Host "You can proceed, but address warnings if possible."
     exit 0
 } else {
-    Write-Host "❌ $Errors error(s) and $Warnings warning(s) found." -ForegroundColor Red
+    Write-Host "$Errors error(s) and $Warnings warning(s) found." -ForegroundColor Red
     Write-Host ""
     Write-Host "Fix errors before deploying to production."
     Write-Host ""
     Write-Host "Common fixes:"
     Write-Host "  Copy .env.sample to .env and configure"
-    Write-Host "  Run: pip install -r requirements.txt"
-    Write-Host "  Run: pytest test -v"
+    Write-Host "  Run pip install -r requirements.txt"
+    Write-Host "  Run pytest test -v"
     exit 1
 }
