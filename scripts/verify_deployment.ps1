@@ -205,8 +205,8 @@ if ($Errors -eq 0 -and $Warnings -eq 0) {
     Write-Host "Fix errors before deploying to production."
     Write-Host ""
     Write-Host "Common fixes:"
-    Write-Host "- Copy .env.sample to .env and configure"
-    Write-Host "- Run: pip install -r requirements.txt"
-    Write-Host "- Run: pytest test -v"
+    Write-Host "  Copy .env.sample to .env and configure"
+    Write-Host "  Run: pip install -r requirements.txt"
+    Write-Host "  Run: pytest test -v"
     exit 1
 }
