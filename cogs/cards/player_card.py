@@ -171,12 +171,15 @@ class PlayerCardCog(commands.Cog):
                         avatar_url = user.avatar.url
                 except Exception:
                     pass
+
+            season_name = season_row.get('name', 'Unknown') if season_row else 'N/A'
             
             card_image = await generate_player_card(
                 player_name=player_name,
                 team_name=team_name,
                 team_code=team_code,
                 league_type=league_code,
+                season_name=season_name,
                 avatar_url=avatar_url,
                 stats=stats,
                 seasons=seasons_played,
@@ -192,8 +195,6 @@ class PlayerCardCog(commands.Cog):
             file = discord.File(io.BytesIO(card_image), filename=f"player_card_{player_name.replace(' ', '_')}.png")
             
             # Add a simple embed with context
-            season_name = season_row.get('name', 'Unknown') if season_row else 'N/A'
-            
             embed = discord.Embed(
                 title=f"🎴 {player_name}",
                 description=f"**Team:** {team_name or 'Free Agent'}\n**Season:** {season_name}",

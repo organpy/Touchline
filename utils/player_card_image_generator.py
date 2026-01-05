@@ -87,8 +87,8 @@ CARD_PADDING = 28
 CARD_CORNER_RADIUS = 28
 HEADER_BLOCK_HEIGHT = 86
 
-CONTENT_WIDTH = 420
-CONTENT_HEIGHT = 570
+CONTENT_WIDTH = 380
+CONTENT_HEIGHT = 520
 
 LEAGUE_LOGO_SIZE = 44
 
@@ -114,7 +114,6 @@ def sort_seasons(seasons_list: List[str]) -> List[str]:
         "S3": 3,
         "S4": 4,
         "S5": 5,
-        "S5 D2": 5.5,
         "S6": 6,
         "S7": 7,
         "S8": 8,
@@ -191,6 +190,7 @@ def _make_cache_key(
     team_code: Optional[str],
     league_code: Optional[str],
     stats: Dict[str, Any],
+    season_name: Optional[str],
     seasons: List[str],
     awards: List[str],
     teams_played: List[str],
@@ -201,6 +201,7 @@ def _make_cache_key(
         "team_code": (team_code or "").upper(),
         "league_code": (league_code or "").upper(),
         "stats": stats,
+        "season_name": (season_name or ""),
         "seasons": seasons,
         "awards": awards,
         "teams_played": teams_played,
@@ -330,12 +331,50 @@ def _draw_stat_cell(
     draw.text((label_x, label_y), label, fill=_to_rgba(theme["text_muted"]), font=label_font)
 
 
+def _abbr_award(text: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9]", "", (text or "").upper())
+    if not cleaned:
+        return "AWD"
+    if len(cleaned) <= 5:
+        return cleaned
+    return cleaned[:4]
+
+
+def _draw_award_chip(
+    draw: ImageDraw.ImageDraw,
+    x: int,
+    y: int,
+    *,
+    code: str,
+    count: int,
+    theme: Dict[str, Any],
+    font: ImageFont.ImageFont,
+    pad_x: int = 10,
+    height: int = 28,
+) -> int:
+    label = f"x{count} {code}"
+    tw, th = _measure_text(draw, label, font)
+    w = tw + pad_x * 2
+    draw.rounded_rectangle(
+        (x, y, x + w, y + height),
+        radius=12,
+        fill=_to_rgba(theme["row_alt"]),
+        outline=_to_rgba(theme["row_divider"]),
+        width=1,
+    )
+    tx = x + (w - tw) // 2
+    ty = y + (height - th) // 2
+    draw.text((tx, ty), label, fill=_to_rgba(theme["text_primary"]), font=font)
+    return w
+
+
 def generate_player_card_image(
     player_id: str,
     player_name: str,
     team_name: Optional[str] = None,
     team_code: Optional[str] = None,
     league_code: Optional[str] = None,
+    season_name: Optional[str] = None,
     stats: Optional[Dict[str, Any]] = None,
     seasons: Optional[List[str]] = None,
     awards: Optional[List[str]] = None,
@@ -371,6 +410,7 @@ def generate_player_card_image(
             team_code=team_code,
             league_code=league_code_norm,
             stats=stats,
+            season_name=season_name,
             seasons=seasons,
             awards=awards,
             teams_played=teams_played,
@@ -433,10 +473,10 @@ def generate_player_card_image(
             width=2,
         )
 
-        # Header (gradient with rounded top corners)
-        header_width = CONTENT_WIDTH
-        header_x = CARD_PADDING
-        header_y = CARD_PADDING
+        # Header (gradient with rounded top corners) - full-width across card
+        header_width = card_width
+        header_x = 0
+        header_y = 0
 
         header_layer = Image.new("RGBA", (header_width, HEADER_BLOCK_HEIGHT), (0, 0, 0, 0))
         header_layer_draw = ImageDraw.Draw(header_layer)
@@ -451,28 +491,43 @@ def generate_player_card_image(
         )
         card.paste(header_layer, (header_x, header_y), header_mask)
 
-        # Header content: centered league logo + league code
+        # Header content: centered league logo + league name + season
         league_text = league_code_norm or "LEAGUE"
         league_logo_path = _find_logo_path(league_text)
         league_logo_img = _load_logo(league_logo_path, LEAGUE_LOGO_SIZE) if league_logo_path else None
 
+        season_text = (f"Season {season_name.replace('S', '')}" if season_name else "").strip()
+        if not season_text:
+            season_text = ""
+
         league_text_w, league_text_h = _measure_text(card_draw, league_text, title_font)
+        season_w, season_h = _measure_text(card_draw, season_text, seasons_font) if season_text else (0, 0)
+
         group_gap = 12 if league_logo_img else 0
         group_w = (LEAGUE_LOGO_SIZE if league_logo_img else 0) + group_gap + league_text_w
         group_x = header_x + _center_x(header_width, group_w)
-        center_y = header_y + HEADER_BLOCK_HEIGHT // 2
+
+        # Center the whole stack vertically
+        stack_h = league_text_h + (8 + season_h if season_text else 0)
+        top_y = header_y + (HEADER_BLOCK_HEIGHT - stack_h) // 2
+        league_center_y = top_y + league_text_h // 2
 
         if league_logo_img:
-            card.paste(league_logo_img, (group_x, center_y - LEAGUE_LOGO_SIZE // 2), league_logo_img)
+            card.paste(league_logo_img, (group_x, league_center_y - LEAGUE_LOGO_SIZE // 2), league_logo_img)
 
         text_x = group_x + (LEAGUE_LOGO_SIZE + group_gap if league_logo_img else 0)
-        text_y = center_y - league_text_h // 2
+        text_y = league_center_y - league_text_h // 2
         card_draw.text((text_x, text_y), league_text, fill=_to_rgba(theme["text_primary"]), font=title_font)
+
+        if season_text:
+            season_x = header_x + _center_x(header_width, season_w)
+            season_y = top_y + league_text_h + 8
+            card_draw.text((season_x, season_y), season_text, fill=_to_rgba(theme["text_primary"]), font=seasons_font)
 
         # Body
         cx = CARD_PADDING
-        cw = CONTENT_WIDTH
-        y = CARD_PADDING + HEADER_BLOCK_HEIGHT + 22
+        cw = card_width - (CARD_PADDING * 2)
+        y = HEADER_BLOCK_HEIGHT + CARD_PADDING + 18
 
         # Player name
         name_w, name_h = _measure_text(card_draw, player_name, name_font)
@@ -504,46 +559,18 @@ def generate_player_card_image(
         else:
             y += 6
 
-        # Hero stat (MBL: GOALS, otherwise: POINTS)
-        hero_label = "GOALS" if league_text == "MBL" else "POINTS"
-        hero_value = goals if league_text == "MBL" else points
-        hero_h = 106
+        # Compact stats (smaller pills, to leave room for awards/teams)
+        featured_label = "POINTS"
+        featured_value = points
 
-        card_draw.rounded_rectangle(
-            (cx, y, cx + cw, y + hero_h),
-            radius=20,
-            fill=_to_rgba(theme["row_primary"]),
-            outline=_to_rgba(theme["row_divider"]),
-            width=1,
-        )
-
-        hero_value_str = str(int(hero_value))
-        hv_w, hv_h = _measure_text(card_draw, hero_value_str, hero_value_font)
-        hl_w, hl_h = _measure_text(card_draw, hero_label, hero_label_font)
-        hero_center_x = cx + cw // 2
-        card_draw.text(
-            (hero_center_x - hv_w // 2, y + 18),
-            hero_value_str,
-            fill=_to_rgba(theme["text_primary"]),
-            font=hero_value_font,
-        )
-        card_draw.text(
-            (hero_center_x - hl_w // 2, y + hero_h - hl_h - 18),
-            hero_label,
-            fill=_to_rgba(theme["text_muted"]),
-            font=hero_label_font,
-        )
-        y += hero_h + 16
-
-        # Stats grid (3 rows x 3 cols)
         grid_gap = 10
         cell_w = (cw - (2 * grid_gap)) // 3
-        cell_h = 64
+        cell_h = 48
 
         grid_rows = [
             [("GAMES", str(games)), ("ASSISTS", str(assists)), ("SAVES", str(saves))],
-            [("GOALS", str(goals)), ("POINTS", str(points)), ("BLOCKS", str(blocks))],
-            [("OWN GOALS", str(own_goals)), ("PP PLAYS", str(pp_plays)), ("PP%", f"{pp_pct_val:.1f}")],
+            [(featured_label, str(int(featured_value))), ("BLOCKS", str(blocks)), ("PP%", f"{pp_pct_val:.1f}")],
+            [("OWN GOALS", str(own_goals)), ("PP PLAYS", str(pp_plays)), ("PP USED", str(pp_used))],
         ]
 
         for row in grid_rows:
@@ -561,20 +588,57 @@ def generate_player_card_image(
                     value_font=stat_value_font,
                     label_font=stat_label_font,
                 )
-            y += cell_h + 10
+            y += cell_h + 8
 
-        # Teams played (optional)
-        if teams_played:
-            y += 6
+        # Awards (optional): abbreviation chips with counts
+        if awards:
+            y += 2
+            card_draw.text((cx, y), "AWARDS", fill=_to_rgba(theme["text_muted"]), font=section_font)
+            y += 20
+
+            counts: Dict[str, int] = {}
+            for a in awards:
+                code = _abbr_award(str(a))
+                counts[code] = counts.get(code, 0) + 1
+
+            # Sort by count desc then code
+            items = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            x = cx
+            line_h = 28
+            max_lines = 2
+            line = 1
+            for code, count in items:
+                w = _measure_text(card_draw, f"x{count} {code}", small_font)[0] + 20
+                if x + w > cx + cw and x != cx:
+                    line += 1
+                    if line > max_lines:
+                        break
+                    x = cx
+                    y += line_h + 8
+                chip_w = _draw_award_chip(card_draw, x, y, code=code, count=count, theme=theme, font=small_font)
+                x += chip_w + 8
+
+            y += line_h + 14
+
+        # Teams played (optional): provisional display (history left->right, current at far right)
+        if teams_played or team_code:
+            history: List[str] = [t for t in (teams_played or []) if t]
+            if team_code:
+                code_up = str(team_code).upper()
+                history = [t for t in history if str(t).upper() != code_up]
+                history.append(code_up)
+
+            # Only show what fits; keep current on the right.
+            logo_size = 22
+            spacing = 6
+            max_fit = max((cw + spacing) // (logo_size + spacing), 1)
+            shown = history[-max_fit:]
+
             card_draw.text((cx, y), "TEAMS", fill=_to_rgba(theme["text_muted"]), font=section_font)
             y += 18
 
-            logo_size = 26
-            spacing = 8
-            shown = teams_played[:6]
             logos_w = len(shown) * logo_size + (len(shown) - 1) * spacing
             lx = cx + _center_x(cw, logos_w)
-
             for team in shown:
                 path = _find_logo_path(team)
                 logo = _load_logo(path, logo_size) if path else None
@@ -583,15 +647,7 @@ def generate_player_card_image(
                 else:
                     card_draw.ellipse((lx, y, lx + logo_size, y + logo_size), outline=_to_rgba(theme["row_divider"]), width=2)
                 lx += logo_size + spacing
-            y += logo_size + 12
-
-        # Awards (optional, text-based)
-        if awards:
-            card_draw.text((cx, y), "AWARDS", fill=_to_rgba(theme["text_muted"]), font=section_font)
-            y += 18
-            for award in awards[:3]:
-                card_draw.text((cx, y), f"• {award}", fill=_to_rgba(theme["text_primary"]), font=small_font)
-                y += 16
+            y += logo_size + 8
 
         # Paste card onto canvas
         canvas.paste(card, (CANVAS_PADDING, CANVAS_PADDING), card)
@@ -614,6 +670,7 @@ async def generate_player_card(
     team_name: Optional[str] = None,
     team_code: Optional[str] = None,
     league_type: Optional[str] = None,
+    season_name: Optional[str] = None,
     avatar_url: Optional[str] = None,
     stats: Optional[Dict[str, Any]] = None,
     seasons: Optional[List[str]] = None,
@@ -632,6 +689,7 @@ async def generate_player_card(
             team_name=team_name,
             team_code=team_code,
             league_code=league_type,
+            season_name=season_name,
             stats=stats or {},
             seasons=seasons,
             awards=awards,
