@@ -325,7 +325,7 @@ def _draw_stat_cell(
     value_x = x + (w - value_w) // 2
     value_y = y + (h // 2 - value_h) // 2  # center in top half
     label_x = x + (w - label_w) // 2
-    label_y = y + h // 2 + (h // 2 - label_h) // 2  # center in bottom half
+    label_y = y + h // 2 + (h // 2 - label_h) // 2 - 4  # center in bottom half, moved up by 4px
 
     draw.text((value_x, value_y), value, fill=_to_rgba(theme["text_primary"]), font=value_font)
     draw.text((label_x, label_y), label, fill=_to_rgba(theme["text_muted"]), font=label_font)
