@@ -528,11 +528,11 @@ def generate_player_card_image(
         text_x = logo_x + LEAGUE_LOGO_SIZE + group_gap
         
         # Position league text centered on logo's middle
-        league_y = header_center_y - league_height // 2 - league_offset
+        league_y = header_center_y - league_height // 2 - league_offset - 3
         
         # Position season text below league text with moderate gap
         line_gap = 10  # Moderate gap to prevent overlap
-        season_y = league_y + league_height + line_gap - season_offset
+        season_y = league_y + league_height + line_gap - season_offset - 3
 
         if league_logo_img:
             card.paste(league_logo_img, (logo_x, logo_y), league_logo_img)
@@ -641,11 +641,55 @@ def generate_player_card_image(
                 )
             y += cell_h + 8
 
-        # Awards (optional): abbreviation chips with counts
+        # Add spacing between stats and teams/awards section
+        y += 12
+
+        # Two-column layout: Teams (left) and Awards (right)
+        column_gap = 20
+        left_column_w = (cw - column_gap) // 2
+        right_column_w = left_column_w
+        left_x = cx
+        right_x = cx + left_column_w + column_gap
+        
+        # Start both columns at the same Y position
+        teams_y = y
+        awards_y = y
+        
+        # Left column: Teams
+        if teams_played or team_code:
+            history: List[str] = [t for t in (teams_played or []) if t]
+            if team_code:
+                code_up = str(team_code).upper()
+                history = [t for t in history if str(t).upper() != code_up]
+                history.append(code_up)
+
+            # Only show what fits in left column
+            logo_size = 20
+            spacing = 6
+            max_fit = max((left_column_w + spacing) // (logo_size + spacing), 1)
+            shown = history[-max_fit:]
+
+            card_draw.text((left_x, teams_y), "TEAMS", fill=_to_rgba(theme["text_muted"]), font=section_font)
+            teams_y += 20
+
+            # Left-align teams starting from title position
+            lx = left_x
+            for team in shown:
+                path = _find_logo_path(team)
+                logo = _load_logo(path, logo_size) if path else None
+                if logo:
+                    card.paste(logo, (lx, teams_y), logo)
+                else:
+                    card_draw.ellipse((lx, teams_y, lx + logo_size, teams_y + logo_size), outline=_to_rgba(theme["row_divider"]), width=2)
+                lx += logo_size + spacing
+            teams_y += logo_size + 8
+        
+        # Right column: Awards
+        awards_title = "AWARDS" if not awards else "AWARDS"
+        card_draw.text((right_x, awards_y), awards_title, fill=_to_rgba(theme["text_muted"]), font=section_font)
+        awards_y += 20
+
         if awards:
-            y += 2
-            card_draw.text((cx, y), "AWARDS", fill=_to_rgba(theme["text_muted"]), font=section_font)
-            y += 20
 
             counts: Dict[str, int] = {}
             for a in awards:
@@ -654,51 +698,28 @@ def generate_player_card_image(
 
             # Sort by count desc then code
             items = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
-            x = cx
+            
+            # Layout awards in right column with improved chip styling
+            x = right_x
             line_h = 28
-            max_lines = 2
+            max_lines = 3  # Allow more lines in narrower column
             line = 1
             for code, count in items:
-                w = _measure_text(card_draw, f"x{count} {code}", small_font)[0] + 20
-                if x + w > cx + cw and x != cx:
+                chip_w = _draw_award_chip(card_draw, x, awards_y, code=code, count=count, theme=theme, font=small_font)
+                x += chip_w + 6  # Tighter spacing
+                
+                # Check if we need to wrap to next line
+                if x + 60 > right_x + right_column_w and line < max_lines:  # 60px minimum for next chip
                     line += 1
-                    if line > max_lines:
-                        break
-                    x = cx
-                    y += line_h + 8
-                chip_w = _draw_award_chip(card_draw, x, y, code=code, count=count, theme=theme, font=small_font)
-                x += chip_w + 8
-
-            y += line_h + 14
-
-        # Teams played (optional): provisional display (history left->right, current at far right)
-        if teams_played or team_code:
-            history: List[str] = [t for t in (teams_played or []) if t]
-            if team_code:
-                code_up = str(team_code).upper()
-                history = [t for t in history if str(t).upper() != code_up]
-                history.append(code_up)
-
-            # Only show what fits; keep current on the right.
-            logo_size = 20
-            spacing = 6
-            max_fit = max((cw + spacing) // (logo_size + spacing), 1)
-            shown = history[-max_fit:]
-
-            card_draw.text((cx, y), "TEAMS", fill=_to_rgba(theme["text_muted"]), font=section_font)
-            y += 20
-
-            logos_w = len(shown) * logo_size + (len(shown) - 1) * spacing
-            lx = cx + _center_x(cw, logos_w)
-            for team in shown:
-                path = _find_logo_path(team)
-                logo = _load_logo(path, logo_size) if path else None
-                if logo:
-                    card.paste(logo, (lx, y), logo)
-                else:
-                    card_draw.ellipse((lx, y, lx + logo_size, y + logo_size), outline=_to_rgba(theme["row_divider"]), width=2)
-                lx += logo_size + spacing
-            y += logo_size + 8
+                    x = right_x
+                    awards_y += line_h + 6
+                elif x + 60 > right_x + right_column_w:
+                    break  # No more space
+            
+            awards_y += line_h + 8
+        
+        # Move Y past the taller of the two columns
+        y = max(teams_y, awards_y)
 
         # Paste card onto canvas
         canvas.paste(card, (CANVAS_PADDING, CANVAS_PADDING), card)
@@ -1088,6 +1109,52 @@ def _load_fonts():
     return name_font, seasons_font, stat_big_font, stat_med_font, stat_label_font, section_font, small_font, award_count_font
 
 
+def _draw_award_chip(
+    draw: ImageDraw.ImageDraw,
+    x: int,
+    y: int,
+    *,
+    code: str,
+    count: int,
+    theme: Dict[str, Any],
+    font: ImageFont.ImageFont,
+    pad_x: int = 10,
+    height: int = 28,
+) -> int:
+    label = f"x{count} {code}"
+    tw, th = _measure_text(draw, label, font)
+    w = tw + pad_x * 2
+    draw.rounded_rectangle(
+        (x, y, x + w, y + height),
+        radius=12,
+        fill=_to_rgba(theme["row_alt"]),
+        outline=_to_rgba(theme["row_divider"]),
+        width=1,
+    )
+    tx = x + (w - tw) // 2
+    ty = y + (height - th) // 2
+    draw.text((tx, ty), label, fill=_to_rgba(theme["text_primary"]), font=font)
+    return w
+
+
+def _abbr_award(text: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9]", "", (text or "").upper())
+    if not cleaned:
+        return "AWD"
+    if len(cleaned) <= 5:
+        return cleaned
+    return cleaned[:4]
+
+
+def _abbr_award(text: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9]", "", (text or "").upper())
+    if not cleaned:
+        return "AWD"
+    if len(cleaned) <= 5:
+        return cleaned
+    return cleaned[:4]
+
+
 def _draw_rounded_badge(draw, pos, text, font, theme, min_width=0):
     x, y = pos
     pad = 12  # padding
@@ -1321,40 +1388,85 @@ def generate_player_card_image(
         draw.line([(30, y), (CARD_WIDTH - 30, y)], fill=tier['primary'] + '40', width=1)
         y += 10
         
-        # === TEAMS ===
-        draw.text((24, y), 'TEAMS', fill='#CCCCCC', font=section_font)
-        y += 16
+        # Add spacing between stats and teams/awards section
+        y += 12
         
-        logo_size = 24
-        spacing = 6
-        total_logos = min(len(teams_played), 6)
-        logos_width = total_logos * logo_size + (total_logos - 1) * spacing
-        logo_x = (CARD_WIDTH - logos_width) // 2
+        # Two-column layout: Teams (left) and Awards (right)
+        column_gap = 20
+        left_column_w = (CARD_WIDTH - 2 * 24 - column_gap) // 2  # Account for padding
+        right_column_w = left_column_w
+        left_x = 24
+        right_x = left_x + left_column_w + column_gap
         
-        for team in teams_played[:6]:
-            logo = _load_logo(_find_logo_path(team), size=logo_size)
-            if logo:
-                canvas.paste(logo, (logo_x, y), logo)
-            else:
-                draw.ellipse([logo_x, y, logo_x + logo_size, y + logo_size], 
-                            fill=tier['accent_bg'], outline=tier['primary'] + '60')
-            logo_x += logo_size + spacing
-        y += logo_size + 10
+        # Start both columns at the same Y position
+        teams_y = y
+        awards_y = y
         
-        # === AWARDS ===
-        draw.text((24, y), 'AWARDS', fill='#CCCCCC', font=section_font)
-        y += 16
+        # Left column: Teams
+        if teams_played or team_code:
+            history: List[str] = [t for t in (teams_played or []) if t]
+            if team_code:
+                code_up = str(team_code).upper()
+                history = [t for t in history if str(t).upper() != code_up]
+                history.append(code_up)
+
+            # Only show what fits in left column
+            logo_size = 20
+            spacing = 6
+            max_fit = max((left_column_w + spacing) // (logo_size + spacing), 1)
+            shown = history[-max_fit:]
+
+            draw.text((left_x, teams_y), 'TEAMS', fill='#CCCCCC', font=section_font)
+            teams_y += 16
+
+            # Left-align teams starting from title position
+            lx = left_x
+            for team in shown:
+                logo = _load_logo(_find_logo_path(team), size=logo_size)
+                if logo:
+                    canvas.paste(logo, (lx, teams_y), logo)
+                else:
+                    draw.ellipse([lx, teams_y, lx + logo_size, teams_y + logo_size], 
+                                fill=tier['accent_bg'], outline=tier['primary'] + '60')
+                lx += logo_size + spacing
+            teams_y += logo_size + 8
         
+        # Right column: Awards
+        awards_title = "NO AWARDS" if not awards else "AWARDS"
+        draw.text((right_x, awards_y), awards_title, fill='#CCCCCC', font=section_font)
+        awards_y += 16
+
         if awards:
-            # Display awards as text
-            for award in awards[:5]:  # Limit to 5 awards
-                bbox = draw.textbbox((0, 0), award, font=small_font)
-                tw = bbox[2] - bbox[0]
-                draw.text((24, y), award, fill='#FFFFFF', font=small_font)
-                y += 16
-        else:
-            draw.text((24, y), '—', fill='#333333', font=stat_label_font)
-            y += 20
+
+            counts: Dict[str, int] = {}
+            for a in awards:
+                code = _abbr_award(str(a))
+                counts[code] = counts.get(code, 0) + 1
+
+            # Sort by count desc then code
+            items = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+            
+            # Layout awards in right column with improved chip styling
+            x = right_x
+            line_h = 28
+            max_lines = 3  # Allow more lines in narrower column
+            line = 1
+            for code, count in items:
+                chip_w = _draw_award_chip(draw, x, awards_y, code=code, count=count, theme=theme, font=small_font)
+                x += chip_w + 6  # Tighter spacing
+                
+                # Check if we need to wrap to next line
+                if x + 60 > right_x + right_column_w and line < max_lines:  # 60px minimum for next chip
+                    line += 1
+                    x = right_x
+                    awards_y += line_h + 6
+                elif x + 60 > right_x + right_column_w:
+                    break  # No more space
+            
+            awards_y += line_h + 8
+        
+        # Move Y past the taller of the two columns
+        y = max(teams_y, awards_y)
         
         # Save to buffer
         buffer = io.BytesIO()
