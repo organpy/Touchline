@@ -500,40 +500,47 @@ def generate_player_card_image(
         if not season_text:
             season_text = ""
 
-        # Measure text dimensions
-        league_text_w, league_text_h = _measure_text(card_draw, league_text, title_font)
-        season_w, season_h = _measure_text(card_draw, season_text, section_font) if season_text else (0, 0)
+        # Measure text sizes with baseline accounting
+        league_bbox = card_draw.textbbox((0, 0), league_text, font=title_font)
+        league_width = league_bbox[2] - league_bbox[0]
+        league_height = league_bbox[3] - league_bbox[1]
+        league_offset = league_bbox[1]  # Top offset from baseline
+        
+        season_bbox = card_draw.textbbox((0, 0), season_text, font=section_font) if season_text else None
+        season_width = (season_bbox[2] - season_bbox[0]) if season_bbox else 0
+        season_height = (season_bbox[3] - season_bbox[1]) if season_bbox else 0
+        season_offset = season_bbox[1] if season_bbox else 0  # Top offset from baseline
+        
+        text_block_width = max(league_width, season_width) if season_text else league_width
 
-        # Calculate first line (logo + text) dimensions
-        group_gap = 10 if league_logo_img else 0
-        group_w = (LEAGUE_LOGO_SIZE if league_logo_img else 0) + group_gap + league_text_w
+        # Combined width for centering
+        has_logo = league_logo_img is not None
+        group_gap = 10 if has_logo else 0
+        combined_width = (LEAGUE_LOGO_SIZE + group_gap if has_logo else 0) + text_block_width
+        combined_x = (header_width - combined_width) // 2
+        header_center_y = HEADER_BLOCK_HEIGHT // 2
 
-        # Calculate total stack height
-        logo_text_height = max(LEAGUE_LOGO_SIZE if league_logo_img else 0, league_text_h)
-        stack_h = logo_text_height + (6 + season_h if season_text else 0)
-
-        # Vertical center the entire stack in header
-        top_y = header_y + (HEADER_BLOCK_HEIGHT - stack_h) // 2
-
-        # Horizontal center the logo+text group
-        group_x = header_x + _center_x(header_width, group_w)
-
-        # Position logo and text with same baseline (center-aligned)
-        baseline_y = top_y + logo_text_height // 2
+        # Vertically center the logo
+        logo_x = combined_x
+        logo_y = header_center_y - LEAGUE_LOGO_SIZE // 2
+        
+        # Position text to the right of logo
+        text_x = logo_x + LEAGUE_LOGO_SIZE + group_gap
+        
+        # Position league text centered on logo's middle
+        league_y = header_center_y - league_height // 2 - league_offset
+        
+        # Position season text below league text with moderate gap
+        line_gap = 6  # Moderate gap
+        season_y = league_y + league_height + line_gap - season_offset
 
         if league_logo_img:
-            logo_y = baseline_y - LEAGUE_LOGO_SIZE // 2
-            card.paste(league_logo_img, (group_x, logo_y), league_logo_img)
+            card.paste(league_logo_img, (logo_x, logo_y), league_logo_img)
 
-        text_x = group_x + (LEAGUE_LOGO_SIZE + group_gap if league_logo_img else 0)
-        text_y = baseline_y - league_text_h // 2
-        card_draw.text((text_x, text_y), league_text, fill=_to_rgba(theme["text_primary"]), font=title_font)
-
-        # Position season text below (centered horizontally, closer spacing)
+        card_draw.text((text_x, league_y), league_text, fill=_to_rgba(theme["text_primary"]), font=title_font)
+        
         if season_text:
-            season_x = header_x + _center_x(header_width, season_w)
-            season_y = top_y + logo_text_height + 6
-            card_draw.text((season_x, season_y), season_text, fill=_to_rgba(theme["text_primary"]), font=section_font)
+            card_draw.text((text_x, season_y), season_text, fill=_to_rgba(theme["text_primary"]), font=section_font)
 
         # Body
         cx = CARD_PADDING
@@ -544,22 +551,34 @@ def generate_player_card_image(
         name_w, name_h = _measure_text(card_draw, player_name, name_font)
         card_draw.text((cx + (cw - name_w) // 2, y), player_name, fill=_to_rgba(theme["text_primary"]), font=name_font)
         y += name_h + 18
-
-        # Team line: logo + team name
         display_team = (team_name or "Free Agent").strip() or "Free Agent"
         team_logo_path = _find_logo_path(team_code, display_team)
         team_logo_img = _load_logo(team_logo_path, 20) if team_logo_path else None
 
-        team_text_w, team_text_h = _measure_text(card_draw, display_team, team_font)
+        # Measure team text with baseline accounting
+        team_bbox = card_draw.textbbox((0, 0), display_team, font=team_font)
+        team_width = team_bbox[2] - team_bbox[0]
+        team_height = team_bbox[3] - team_bbox[1]
+        team_offset = team_bbox[1]  # Top offset from baseline
+        
         team_gap = 8 if team_logo_img else 0
-        team_group_w = (20 if team_logo_img else 0) + team_gap + team_text_w
+        team_group_w = (20 if team_logo_img else 0) + team_gap + team_width
         team_group_x = cx + _center_x(cw, team_group_w)
 
+        # Vertically center the logo on text baseline
+        logo_x = team_group_x
+        logo_y = y + (team_height // 2) - 10  # 20//2 = 10
+        
+        # Position text to the right of logo
+        text_x = logo_x + 20 + team_gap
+        
+        # Position team text with baseline accounting
+        text_y = y - team_offset
+
         if team_logo_img:
-            card.paste(team_logo_img, (team_group_x, y + (team_text_h // 2) - 10), team_logo_img)
-        team_text_x = team_group_x + ((20 + team_gap) if team_logo_img else 0)
-        card_draw.text((team_text_x, y), display_team, fill=_to_rgba(theme["text_muted"]), font=team_font)
-        y += team_text_h + 18
+            card.paste(team_logo_img, (logo_x, logo_y), team_logo_img)
+        card_draw.text((text_x, text_y), display_team, fill=_to_rgba(theme["text_muted"]), font=team_font)
+        y += team_height + 18
 
         # Seasons (optional)
         if seasons:
