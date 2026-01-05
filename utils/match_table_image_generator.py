@@ -74,7 +74,7 @@ LEAGUE_THEME_OVERRIDES = {
     },
 }
 
-MATCH_TABLE_CACHE_TTL_SECONDS = 120
+MATCH_TABLE_CACHE_TTL_SECONDS = 600  # Increased from 120 to 600 for low-resource optimization
 
 
 def _to_rgba(color: Tuple[int, ...]) -> Tuple[int, int, int, int]:
