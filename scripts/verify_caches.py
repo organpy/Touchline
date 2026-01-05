@@ -272,7 +272,7 @@ async def test_standings_image_cache():
     print_result("Set/get image bytes", result == test_value)
     
     # Test 3: TTL is 120 seconds
-    print_result("TTL is 120 seconds", simple_standings_cache.ttl_seconds == 120)
+    print_result("TTL is 600 seconds", simple_standings_cache.ttl_seconds == 600)
     
     # Test 4: Max size is 32
     print_result("Max size is 32", simple_standings_cache.max_size == 32)
