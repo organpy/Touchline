@@ -100,10 +100,10 @@ HERO_VALUE_FONT_SIZE = 42
 HERO_LABEL_FONT_SIZE = 13
 STAT_VALUE_FONT_SIZE = 18
 STAT_LABEL_FONT_SIZE = 11
-SECTION_FONT_SIZE = 16
+SECTION_FONT_SIZE = 13
 SMALL_FONT_SIZE = 10
 
-PLAYER_CARD_CACHE_TTL_SECONDS = 600  
+PLAYER_CARD_CACHE_TTL_SECONDS = 600
 
 
 def sort_seasons(seasons_list: List[str]) -> List[str]:
@@ -176,7 +176,7 @@ def _team_colors_index() -> Dict[str, Dict[str, Any]]:
         return {}
 
 
-player_card_cache = TTLCache(ttl_seconds=PLAYER_CARD_CACHE_TTL_SECONDS, max_size=32)  # Reduced from 64 to 32 for memory optimization
+player_card_cache = TTLCache(ttl_seconds=PLAYER_CARD_CACHE_TTL_SECONDS, max_size=32) 
 
 
 def clear_player_card_cache() -> None:
@@ -253,7 +253,7 @@ def _draw_vertical_gradient(draw: ImageDraw.ImageDraw, bbox: Tuple[int, int, int
 
 def _load_fonts():
     try:
-        title_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 28)
+        title_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 24) 
         name_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), NAME_FONT_SIZE)
         team_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), TEAM_FONT_SIZE)
         seasons_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), SEASONS_FONT_SIZE)
@@ -531,7 +531,7 @@ def generate_player_card_image(
         league_y = header_center_y - league_height // 2 - league_offset - 3
         
         # Position season text below league text with moderate gap
-        line_gap = 20  # Increased from 16 for better spacing between league and season text
+        line_gap = 16  # Increased gap to prevent overlap
         season_y = league_y + league_height + line_gap - season_offset - 3
 
         if league_logo_img:
