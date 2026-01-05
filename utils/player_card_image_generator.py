@@ -1,4 +1,12 @@
-"""Player card image generator - shows player stats with league theming and star ratings."""
+"""Player card image generator.
+
+Design goal: match the standings-style visuals (gradient canvas + inner rounded card +
+gradient header) and render a league-specific card type (NBL/MBL/NCBA).
+
+The stat fields displayed are aligned with the Supabase schema (db/migrations/init.sql):
+- points, goals, assists, saves, blocks, own_goals
+- powerup_plays, powerups_used, powerup_percentage
+"""
 
 from __future__ import annotations
 
@@ -20,114 +28,102 @@ logger = logging.getLogger(__name__)
 ROOT_DIR = Path(__file__).resolve().parents[1]
 IMAGES_DIR = ROOT_DIR / "images"
 DATA_DIR = ROOT_DIR / "data"
-
 FONTS_DIR = ROOT_DIR / "fonts"
-NAME_FONT = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 32)
-LABEL_FONT = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 16)
-VALUE_FONT = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), 18)
 
-# Theme configuration per league (reuses patterns from standings/match table)
-BASE_THEME = {
-    "bg_gradient_top": (135, 206, 250),     # Light sky blue
-    "bg_gradient_bottom": (100, 149, 237),  # Cornflower blue
+
+# Theme configuration (mirrors utils/standings_image_generator.py)
+BASE_THEME: Dict[str, Any] = {
+    "canvas_gradient": ((6, 10, 22), (27, 8, 35)),
     "card_bg": (26, 33, 49, 255),
-    "badge_bg": (30, 40, 60, 255),
-    "badge_border": (58, 74, 108, 255),
-    "text_primary": (255, 255, 255, 255),
-    "text_secondary": (200, 210, 220, 255),
+    "card_border": (58, 74, 108, 255),
+    "header_gradient": ((90, 134, 255), (176, 92, 255)),
+    "text_primary": (245, 248, 255, 255),
+    "text_muted": (173, 187, 212, 255),
     "accent_color": (90, 134, 255, 255),
-    "star_filled": (255, 215, 0, 255),      # Gold
-    "star_empty": (100, 100, 100, 255),     # Gray
+    "row_primary": (35, 46, 67, 255),
+    "row_alt": (40, 52, 76, 255),
+    "row_divider": (56, 68, 94, 255),
 }
 
-LEAGUE_THEME_OVERRIDES = {
+LEAGUE_THEME_OVERRIDES: Dict[str, Dict[str, Any]] = {
     "NBL": {
-        "bg_gradient_top": (192, 142, 86),
-        "bg_gradient_bottom": (95, 60, 28),
-        "badge_bg": (52, 35, 20, 255),
-        "badge_border": (111, 74, 38, 255),
+        "canvas_gradient": ((45, 30, 18), (95, 60, 28)),
+        "card_bg": (52, 35, 20, 255),
+        "card_border": (111, 74, 38, 255),
+        "header_gradient": ((192, 142, 86), (126, 74, 33)),
         "text_primary": (255, 250, 240, 255),
-        "text_secondary": (236, 210, 160, 255),
+        "text_muted": (236, 210, 160, 255),
         "accent_color": (247, 173, 68, 255),
+        "row_primary": (64, 44, 24, 255),
+        "row_alt": (55, 36, 20, 255),
+        "row_divider": (122, 86, 44, 255),
     },
     "MBL": {
-        "bg_gradient_top": (255, 150, 2),
-        "bg_gradient_bottom": (68, 38, 6),
-        "badge_bg": (48, 30, 8, 255),
-        "badge_border": (128, 78, 12, 255),
+        "canvas_gradient": ((24, 12, 2), (68, 38, 6)),
+        "header_gradient": ((255, 150, 2), (191, 105, 2)),
+        "card_bg": (48, 30, 8, 255),
+        "card_border": (128, 78, 12, 255),
         "accent_color": (255, 149, 0, 255),
+        "row_primary": (58, 36, 10, 255),
+        "row_alt": (66, 40, 12, 255),
+        "row_divider": (120, 80, 20, 255),
     },
     "NCBA": {
-        "bg_gradient_top": (0, 173, 181),
-        "bg_gradient_bottom": (9, 58, 70),
-        "badge_bg": (14, 34, 44, 255),
-        "badge_border": (22, 64, 78, 255),
+        "canvas_gradient": ((5, 24, 24), (9, 58, 70)),
+        "header_gradient": ((0, 173, 181), (0, 119, 182)),
+        "card_bg": (14, 34, 44, 255),
+        "card_border": (22, 64, 78, 255),
         "accent_color": (126, 199, 255, 255),
+        "row_primary": (16, 46, 60, 255),
+        "row_alt": (18, 54, 70, 255),
+        "row_divider": (34, 92, 110, 255),
     },
 }
 
-# Tier theming per division/league
-TIER_ORDER = ["Bronze", "Silver", "Gold", "Platinum", "Diamond"]
 
-TIER_THEMES = {
-    "default": {
-        "Bronze": {
-            "accent_color": (205, 127, 50, 255),
-            "star_filled": (205, 127, 50, 255),
-            "badge_border": (130, 82, 30, 255),
-        },
-        "Silver": {
-            "accent_color": (192, 192, 192, 255),
-            "star_filled": (192, 192, 192, 255),
-            "badge_border": (122, 122, 122, 255),
-        },
-        "Gold": {
-            "accent_color": (255, 215, 0, 255),
-            "star_filled": (255, 215, 0, 255),
-            "badge_border": (180, 150, 0, 255),
-        },
-        "Platinum": {
-            "accent_color": (229, 228, 226, 255),
-            "star_filled": (229, 228, 226, 255),
-            "badge_border": (150, 150, 148, 255),
-        },
-        "Diamond": {
-            "accent_color": (185, 242, 255, 255),
-            "star_filled": (126, 199, 255, 255),
-            "badge_border": (80, 170, 220, 255),
-        },
-    },
-    "NBL": {
-        "Gold": {"accent_color": (247, 173, 68, 255)},
-        "Diamond": {"accent_color": (255, 240, 200, 255)},
-    },
-    "MBL": {
-        "Gold": {"accent_color": (255, 149, 0, 255)},
-        "Diamond": {"accent_color": (255, 210, 160, 255)},
-    },
-    "NCBA": {
-        "Diamond": {"accent_color": (126, 199, 255, 255)},
-    },
-}
+# Layout constants (standings-style)
+CANVAS_PADDING = 36
+CARD_PADDING = 28
+CARD_CORNER_RADIUS = 28
+HEADER_BLOCK_HEIGHT = 86
 
-# Layout constants
-CARD_WIDTH = 500
-CARD_HEIGHT = 750
-CARD_PADDING = 24
-CARD_CORNER_RADIUS = 24
-AVATAR_SIZE = 200
-AVATAR_BORDER_WIDTH = 4
-LOGO_SIZE = 64
-BADGE_HEIGHT = 36
-BADGE_CORNER_RADIUS = 18
-BADGE_PADDING = 12
+CONTENT_WIDTH = 420
+CONTENT_HEIGHT = 570
 
-# Star rating constants
-STAR_SIZE = 20
-STAR_SPACING = 4
-MAX_STARS = 5
+LEAGUE_LOGO_SIZE = 44
+
+# Fonts
+NAME_FONT_SIZE = 30
+TEAM_FONT_SIZE = 14
+SEASONS_FONT_SIZE = 13
+HERO_VALUE_FONT_SIZE = 42
+HERO_LABEL_FONT_SIZE = 13
+STAT_VALUE_FONT_SIZE = 18
+STAT_LABEL_FONT_SIZE = 11
+SECTION_FONT_SIZE = 13
+SMALL_FONT_SIZE = 10
 
 PLAYER_CARD_CACHE_TTL_SECONDS = 120
+
+
+def sort_seasons(seasons_list: List[str]) -> List[str]:
+    """Sort seasons by numeric order, not alphabetically."""
+    season_order = {
+        "S1": 1,
+        "S2": 2,
+        "S3": 3,
+        "S4": 4,
+        "S5": 5,
+        "S5 D2": 5.5,
+        "S6": 6,
+        "S7": 7,
+        "S8": 8,
+        "S9": 9,
+        "S10": 10,
+        "S11": 11,
+        "S12": 12,
+    }
+    return sorted(seasons_list, key=lambda s: season_order.get(s, 999))
 
 
 def _to_rgba(color: Tuple[int, ...]) -> Tuple[int, int, int, int]:
@@ -145,49 +141,6 @@ def _get_theme(league_code: Optional[str]) -> Dict[str, Any]:
         if overrides:
             theme.update(overrides)
     return theme
-
-
-def _rating_to_tier(rating: float, league_code: Optional[str]) -> str:
-    """Map star rating to tier label; can be tuned per league if needed."""
-    # Default mapping
-    if rating < 1.5:
-        return "Bronze"
-    if rating < 2.5:
-        return "Silver"
-    if rating < 3.5:
-        return "Gold"
-    if rating < 4.5:
-        return "Platinum"
-    return "Diamond"
-
-
-def _apply_tier_theme(base: Dict[str, Any], league_code: Optional[str], tier: str) -> Dict[str, Any]:
-    """Return theme merged with tier-specific overrides (league-aware)."""
-    theme = {**base}
-    tier_overrides = TIER_THEMES.get("default", {}).get(tier, {})
-    theme.update(tier_overrides)
-    if league_code:
-        per_league = TIER_THEMES.get(league_code.upper(), {}).get(tier, {})
-        theme.update(per_league)
-    return theme
-
-
-def _apply_team_accent(theme: Dict[str, Any], team_code: Optional[str]) -> Dict[str, Any]:
-    """Blend team accent colors into theme for richer visuals."""
-    if not team_code:
-        return theme
-    palettes = _team_colors_index()
-    pal = palettes.get((team_code or "").upper())
-    if not pal:
-        return theme
-    accent = pal.get("primary") or pal.get("accent")
-    border = pal.get("secondary") or pal.get("dark")
-    new_theme = {**theme}
-    if isinstance(accent, list) and len(accent) >= 3:
-        new_theme["accent_color"] = _to_rgba(tuple(accent[:3]))
-    if isinstance(border, list) and len(border) >= 3:
-        new_theme["badge_border"] = _to_rgba(tuple(border[:3]))
-    return new_theme
 
 
 def _normalize_key(value: str) -> str:
@@ -238,7 +191,9 @@ def _make_cache_key(
     team_code: Optional[str],
     league_code: Optional[str],
     stats: Dict[str, Any],
-    star_rating: float,
+    seasons: List[str],
+    awards: List[str],
+    teams_played: List[str],
 ) -> str:
     payload = {
         "player_id": player_id,
@@ -246,7 +201,716 @@ def _make_cache_key(
         "team_code": (team_code or "").upper(),
         "league_code": (league_code or "").upper(),
         "stats": stats,
-        "star_rating": star_rating,
+        "seasons": seasons,
+        "awards": awards,
+        "teams_played": teams_played,
+    }
+    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _bytes_to_buffer(image_bytes: bytes) -> io.BytesIO:
+    buffer = io.BytesIO(image_bytes)
+    buffer.seek(0)
+    return buffer
+
+
+def _find_logo_path(*candidates: Optional[str]) -> Optional[Path]:
+    index = _image_index()
+    for candidate in candidates:
+        if not candidate:
+            continue
+        key = _normalize_key(candidate)
+        if key in index:
+            return index[key]
+    return None
+
+
+def _load_logo(path: Path, size: int) -> Optional[Image.Image]:
+    try:
+        image = Image.open(path).convert("RGBA")
+        image.thumbnail((size, size), Image.LANCZOS)
+        canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        offset = ((size - image.width) // 2, (size - image.height) // 2)
+        canvas.paste(image, offset, image)
+        return canvas
+    except Exception:
+        logger.warning("Failed to load logo %s", path)
+        return None
+
+
+def _draw_vertical_gradient(draw: ImageDraw.ImageDraw, bbox: Tuple[int, int, int, int], start, end) -> None:
+    x0, y0, x1, y1 = bbox
+    height = max(y1 - y0, 1)
+    for i in range(height):
+        p = i / height
+        r = int(start[0] + (end[0] - start[0]) * p)
+        g = int(start[1] + (end[1] - start[1]) * p)
+        b = int(start[2] + (end[2] - start[2]) * p)
+        draw.line([(x0, y0 + i), (x1, y0 + i)], fill=(r, g, b))
+
+
+def _load_fonts():
+    try:
+        title_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 24)
+        name_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), NAME_FONT_SIZE)
+        team_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), TEAM_FONT_SIZE)
+        seasons_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), SEASONS_FONT_SIZE)
+        hero_value_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), HERO_VALUE_FONT_SIZE)
+        hero_label_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), HERO_LABEL_FONT_SIZE)
+        stat_value_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), STAT_VALUE_FONT_SIZE)
+        stat_label_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), STAT_LABEL_FONT_SIZE)
+        section_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), SECTION_FONT_SIZE)
+        small_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), SMALL_FONT_SIZE)
+    except Exception:
+        title_font = ImageFont.load_default()
+        name_font = ImageFont.load_default()
+        team_font = ImageFont.load_default()
+        seasons_font = ImageFont.load_default()
+        hero_value_font = ImageFont.load_default()
+        hero_label_font = ImageFont.load_default()
+        stat_value_font = ImageFont.load_default()
+        stat_label_font = ImageFont.load_default()
+        section_font = ImageFont.load_default()
+        small_font = ImageFont.load_default()
+
+    return (
+        title_font,
+        name_font,
+        team_font,
+        seasons_font,
+        hero_value_font,
+        hero_label_font,
+        stat_value_font,
+        stat_label_font,
+        section_font,
+        small_font,
+    )
+
+
+def _measure_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
+    bbox = draw.textbbox((0, 0), text, font=font)
+    return bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+
+def _center_x(container_width: int, content_width: int) -> int:
+    return max((container_width - content_width) // 2, 0)
+
+
+def _draw_stat_cell(
+    draw: ImageDraw.ImageDraw,
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+    *,
+    label: str,
+    value: str,
+    theme: Dict[str, Any],
+    value_font: ImageFont.ImageFont,
+    label_font: ImageFont.ImageFont,
+) -> None:
+    draw.rounded_rectangle(
+        (x, y, x + w, y + h),
+        radius=14,
+        fill=_to_rgba(theme["row_alt"]),
+        outline=_to_rgba(theme["row_divider"]),
+        width=1,
+    )
+
+    value_w, value_h = _measure_text(draw, value, value_font)
+    label_w, label_h = _measure_text(draw, label, label_font)
+
+    value_x = x + (w - value_w) // 2
+    value_y = y + 10
+    label_x = x + (w - label_w) // 2
+    label_y = y + h - label_h - 10
+
+    draw.text((value_x, value_y), value, fill=_to_rgba(theme["text_primary"]), font=value_font)
+    draw.text((label_x, label_y), label, fill=_to_rgba(theme["text_muted"]), font=label_font)
+
+
+def generate_player_card_image(
+    player_id: str,
+    player_name: str,
+    team_name: Optional[str] = None,
+    team_code: Optional[str] = None,
+    league_code: Optional[str] = None,
+    stats: Optional[Dict[str, Any]] = None,
+    seasons: Optional[List[str]] = None,
+    awards: Optional[List[str]] = None,
+    teams_played: Optional[List[str]] = None,
+) -> Optional[io.BytesIO]:
+    """Generate a player card image.
+
+    Args:
+        player_id: Unique player identifier
+        player_name: Player display name
+        team_name: Team name (for display)
+        team_code: Team code (for logo lookup)
+        league_code: League code for theming (NBL, MBL, NCBA)
+        stats: Dict with season totals aligned to schema
+        seasons: List of seasons played
+        awards: List of awards
+        teams_played: List of teams played for
+
+    Returns:
+        BytesIO buffer with PNG image, or None on error
+    """
+    try:
+        stats = stats or {}
+        seasons = seasons or []
+        awards = awards or []
+        teams_played = teams_played or []
+
+        league_code_norm = (league_code or "").upper() or None
+
+        cache_key = _make_cache_key(
+            player_id=player_id,
+            player_name=player_name,
+            team_code=team_code,
+            league_code=league_code_norm,
+            stats=stats,
+            seasons=seasons,
+            awards=awards,
+            teams_played=teams_played,
+        )
+        cached_image = player_card_cache.get(cache_key)
+        if cached_image is not None:
+            return _bytes_to_buffer(cached_image)
+
+        theme = _get_theme(league_code_norm)
+        (
+            title_font,
+            name_font,
+            team_font,
+            seasons_font,
+            hero_value_font,
+            hero_label_font,
+            stat_value_font,
+            stat_label_font,
+            section_font,
+            small_font,
+        ) = _load_fonts()
+
+        # Derived stats (schema-aligned)
+        games = int(stats.get("games_played", 0) or 0)
+        points = int(stats.get("points", 0) or 0)
+        goals = int(stats.get("goals", 0) or 0)
+        assists = int(stats.get("assists", 0) or 0)
+        saves = int(stats.get("saves", 0) or 0)
+        blocks = int(stats.get("blocks", 0) or 0)
+        own_goals = int(stats.get("own_goals", 0) or 0)
+        pp_plays = int(stats.get("powerup_plays", 0) or 0)
+        pp_used = int(stats.get("powerups_used", 0) or 0)
+        pp_pct = stats.get("powerup_percentage")
+        if pp_pct is None:
+            pp_pct = round((pp_plays / pp_used) * 100, 2) if pp_used > 0 else 0
+        try:
+            pp_pct_val = float(pp_pct)
+        except Exception:
+            pp_pct_val = 0.0
+
+        # Geometry
+        card_width = CONTENT_WIDTH + (CARD_PADDING * 2)
+        card_height = CONTENT_HEIGHT + (CARD_PADDING * 2)
+        canvas_width = card_width + (CANVAS_PADDING * 2)
+        canvas_height = card_height + (CANVAS_PADDING * 2)
+
+        # Canvas
+        canvas = Image.new("RGBA", (canvas_width, canvas_height), _to_rgba(theme["canvas_gradient"][0]))
+        canvas_draw = ImageDraw.Draw(canvas)
+        _draw_vertical_gradient(canvas_draw, (0, 0, canvas_width, canvas_height), *theme["canvas_gradient"])
+
+        # Card
+        card = Image.new("RGBA", (card_width, card_height), (0, 0, 0, 0))
+        card_draw = ImageDraw.Draw(card)
+        card_draw.rounded_rectangle(
+            (0, 0, card_width, card_height),
+            radius=CARD_CORNER_RADIUS,
+            fill=_to_rgba(theme["card_bg"]),
+            outline=_to_rgba(theme["card_border"]),
+            width=2,
+        )
+
+        # Header (gradient with rounded top corners)
+        header_width = CONTENT_WIDTH
+        header_x = CARD_PADDING
+        header_y = CARD_PADDING
+
+        header_layer = Image.new("RGBA", (header_width, HEADER_BLOCK_HEIGHT), (0, 0, 0, 0))
+        header_layer_draw = ImageDraw.Draw(header_layer)
+        _draw_vertical_gradient(header_layer_draw, (0, 0, header_width, HEADER_BLOCK_HEIGHT), *theme["header_gradient"])
+
+        header_mask = Image.new("L", (header_width, HEADER_BLOCK_HEIGHT), 0)
+        mask_draw = ImageDraw.Draw(header_mask)
+        mask_draw.rounded_rectangle(
+            (0, 0, header_width, HEADER_BLOCK_HEIGHT + CARD_CORNER_RADIUS),
+            radius=CARD_CORNER_RADIUS,
+            fill=255,
+        )
+        card.paste(header_layer, (header_x, header_y), header_mask)
+
+        # Header content: centered league logo + league code
+        league_text = league_code_norm or "LEAGUE"
+        league_logo_path = _find_logo_path(league_text)
+        league_logo_img = _load_logo(league_logo_path, LEAGUE_LOGO_SIZE) if league_logo_path else None
+
+        league_text_w, league_text_h = _measure_text(card_draw, league_text, title_font)
+        group_gap = 12 if league_logo_img else 0
+        group_w = (LEAGUE_LOGO_SIZE if league_logo_img else 0) + group_gap + league_text_w
+        group_x = header_x + _center_x(header_width, group_w)
+        center_y = header_y + HEADER_BLOCK_HEIGHT // 2
+
+        if league_logo_img:
+            card.paste(league_logo_img, (group_x, center_y - LEAGUE_LOGO_SIZE // 2), league_logo_img)
+
+        text_x = group_x + (LEAGUE_LOGO_SIZE + group_gap if league_logo_img else 0)
+        text_y = center_y - league_text_h // 2
+        card_draw.text((text_x, text_y), league_text, fill=_to_rgba(theme["text_primary"]), font=title_font)
+
+        # Body
+        cx = CARD_PADDING
+        cw = CONTENT_WIDTH
+        y = CARD_PADDING + HEADER_BLOCK_HEIGHT + 22
+
+        # Player name
+        name_w, name_h = _measure_text(card_draw, player_name, name_font)
+        card_draw.text((cx + (cw - name_w) // 2, y), player_name, fill=_to_rgba(theme["text_primary"]), font=name_font)
+        y += name_h + 10
+
+        # Team line: logo + team name
+        display_team = (team_name or "Free Agent").strip() or "Free Agent"
+        team_logo_path = _find_logo_path(team_code, display_team)
+        team_logo_img = _load_logo(team_logo_path, 22) if team_logo_path else None
+
+        team_text_w, team_text_h = _measure_text(card_draw, display_team, team_font)
+        team_gap = 10 if team_logo_img else 0
+        team_group_w = (22 if team_logo_img else 0) + team_gap + team_text_w
+        team_group_x = cx + _center_x(cw, team_group_w)
+
+        if team_logo_img:
+            card.paste(team_logo_img, (team_group_x, y + (team_text_h // 2) - 11), team_logo_img)
+        team_text_x = team_group_x + ((22 + team_gap) if team_logo_img else 0)
+        card_draw.text((team_text_x, y), display_team, fill=_to_rgba(theme["text_muted"]), font=team_font)
+        y += team_text_h + 10
+
+        # Seasons (optional)
+        if seasons:
+            seasons_text = " · ".join(sort_seasons(seasons))
+            seasons_w, seasons_h = _measure_text(card_draw, seasons_text, seasons_font)
+            card_draw.text((cx + (cw - seasons_w) // 2, y), seasons_text, fill=_to_rgba(theme["text_muted"]), font=seasons_font)
+            y += seasons_h + 14
+        else:
+            y += 6
+
+        # Hero stat (MBL: GOALS, otherwise: POINTS)
+        hero_label = "GOALS" if league_text == "MBL" else "POINTS"
+        hero_value = goals if league_text == "MBL" else points
+        hero_h = 106
+
+        card_draw.rounded_rectangle(
+            (cx, y, cx + cw, y + hero_h),
+            radius=20,
+            fill=_to_rgba(theme["row_primary"]),
+            outline=_to_rgba(theme["row_divider"]),
+            width=1,
+        )
+
+        hero_value_str = str(int(hero_value))
+        hv_w, hv_h = _measure_text(card_draw, hero_value_str, hero_value_font)
+        hl_w, hl_h = _measure_text(card_draw, hero_label, hero_label_font)
+        hero_center_x = cx + cw // 2
+        card_draw.text(
+            (hero_center_x - hv_w // 2, y + 18),
+            hero_value_str,
+            fill=_to_rgba(theme["text_primary"]),
+            font=hero_value_font,
+        )
+        card_draw.text(
+            (hero_center_x - hl_w // 2, y + hero_h - hl_h - 18),
+            hero_label,
+            fill=_to_rgba(theme["text_muted"]),
+            font=hero_label_font,
+        )
+        y += hero_h + 16
+
+        # Stats grid (3 rows x 3 cols)
+        grid_gap = 10
+        cell_w = (cw - (2 * grid_gap)) // 3
+        cell_h = 64
+
+        grid_rows = [
+            [("GAMES", str(games)), ("ASSISTS", str(assists)), ("SAVES", str(saves))],
+            [("GOALS", str(goals)), ("POINTS", str(points)), ("BLOCKS", str(blocks))],
+            [("OWN GOALS", str(own_goals)), ("PP PLAYS", str(pp_plays)), ("PP%", f"{pp_pct_val:.1f}")],
+        ]
+
+        for row in grid_rows:
+            for i, (label, value) in enumerate(row):
+                cell_x = cx + i * (cell_w + grid_gap)
+                _draw_stat_cell(
+                    card_draw,
+                    cell_x,
+                    y,
+                    cell_w,
+                    cell_h,
+                    label=label,
+                    value=value,
+                    theme=theme,
+                    value_font=stat_value_font,
+                    label_font=stat_label_font,
+                )
+            y += cell_h + 10
+
+        # Teams played (optional)
+        if teams_played:
+            y += 6
+            card_draw.text((cx, y), "TEAMS", fill=_to_rgba(theme["text_muted"]), font=section_font)
+            y += 18
+
+            logo_size = 26
+            spacing = 8
+            shown = teams_played[:6]
+            logos_w = len(shown) * logo_size + (len(shown) - 1) * spacing
+            lx = cx + _center_x(cw, logos_w)
+
+            for team in shown:
+                path = _find_logo_path(team)
+                logo = _load_logo(path, logo_size) if path else None
+                if logo:
+                    card.paste(logo, (lx, y), logo)
+                else:
+                    card_draw.ellipse((lx, y, lx + logo_size, y + logo_size), outline=_to_rgba(theme["row_divider"]), width=2)
+                lx += logo_size + spacing
+            y += logo_size + 12
+
+        # Awards (optional, text-based)
+        if awards:
+            card_draw.text((cx, y), "AWARDS", fill=_to_rgba(theme["text_muted"]), font=section_font)
+            y += 18
+            for award in awards[:3]:
+                card_draw.text((cx, y), f"• {award}", fill=_to_rgba(theme["text_primary"]), font=small_font)
+                y += 16
+
+        # Paste card onto canvas
+        canvas.paste(card, (CANVAS_PADDING, CANVAS_PADDING), card)
+
+        buffer = io.BytesIO()
+        canvas.save(buffer, format="PNG", optimize=True)
+        image_bytes = buffer.getvalue()
+
+        player_card_cache.set(cache_key, image_bytes)
+        return _bytes_to_buffer(image_bytes)
+
+    except Exception as e:
+        logger.error("Error generating player card image: %s", e, exc_info=True)
+        return None
+
+
+async def generate_player_card(
+    *,
+    player_name: str,
+    team_name: Optional[str] = None,
+    team_code: Optional[str] = None,
+    league_type: Optional[str] = None,
+    avatar_url: Optional[str] = None,
+    stats: Optional[Dict[str, Any]] = None,
+    seasons: Optional[List[str]] = None,
+    awards: Optional[List[str]] = None,
+    teams_played: Optional[List[str]] = None,
+) -> Optional[bytes]:
+    """Generate a player card PNG as bytes.
+
+    Matches the signature used by cogs.cards.player_card. avatar_url is currently
+    unused in this design.
+    """
+    try:
+        buffer = generate_player_card_image(
+            player_id=_normalize_key(player_name),
+            player_name=player_name,
+            team_name=team_name,
+            team_code=team_code,
+            league_code=league_type,
+            stats=stats or {},
+            seasons=seasons,
+            awards=awards,
+            teams_played=teams_played,
+        )
+        if buffer is None:
+            return None
+        return buffer.getvalue()
+    except Exception as e:
+        logger.error("Error in generate_player_card wrapper: %s", e, exc_info=True)
+        return None
+
+# NOTE: Legacy generator code was previously appended to this file during refactors.
+# It is intentionally disabled to avoid overriding the standings-style renderer.
+LEGACY_DISABLED = r'''
+Player card image generator - shows player stats with v5 layout and league theming.
+
+from __future__ import annotations
+
+import hashlib
+import io
+import json
+import logging
+import re
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+from PIL import Image, ImageDraw, ImageFont
+
+from utils.caching import TTLCache
+
+logger = logging.getLogger(__name__)
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+IMAGES_DIR = ROOT_DIR / "images"
+DATA_DIR = ROOT_DIR / "data"
+
+FONTS_DIR = ROOT_DIR / "fonts"
+
+# Theme configuration (reused from standings/match table)
+BASE_THEME = {
+    "canvas_gradient": ((6, 10, 22), (27, 8, 35)),
+    "card_bg": (26, 33, 49, 255),
+    "card_border": (58, 74, 108, 255),
+    "header_gradient": ((90, 134, 255), (176, 92, 255)),
+    "text_primary": (245, 248, 255, 255),
+    "text_muted": (173, 187, 212, 255),
+    "accent_color": (90, 134, 255, 255),
+}
+
+LEAGUE_THEME_OVERRIDES = {
+    "NBL": {
+        "canvas_gradient": ((45, 30, 18), (95, 60, 28)),
+        "card_bg": (52, 35, 20, 255),
+        "card_border": (111, 74, 38, 255),
+        "header_gradient": ((192, 142, 86), (126, 74, 33)),
+        "text_primary": (255, 250, 240, 255),
+        "text_muted": (236, 210, 160, 255),
+        "accent_color": (247, 173, 68, 255),
+    },
+    "MBL": {
+        "canvas_gradient": ((24, 12, 2), (68, 38, 6)),
+        "header_gradient": ((255, 150, 2), (191, 105, 2)),
+        "card_bg": (48, 30, 8, 255),
+        "card_border": (128, 78, 12, 255),
+        "accent_color": (255, 149, 0, 255),
+    },
+    "NCBA": {
+        "canvas_gradient": ((5, 24, 24), (9, 58, 70)),
+        "header_gradient": ((0, 173, 181), (0, 119, 182)),
+        "card_bg": (14, 34, 44, 255),
+        "card_border": (22, 64, 78, 255),
+        "accent_color": (126, 199, 255, 255),
+    },
+}
+
+# Tier definitions (from v5)
+TIERS = {
+    'ADEX': {
+        'min_goals': 999999, 'min_ppg': 999, 'min_games': 999999, 'min_seasons': 999999, 'min_turns': 999999,
+        'primary': '#F4B1A5', 'secondary': '#E8A090',
+        'card_bg': '#1A1615', 'accent_bg': '#2A2220'
+    },
+    'GOAT': {
+        'min_goals': 999999, 'min_ppg': 999, 'min_games': 999999, 'min_seasons': 999999, 'min_turns': 999999,
+        'primary': '#CCD6DD', 'secondary': '#B0BEC5',
+        'card_bg': '#1A1C1E', 'accent_bg': '#252830'
+    },
+    'LEGEND': {
+        'min_goals': 100, 'min_ppg': 0.95, 'min_games': 100, 'min_seasons': 5, 'min_turns': 0,
+        'primary': '#FFD700', 'secondary': '#FFA500',
+        'card_bg': '#1A1714', 'accent_bg': '#2A2520'
+    },
+    'ELITE': {
+        'min_goals': 50, 'min_ppg': 0.5, 'min_games': 60, 'min_seasons': 4, 'min_turns': 2000,
+        'primary': '#A78BFA', 'secondary': '#818CF8',
+        'card_bg': '#1A1720', 'accent_bg': '#252030'
+    },
+    'PRO': {
+        'min_goals': 35, 'min_ppg': 0.4, 'min_games': 35, 'min_seasons': 3, 'min_turns': 1000,
+        'primary': '#34D399', 'secondary': '#10B981',
+        'card_bg': '#141A18', 'accent_bg': '#1F2A25'
+    },
+    'RISING': {
+        'min_goals': 15, 'min_ppg': 0.3, 'min_games': 15, 'min_seasons': 2, 'min_turns': 0,
+        'primary': '#38BDF8', 'secondary': '#0EA5E9',
+        'card_bg': '#14181A', 'accent_bg': '#1F2528'
+    },
+    'ROOKIE': {
+        'min_goals': 0, 'min_ppg': 0, 'min_games': 0, 'min_seasons': 0, 'min_turns': 0,
+        'primary': '#9CA3AF', 'secondary': '#6B7280',
+        'card_bg': '#171717', 'accent_bg': '#222222'
+    }
+}
+
+TIER_ORDER = ['ADEX', 'GOAT', 'LEGEND', 'ELITE', 'PRO', 'RISING', 'ROOKIE']
+
+
+def calculate_tier(player_data: Dict, goats_list: List[str] = None) -> str:
+    display_name = player_data.get('display_name', '')
+    
+    # Special Adex tier
+    if display_name.lower() == 'adex':
+        return 'ADEX'
+    
+    # Check if player is in GOATS list (use provided list or global)
+    goats = goats_list if goats_list is not None else []
+    if display_name.lower() in [g.lower() for g in goats]:
+        return 'GOAT'
+    
+    # Check for manually assigned tier
+    if player_data.get('tier'):
+        return player_data['tier'].upper()
+    
+    goals = player_data.get('goals', 0)
+    ppg = player_data.get('ppg', 0)
+    games = player_data.get('games_played', 0)
+    seasons = len(player_data.get('seasons', []))
+    turns = player_data.get('turns_played', 0)
+    
+    # Calculate tier based on stats
+    calculated_tier = 'ROOKIE'
+    for tier_name in TIER_ORDER:
+        if tier_name == 'GOAT':
+            continue  # GOAT is manual only
+        tier = TIERS[tier_name]
+        if (goals >= tier['min_goals'] and 
+            ppg >= tier['min_ppg'] and 
+            games >= tier['min_games'] and
+            seasons >= tier['min_seasons'] and
+            turns >= tier.get('min_turns', 0)):
+            calculated_tier = tier_name
+            break  # Take the highest they qualify for
+    
+    # Apply minimum tier based on seasons played (balancing)
+    if seasons >= 7:
+        min_tier = 'ELITE'
+    elif seasons >= 5:
+        min_tier = 'PRO'
+    elif seasons >= 3:
+        min_tier = 'RISING'
+    else:
+        min_tier = 'ROOKIE'
+    
+    # Get the tier order index
+    tier_order = {tier: idx for idx, tier in enumerate(TIER_ORDER)}
+    
+    # If calculated tier is lower than minimum, bump it up
+    if tier_order.get(calculated_tier, 999) > tier_order.get(min_tier, 999):
+        calculated_tier = min_tier
+    
+    return calculated_tier
+
+
+def hex_to_rgb(hex_color: str) -> Tuple[int, int, int]:
+    hex_color = hex_color.lstrip('#')
+    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+
+def sort_seasons(seasons_list):
+    """Sort seasons by numeric order, not alphabetically"""
+    season_order = {'S1':1, 'S2': 2, 'S3': 3, 'S4': 4, 'S5': 5, 'S5 D2': 5.5, 'S6': 6,
+                   'S7': 7, 'S8': 8, 'S9': 9, 'S10': 10, 'S11': 11, 'S12': 12}
+    return sorted(seasons_list, key=lambda s: season_order.get(s, 999))
+
+# Layout constants (from v5 style)
+CARD_WIDTH = 340
+CARD_HEIGHT = 500
+CARD_PADDING = 24
+CARD_CORNER_RADIUS = 24
+
+# Fonts
+NAME_FONT_SIZE = 32
+SEASONS_FONT_SIZE = 14
+STAT_BIG_FONT_SIZE = 36
+STAT_MED_FONT_SIZE = 18
+STAT_LABEL_FONT_SIZE = 12
+SECTION_FONT_SIZE = 14
+SMALL_FONT_SIZE = 10
+AWARD_COUNT_FONT_SIZE = 12
+
+PLAYER_CARD_CACHE_TTL_SECONDS = 120
+
+
+def _to_rgba(color: Tuple[int, ...]) -> Tuple[int, int, int, int]:
+    if len(color) == 4:
+        return color
+    if len(color) == 3:
+        return (color[0], color[1], color[2], 255)
+    raise ValueError("Color tuples must be length 3 or 4")
+
+
+def _get_theme(league_code: Optional[str]) -> Dict[str, Any]:
+    theme = {**BASE_THEME}
+    if league_code:
+        overrides = LEAGUE_THEME_OVERRIDES.get(league_code.upper())
+        if overrides:
+            theme.update(overrides)
+    return theme
+
+
+def _normalize_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", value.lower())
+
+
+@lru_cache(maxsize=1)
+def _image_index() -> Dict[str, Path]:
+    index: Dict[str, Path] = {}
+    if not IMAGES_DIR.exists():
+        return index
+    for file_path in IMAGES_DIR.iterdir():
+        if file_path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+            continue
+        index[_normalize_key(file_path.stem)] = file_path
+    return index
+
+
+@lru_cache(maxsize=1)
+def _team_colors_index() -> Dict[str, Dict[str, Any]]:
+    """Load team color palettes from data/team_colors.json if available."""
+    path = DATA_DIR / "team_colors.json"
+    if not path.exists():
+        return {}
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        out: Dict[str, Dict[str, Any]] = {}
+        for code, palette in (data or {}).items():
+            out[(code or "").upper()] = palette or {}
+        return out
+    except Exception:
+        logger.warning("Failed to load team colors from %s", path)
+        return {}
+
+
+player_card_cache = TTLCache(ttl_seconds=PLAYER_CARD_CACHE_TTL_SECONDS, max_size=64)
+
+
+def clear_player_card_cache() -> None:
+    """Clear cached player card images."""
+    player_card_cache.clear()
+
+
+def _make_cache_key(
+    player_id: str,
+    player_name: str,
+    team_code: Optional[str],
+    league_code: Optional[str],
+    stats: Dict[str, Any],
+    tier: str,
+) -> str:
+    payload = {
+        "player_id": player_id,
+        "player_name": player_name,
+        "team_code": (team_code or "").upper(),
+        "league_code": (league_code or "").upper(),
+        "stats": stats,
+        "tier": tier,
     }
     serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
@@ -293,29 +957,42 @@ def _draw_vertical_gradient(draw, bbox, start, end):
         draw.rectangle((x0, y0 + i, x1, y0 + i + 1), fill=(r, g, b))
 
 
-def _load_fonts() -> Tuple[ImageFont.FreeTypeFont, ImageFont.FreeTypeFont, ImageFont.FreeTypeFont, ImageFont.FreeTypeFont]:
-    """Load and return the required fonts."""
-    name_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 32)
-    label_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 16)
-    value_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), 18)
-    small_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), 14)
-    return name_font, label_font, value_font, small_font
+def _load_fonts():
+    try:
+        name_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), NAME_FONT_SIZE)
+        seasons_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), SEASONS_FONT_SIZE)
+        stat_big_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), STAT_BIG_FONT_SIZE)
+        stat_med_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), STAT_MED_FONT_SIZE)
+        stat_label_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), STAT_LABEL_FONT_SIZE)
+        section_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), SECTION_FONT_SIZE)
+        small_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), SMALL_FONT_SIZE)
+        award_count_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), AWARD_COUNT_FONT_SIZE)
+    except Exception:
+        name_font = ImageFont.load_default()
+        seasons_font = ImageFont.load_default()
+        stat_big_font = ImageFont.load_default()
+        stat_med_font = ImageFont.load_default()
+        stat_label_font = ImageFont.load_default()
+        section_font = ImageFont.load_default()
+        small_font = ImageFont.load_default()
+        award_count_font = ImageFont.load_default()
+    return name_font, seasons_font, stat_big_font, stat_med_font, stat_label_font, section_font, small_font, award_count_font
 
 
 def _draw_rounded_badge(draw, pos, text, font, theme, min_width=0):
     x, y = pos
-    pad = BADGE_PADDING
+    pad = 12  # padding
 
     tw, th = draw.textbbox((0, 0), text, font=font)[2:]
 
     bw = max(tw + pad * 2, min_width)
-    bh = BADGE_HEIGHT
+    bh = 36  # height
 
     draw.rounded_rectangle(
         (x, y, x + bw, y + bh),
-        radius=BADGE_CORNER_RADIUS,
-        fill=_to_rgba(theme["badge_bg"]),
-        outline=_to_rgba(theme["badge_border"]),
+        radius=18,  # corner radius
+        fill=_to_rgba(theme["card_bg"]),
+        outline=_to_rgba(theme["card_border"]),
         width=2
     )
 
@@ -325,187 +1002,13 @@ def _draw_rounded_badge(draw, pos, text, font, theme, min_width=0):
     draw.text((tx, ty), text, fill=_to_rgba(theme["text_primary"]), font=font)
 
 
-def _draw_star_rating(
-    draw: ImageDraw.ImageDraw,
-    position: Tuple[int, int],
-    rating: float,
-    theme: Dict[str, Any],
-) -> int:
-    """Draw star rating (0.5 to 5.0) and return total width."""
-    x, y = position
-    
-    # Clamp rating to valid range
-    rating = max(0, min(5, rating))
-    full_stars = int(rating)
-    half_star = rating - full_stars >= 0.5
-    
-    total_width = 0
-    for i in range(MAX_STARS):
-        star_x = x + i * (STAR_SIZE + STAR_SPACING)
-        
-        if i < full_stars:
-            # Full star
-            _draw_star(draw, (star_x, y), STAR_SIZE, _to_rgba(theme["star_filled"]))
-        elif i == full_stars and half_star:
-            # Half star
-            _draw_star(draw, (star_x, y), STAR_SIZE, _to_rgba(theme["star_filled"]), half=True)
-            _draw_star(draw, (star_x, y), STAR_SIZE, _to_rgba(theme["star_empty"]), half=True, right_half=True)
-        else:
-            # Empty star
-            _draw_star(draw, (star_x, y), STAR_SIZE, _to_rgba(theme["star_empty"]))
-        
-        total_width = star_x + STAR_SIZE - x
-    
-    return total_width
 
 
-def _draw_star(draw, position, size, color, half=False, right_half=False):
-    import math
-
-    x, y = position
-    cx = x + size / 2
-    cy = y + size / 2
-    r_outer = size * 0.48
-    r_inner = r_outer * 0.45
-
-    pts = []
-    for i in range(10):
-        angle = math.pi / 2 + i * (math.pi / 5)
-        r = r_outer if i % 2 == 0 else r_inner
-        pts.append((cx + r * math.cos(angle), cy - r * math.sin(angle)))
-
-    if half:
-        midpoint = cx
-        if right_half:
-            pts = [(max(px, midpoint), py) for px, py in pts]
-        else:
-            pts = [(min(px, midpoint), py) for px, py in pts]
-
-    draw.polygon(pts, fill=color)
 
 
-def _draw_avatar_circle(canvas, position, size, border_color, border_width=4):
-    draw = ImageDraw.Draw(canvas)
-    x, y = position
-
-    # Shadow
-    shadow = Image.new("RGBA", (size + 20, size + 20), (0, 0, 0, 0))
-    shadow_draw = ImageDraw.Draw(shadow)
-    shadow_draw.ellipse((10, 10, size + 10, size + 10), fill=(0, 0, 0, 90))
-    canvas.paste(shadow, (x - 10, y - 10), shadow)
-
-    # Border
-    draw.ellipse((x, y, x + size, y + size), fill=_to_rgba(border_color))
-
-    # Inner circle
-    inner = border_width
-    draw.ellipse(
-        (x + inner, y + inner, x + size - inner, y + size - inner),
-        fill=(255, 255, 255, 255),
-    )
 
 
-def _draw_holo_overlay(canvas: Image.Image, intensity: float = 0.15) -> None:
-    """Add a subtle holographic diagonal stripe overlay for high tiers."""
-    w, h = canvas.size
-    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    step = 16
-    alpha = int(255 * intensity)
-    for i in range(-h, w, step):
-        draw.line((i, 0, i + h, h), fill=(255, 255, 255, alpha // 6), width=2)
-        draw.line((i + 4, 0, i + h + 4, h), fill=(126, 199, 255, alpha // 6), width=1)
-        draw.line((i + 8, 0, i + h + 8, h), fill=(255, 215, 0, alpha // 6), width=1)
-    canvas.alpha_composite(overlay)
 
-
-def _draw_vignette(canvas: Image.Image, intensity: float = 0.18) -> None:
-    """Darken edges for depth using a radial vignette."""
-    w, h = canvas.size
-    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    steps = 16
-    for i in range(steps):
-        alpha = int(255 * intensity * (i / steps))
-        pad = int(min(w, h) * (i / steps) * 0.06)
-        draw.rounded_rectangle(
-            (0 + pad, 0 + pad, w - pad, h - pad),
-            radius=max(8, int(24 - i)),
-            outline=(0, 0, 0, alpha),
-            width=2,
-        )
-    canvas.alpha_composite(overlay)
-
-
-def _draw_watermark_logo(canvas: Image.Image, team_code: Optional[str], size: int = 280, alpha: int = 24) -> None:
-    """Large faint team logo centered as watermark."""
-    if not team_code:
-        return
-    path = _find_logo_path(team_code)
-    if not path:
-        return
-    logo = _load_logo(path, size)
-    if not logo:
-        return
-    wm = logo.copy()
-    wm.putalpha(alpha)
-    x = (CARD_WIDTH - size) // 2
-    y = CARD_PADDING - 10
-    canvas.paste(wm, (x, y), wm)
-
-
-def _draw_stat_bar(draw: ImageDraw.ImageDraw, x: int, y: int, width: int, value: float, max_value: float, label: str, theme: Dict[str, Any]) -> None:
-    """Draw a horizontal stat bar with label and value."""
-    height = 10
-    radius = 6
-    bg = (255, 255, 255, 40)
-    fg = _to_rgba(theme.get("accent_color", (255, 215, 0, 255)))
-    draw.rounded_rectangle((x, y, x + width, y + height), radius=radius, fill=bg)
-    pct = 0 if max_value <= 0 else max(0.0, min(1.0, float(value) / float(max_value)))
-    val_w = int(width * pct)
-    if val_w >= 2:
-        draw.rounded_rectangle((x, y, x + val_w, y + height), radius=radius, fill=fg)
-    text = f"{label}: {value:.1f}" if isinstance(value, (int, float)) else f"{label}: {value}"
-    draw.text((x, y - 14), text, fill=(255, 255, 255, 200), font=LABEL_FONT)
-
-
-def calculate_star_rating(stats: Dict[str, Any]) -> float:
-    """
-    Calculate star rating (0.5 to 5.0) based on player stats.
-    
-    This is a simple formula that can be tuned:
-    - Points per game (PPG) weighted heavily
-    - Goals, assists, saves all contribute
-    - Games played affects reliability
-    
-    Returns a rating from 0.5 to 5.0 in 0.5 increments.
-    """
-    # Support both normalized and alternative stats keys
-    ppg = stats.get('ppg', 0) or 0
-    goals = stats.get('total_goals', stats.get('goals', 0) or 0) or 0
-    assists = stats.get('total_assists', stats.get('assists', 0) or 0) or 0
-    saves = stats.get('total_saves', stats.get('saves', 0) or 0) or 0
-    games = stats.get('games_played', stats.get('games', 0) or 0) or 0
-    
-    if games == 0:
-        return 0.5
-    
-    # Calculate composite score
-    # PPG is the main factor (typical range: 0-30)
-    # Goals, assists, saves add to the score
-    avg_goals = goals / games
-    avg_assists = assists / games
-    avg_saves = saves / games
-    
-    # Score formula (adjust weights as needed)
-    score = (ppg * 0.5) + (avg_goals * 3) + (avg_assists * 2) + (avg_saves * 1)
-    
-    # Map score to stars (0-20 score range → 0.5-5.0 stars)
-    # Score 0 → 0.5 stars, Score 20+ → 5.0 stars
-    raw_rating = min(5.0, max(0.5, score / 4))
-    
-    # Round to nearest 0.5
-    return round(raw_rating * 2) / 2
 
 
 def generate_player_card_image(
@@ -515,10 +1018,12 @@ def generate_player_card_image(
     team_code: Optional[str] = None,
     league_code: Optional[str] = None,
     stats: Optional[Dict[str, Any]] = None,
-    star_rating: Optional[float] = None,
+    seasons: Optional[List[str]] = None,
+    awards: Optional[List[str]] = None,
+    teams_played: Optional[List[str]] = None,
 ) -> Optional[io.BytesIO]:
     """
-    Generate a player card image with stats and star rating.
+    Generate a player card image with v5 layout.
     
     Args:
         player_id: Unique player identifier
@@ -526,8 +1031,10 @@ def generate_player_card_image(
         team_name: Team name (for display)
         team_code: Team code (for logo lookup)
         league_code: League code for theming (NBL, MBL, NCBA)
-        stats: Dict with stats like: goals, assists, saves, own_goals, points, ppg, games_played
-        star_rating: Override star rating (0.5-5.0), or None to auto-calculate
+        stats: Dict with stats like: goals, assists, saves, own_goals, ppg, games_played, turns_played
+        seasons: List of seasons played
+        awards: List of awards
+        teams_played: List of teams played for
     
     Returns:
         BytesIO buffer with PNG image, or None on error
@@ -535,185 +1042,211 @@ def generate_player_card_image(
     try:
         if stats is None:
             stats = {}
+        if seasons is None:
+            seasons = []
+        if awards is None:
+            awards = []
+        if teams_played is None:
+            teams_played = []
         
-        # Calculate star rating if not provided
-        if star_rating is None:
-            star_rating = calculate_star_rating(stats)
-        tier_label = _rating_to_tier(star_rating, league_code)
+        # Calculate tier
+        player_data = {
+            'display_name': player_name,
+            'goals': stats.get('goals', 0),
+            'assists': stats.get('assists', 0),
+            'saves': stats.get('saves', 0),
+            'own_goals': stats.get('own_goals', 0),
+            'ppg': stats.get('ppg', 0),
+            'games_played': stats.get('games_played', 0),
+            'turns_played': stats.get('turns_played', 0),
+            'seasons': seasons,
+            'teams_played': teams_played,
+            'awards': awards,
+        }
+        tier_name = calculate_tier(player_data)
+        tier = TIERS[tier_name]
+        primary_rgb = hex_to_rgb(tier['primary'])
         
         # Check cache
-        cache_key = _make_cache_key(player_id, player_name, team_code, league_code, stats, star_rating) + f"|{tier_label}"
+        cache_key = _make_cache_key(player_id, player_name, team_code, league_code, stats, tier_name)
         cached_image = player_card_cache.get(cache_key)
         if cached_image is not None:
             logger.debug("Player card cache hit for %s", player_name)
             return _bytes_to_buffer(cached_image)
         
         theme = _get_theme(league_code)
-        theme = _apply_tier_theme(theme, league_code, tier_label)
-        name_font, label_font, value_font, small_font = _load_fonts()
+        name_font, seasons_font, stat_big_font, stat_med_font, stat_label_font, section_font, small_font, award_count_font = _load_fonts()
         
-        # Create canvas with gradient background
+        # Create canvas with transparent background
         canvas = Image.new("RGBA", (CARD_WIDTH, CARD_HEIGHT), (0, 0, 0, 0))
         draw = ImageDraw.Draw(canvas)
         
-        # Draw rounded card background with gradient
-        # First draw the rounded rect as a mask
-        mask = Image.new("L", (CARD_WIDTH, CARD_HEIGHT), 0)
-        mask_draw = ImageDraw.Draw(mask)
-        mask_draw.rounded_rectangle(
-            (0, 0, CARD_WIDTH, CARD_HEIGHT),
-            radius=CARD_CORNER_RADIUS,
-            fill=255,
-        )
-        
-        # Create gradient image
-        gradient = Image.new("RGBA", (CARD_WIDTH, CARD_HEIGHT), (0, 0, 0, 0))
-        gradient_draw = ImageDraw.Draw(gradient)
-        _draw_vertical_gradient(
-            gradient_draw,
-            (0, 0, CARD_WIDTH, CARD_HEIGHT),
-            theme["bg_gradient_top"],
-            theme["bg_gradient_bottom"],
-        )
-        
-        # Apply mask to gradient
-        canvas.paste(gradient, (0, 0), mask)
-        draw = ImageDraw.Draw(canvas)
-        
-        # Draw card border
+        # Draw card background with tier color
+        card_bg = hex_to_rgb(tier['card_bg'])
         draw.rounded_rectangle(
-            (0, 0, CARD_WIDTH - 1, CARD_HEIGHT - 1),
+            (0, 0, CARD_WIDTH, CARD_HEIGHT),
             radius=CARD_CORNER_RADIUS,
-            outline=_to_rgba(theme["badge_border"]),
-            width=3,
-        )
-
-        # Tier badge (top-right)
-        tier_badge_min_width = 120
-        _draw_rounded_badge(
-            draw,
-            (CARD_WIDTH - CARD_PADDING - tier_badge_min_width, CARD_PADDING),
-            tier_label.upper(),
-            LABEL_FONT,
-            theme,
-            min_width=tier_badge_min_width,
+            fill=card_bg + (255,),
+            outline=primary_rgb + (255,),
+            width=2,
         )
         
-        # === TOP LEFT: League Logo ===
-        logo_x = CARD_PADDING
-        logo_y = CARD_PADDING
-        league_logo_path = _find_logo_path(league_code)
-        if league_logo_path:
-            logo_img = _load_logo(league_logo_path, LOGO_SIZE)
-            if logo_img:
-                canvas.paste(logo_img, (logo_x, logo_y), logo_img)
+        y = CARD_PADDING
         
-        # === CENTER: Player Avatar Circle ===
-        avatar_size = 160
-        avatar_x = (CARD_WIDTH - avatar_size) // 2
-        avatar_y = CARD_PADDING + 20
-        _draw_avatar_circle(
-            canvas,
-            (avatar_x, avatar_y),
-            avatar_size,
-            _to_rgba(theme["badge_border"]),
-            AVATAR_BORDER_WIDTH,
-        )
+        # === TIER BADGE (top center) ===
+        tier_text = tier_name
+        bbox = draw.textbbox((0, 0), tier_text, font=name_font)
+        tw = bbox[2] - bbox[0]
+        draw.text(((CARD_WIDTH - tw) // 2, y), tier_text, fill=tier['primary'], font=name_font)
+        y += 25
         
-        # === CENTER BELOW AVATAR: Player Name ===
-        name_y = avatar_y + avatar_size + 16
-        name_bbox = draw.textbbox((0, 0), player_name, font=name_font)
-        name_width = name_bbox[2] - name_bbox[0]
-        name_x = (CARD_WIDTH - name_width) // 2
-        draw.text((name_x, name_y), player_name, fill=_to_rgba(theme["text_primary"]), font=name_font)
+        # === PLAYER NAME + ACTIVE TEAM LOGO ===
+        # Determine display team and icon
+        display_team = team_name or "Free Agent"
+        team_icon = None
         
-        # --- BELOW NAME: Team Logo + Team Name (centered row) ---
-        team_row_y = name_y + 34
-
-        team_logo_size = 40
-        team_logo_img = None
-
         if team_code:
             path = _find_logo_path(team_code)
             if path:
-                team_logo_img = _load_logo(path, team_logo_size)
-
-        # Measure team text
-        team_text = team_name or ""
-        team_text_bbox = draw.textbbox((0, 0), team_text, font=value_font)
-        team_text_w = team_text_bbox[2] - team_text_bbox[0]
-
-        # Total width incl. logo and gap
-        gap = 10
-        row_width = team_text_w + (team_logo_size + gap if team_logo_img else 0)
-
-        start_x = (CARD_WIDTH - row_width) // 2
-
-        # Draw logo
-        if team_logo_img:
-            canvas.paste(team_logo_img, (start_x, team_row_y), team_logo_img)
-            text_x = start_x + team_logo_size + gap
+                team_icon = _load_logo(path, 28)
+        
+        # Calculate name width
+        bbox = draw.textbbox((0, 0), player_name, font=name_font)
+        name_w = bbox[2] - bbox[0]
+        
+        # Total width (name + gap + icon)
+        logo_size = 28
+        gap = 10 if team_icon else 0
+        total_w = name_w + gap + (logo_size if team_icon else 0)
+        start_x = (CARD_WIDTH - total_w) // 2
+        
+        # Draw name
+        draw.text((start_x, y), player_name, fill='#FFFFFF', font=name_font)
+        
+        # Draw team logo/icon next to name
+        if team_icon:
+            icon_x = start_x + name_w + gap
+            icon_y = y + 1
+            canvas.paste(team_icon, (icon_x, icon_y), team_icon)
+        
+        y += 38
+        
+        # === SEASONS ===
+        if seasons:
+            seasons_text = ' · '.join(sort_seasons(seasons))
+            bbox = draw.textbbox((0, 0), seasons_text, font=seasons_font)
+            tw = bbox[2] - bbox[0]
+            draw.text(((CARD_WIDTH - tw) // 2, y), seasons_text, fill=tier['primary'], font=seasons_font)
+        y += 22
+        
+        # === FEATURED STAT (Goals) ===
+        goals = int(stats.get('goals', 0))
+        goals_str = str(goals)
+        bbox = draw.textbbox((0, 0), goals_str, font=stat_big_font)
+        tw = bbox[2] - bbox[0]
+        draw.text(((CARD_WIDTH - tw) // 2, y), goals_str, fill='#FFFFFF', font=stat_big_font)
+        y += 35
+        
+        bbox = draw.textbbox((0, 0), 'GOALS', font=stat_label_font)
+        tw = bbox[2] - bbox[0]
+        draw.text(((CARD_WIDTH - tw) // 2, y), 'GOALS', fill='#CCCCCC', font=stat_label_font)
+        y += 22
+        
+        # === STATS ROW 1 ===
+        name_lower = player_name.lower()
+        stats_row1 = [
+            ('ASSISTS', int(stats.get('assists', 0))),
+            ('SAVES', int(stats.get('saves', 0))),
+            ('OGs', '∞' if name_lower == 'ennette' else int(stats.get('own_goals', 0)))
+        ]
+        
+        stat_w = 90
+        total_w = 3 * stat_w
+        start_x = (CARD_WIDTH - total_w) // 2
+        
+        for i, (label, value) in enumerate(stats_row1):
+            sx = start_x + i * stat_w
+            val_str = str(value)
+            bbox = draw.textbbox((0, 0), val_str, font=stat_med_font)
+            tw = bbox[2] - bbox[0]
+            draw.text((sx + (stat_w - tw) // 2, y), val_str, fill='#FFFFFF', font=stat_med_font)
+        y += 24
+        
+        for i, (label, value) in enumerate(stats_row1):
+            sx = start_x + i * stat_w
+            bbox = draw.textbbox((0, 0), label, font=stat_label_font)
+            tw = bbox[2] - bbox[0]
+            draw.text((sx + (stat_w - tw) // 2, y), label, fill='#CCCCCC', font=stat_label_font)
+        y += 22
+        
+        # === STATS ROW 2 ===
+        stats_row2 = [
+            ('PPG', f"{stats.get('ppg', 0):.2f}"),
+            ('GAMES', int(stats.get('games_played', 0))),
+            ('TURNS', int(stats.get('turns_played', 0)))
+        ]
+        
+        for i, (label, value) in enumerate(stats_row2):
+            sx = start_x + i * stat_w
+            val_str = str(value)
+            bbox = draw.textbbox((0, 0), val_str, font=stat_med_font)
+            tw = bbox[2] - bbox[0]
+            draw.text((sx + (stat_w - tw) // 2, y), val_str, fill='#FFFFFF', font=stat_med_font)
+        y += 24
+        
+        for i, (label, value) in enumerate(stats_row2):
+            sx = start_x + i * stat_w
+            bbox = draw.textbbox((0, 0), label, font=stat_label_font)
+            tw = bbox[2] - bbox[0]
+            draw.text((sx + (stat_w - tw) // 2, y), label, fill='#CCCCCC', font=stat_label_font)
+        y += 21
+        
+        # === STATS DISCLAIMER ===
+        disclaimer_text = "Stats up to S10"
+        bbox = draw.textbbox((0, 0), disclaimer_text, font=small_font)
+        tw = bbox[2] - bbox[0]
+        draw.text(((CARD_WIDTH - tw) // 2, y), disclaimer_text, fill='#888888', font=small_font)
+        y += 12
+        
+        # === DIVIDER ===
+        draw.line([(30, y), (CARD_WIDTH - 30, y)], fill=tier['primary'] + '40', width=1)
+        y += 10
+        
+        # === TEAMS ===
+        draw.text((24, y), 'TEAMS', fill='#CCCCCC', font=section_font)
+        y += 16
+        
+        logo_size = 24
+        spacing = 6
+        total_logos = min(len(teams_played), 6)
+        logos_width = total_logos * logo_size + (total_logos - 1) * spacing
+        logo_x = (CARD_WIDTH - logos_width) // 2
+        
+        for team in teams_played[:6]:
+            logo = _load_logo(_find_logo_path(team), size=logo_size)
+            if logo:
+                canvas.paste(logo, (logo_x, y), logo)
+            else:
+                draw.ellipse([logo_x, y, logo_x + logo_size, y + logo_size], 
+                            fill=tier['accent_bg'], outline=tier['primary'] + '60')
+            logo_x += logo_size + spacing
+        y += logo_size + 10
+        
+        # === AWARDS ===
+        draw.text((24, y), 'AWARDS', fill='#CCCCCC', font=section_font)
+        y += 16
+        
+        if awards:
+            # Display awards as text
+            for award in awards[:5]:  # Limit to 5 awards
+                bbox = draw.textbbox((0, 0), award, font=small_font)
+                tw = bbox[2] - bbox[0]
+                draw.text((24, y), award, fill='#FFFFFF', font=small_font)
+                y += 16
         else:
-            text_x = start_x
-
-        draw.text((text_x, team_row_y + 6), team_text, fill=_to_rgba(theme["text_secondary"]), font=value_font)
-
-        # === Star Rating below team ===
-        star_y = team_row_y + 36
-        star_total_width = MAX_STARS * STAR_SIZE + (MAX_STARS - 1) * STAR_SPACING
-        star_x = (CARD_WIDTH - star_total_width) // 2
-        _draw_star_rating(draw, (star_x, star_y), star_rating, theme)
-        # === BOTTOM SECTION: Stats Grid (3x2 layout) ===
-        stats_section_y = star_y + 40
-        grid_gap = 14
-        row_height = BADGE_HEIGHT + grid_gap
-        col_width = (CARD_WIDTH - CARD_PADDING * 2) // 2
-
-        left_col = CARD_PADDING
-        right_col = CARD_PADDING + col_width + 8
+            draw.text((24, y), '—', fill='#333333', font=stat_label_font)
+            y += 20
         
-        ppg = stats.get('ppg', 0) or 0
-        games = stats.get('games_played', stats.get('games', 0) or 0) or 0
-        total_points = stats.get('total_points', 0) or 0
-        # Accept averages by multiplying with games if totals missing
-        total_goals = stats.get('total_goals', 0) or (
-            (stats.get('avg_goals', 0) or 0) * games
-        )
-        total_assists = stats.get('total_assists', 0) or (
-            (stats.get('avg_assists', 0) or 0) * games
-        )
-        total_saves = stats.get('total_saves', 0) or (
-            (stats.get('avg_saves', 0) or 0) * games
-        )
-        
-        # Row 1
-        _draw_rounded_badge(
-            draw, (left_col, stats_section_y), f"PPG: {ppg:.1f}", label_font, theme, min_width=col_width - 16
-        )
-        _draw_rounded_badge(
-            draw, (right_col, stats_section_y), f"Games: {games}", label_font, theme, min_width=col_width - 16
-        )
-        
-        # Row 2
-        _draw_rounded_badge(
-            draw, (left_col, stats_section_y + row_height + grid_gap), f"Goals: {total_goals}", label_font, theme, min_width=col_width - 16
-        )
-        _draw_rounded_badge(
-            draw, (right_col, stats_section_y + row_height + grid_gap), f"Assists: {total_assists}", label_font, theme, min_width=col_width - 16
-        )
-        
-        # Row 3
-        _draw_rounded_badge(
-            draw, (left_col, stats_section_y + (row_height + grid_gap) * 2), f"Saves: {total_saves}", label_font, theme, min_width=col_width - 16
-        )
-        _draw_rounded_badge(
-            draw, (right_col, stats_section_y + (row_height + grid_gap) * 2), f"Points: {total_points}", label_font, theme, min_width=col_width - 16
-        )
-        
-        # Holographic overlay for top tiers
-        if tier_label in ("Platinum", "Diamond"):
-            _draw_holo_overlay(canvas, intensity=0.12 if tier_label == "Platinum" else 0.18)
-
         # Save to buffer
         buffer = io.BytesIO()
         canvas.save(buffer, format="PNG", optimize=True)
@@ -738,29 +1271,16 @@ async def generate_player_card(
     league_type: Optional[str] = None,
     avatar_url: Optional[str] = None,
     stats: Optional[Dict[str, Any]] = None,
+    seasons: Optional[List[str]] = None,
+    awards: Optional[List[str]] = None,
+    teams_played: Optional[List[str]] = None,
 ) -> Optional[bytes]:
     """Generate a player card PNG as bytes.
 
     Matches the signature used by cogs.cards.player_card and adapts keys.
-    Currently avatar images are not embedded; the circular avatar is stylistic.
     """
     try:
         normalized_stats = stats or {}
-
-        # Ensure normalized keys for generator and rating
-        games = normalized_stats.get('games_played', normalized_stats.get('games', 0) or 0) or 0
-        if 'games_played' not in normalized_stats and 'games' in normalized_stats:
-            normalized_stats['games_played'] = games
-
-        # Convert averages to totals if totals missing
-        for key in ('goals', 'assists', 'saves'):
-            total_key = f'total_{key}'
-            avg_key = f'avg_{key}'
-            if total_key not in normalized_stats:
-                normalized_stats[total_key] = (normalized_stats.get(avg_key, 0) or 0) * games
-
-        # Compute star rating from normalized stats
-        rating = calculate_star_rating(normalized_stats)
 
         buffer = generate_player_card_image(
             player_id=_normalize_key(player_name),
@@ -769,7 +1289,9 @@ async def generate_player_card(
             team_code=team_code,
             league_code=league_type,
             stats=normalized_stats,
-            star_rating=rating,
+            seasons=seasons,
+            awards=awards,
+            teams_played=teams_played,
         )
 
         if buffer is None:
@@ -779,3 +1301,5 @@ async def generate_player_card(
     except Exception as e:
         logger.error("Error in generate_player_card wrapper: %s", e, exc_info=True)
         return None
+
+    '''
