@@ -106,7 +106,7 @@ COL_DIFF = 80
 TEAM_LOGO_SIZE = 36
 LEAGUE_LOGO_SIZE = 56
 
-simple_standings_cache = TTLCache(ttl_seconds=120, max_size=32)
+simple_standings_cache = TTLCache(ttl_seconds=600, max_size=32)  # Increased TTL from 120 to 600 for low-resource optimization
 
 
 def _to_rgba(color: Tuple[int, ...]) -> Tuple[int, int, int, int]:
@@ -477,7 +477,7 @@ def generate_simple_standings_image(
 
         # Save
         buffer = io.BytesIO()
-        canvas.convert("RGB").save(buffer, format="PNG")
+        canvas.convert("RGB").save(buffer, format="PNG", optimize=True)
         image_bytes = buffer.getvalue()
 
         simple_standings_cache.set(cache_key, image_bytes)
