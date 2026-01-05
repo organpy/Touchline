@@ -103,7 +103,7 @@ STAT_LABEL_FONT_SIZE = 11
 SECTION_FONT_SIZE = 13
 SMALL_FONT_SIZE = 10
 
-PLAYER_CARD_CACHE_TTL_SECONDS = 120
+PLAYER_CARD_CACHE_TTL_SECONDS = 600  # Increased from 120 to 600 (10 minutes) for low-resource environment
 
 
 def sort_seasons(seasons_list: List[str]) -> List[str]:
@@ -176,7 +176,7 @@ def _team_colors_index() -> Dict[str, Dict[str, Any]]:
         return {}
 
 
-player_card_cache = TTLCache(ttl_seconds=PLAYER_CARD_CACHE_TTL_SECONDS, max_size=64)
+player_card_cache = TTLCache(ttl_seconds=PLAYER_CARD_CACHE_TTL_SECONDS, max_size=32)  # Reduced from 64 to 32 for memory optimization
 
 
 def clear_player_card_cache() -> None:
@@ -531,7 +531,7 @@ def generate_player_card_image(
         league_y = header_center_y - league_height // 2 - league_offset - 3
         
         # Position season text below league text with moderate gap
-        line_gap = 10  # Moderate gap to prevent overlap
+        line_gap = 16  # Increased gap to prevent overlap
         season_y = league_y + league_height + line_gap - season_offset - 3
 
         if league_logo_img:
@@ -1018,7 +1018,7 @@ def _team_colors_index() -> Dict[str, Dict[str, Any]]:
         return {}
 
 
-player_card_cache = TTLCache(ttl_seconds=PLAYER_CARD_CACHE_TTL_SECONDS, max_size=64)
+player_card_cache = TTLCache(ttl_seconds=PLAYER_CARD_CACHE_TTL_SECONDS, max_size=32)  # Reduced from 64 to 32 for memory optimization
 
 
 def clear_player_card_cache() -> None:
