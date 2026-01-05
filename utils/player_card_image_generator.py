@@ -100,10 +100,10 @@ HERO_VALUE_FONT_SIZE = 42
 HERO_LABEL_FONT_SIZE = 13
 STAT_VALUE_FONT_SIZE = 18
 STAT_LABEL_FONT_SIZE = 11
-SECTION_FONT_SIZE = 13
+SECTION_FONT_SIZE = 16
 SMALL_FONT_SIZE = 10
 
-PLAYER_CARD_CACHE_TTL_SECONDS = 600  # Increased from 120 to 600 (10 minutes) for low-resource environment
+PLAYER_CARD_CACHE_TTL_SECONDS = 600  
 
 
 def sort_seasons(seasons_list: List[str]) -> List[str]:
@@ -253,7 +253,7 @@ def _draw_vertical_gradient(draw: ImageDraw.ImageDraw, bbox: Tuple[int, int, int
 
 def _load_fonts():
     try:
-        title_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 24)
+        title_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 28)
         name_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), NAME_FONT_SIZE)
         team_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), TEAM_FONT_SIZE)
         seasons_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), SEASONS_FONT_SIZE)
@@ -531,7 +531,7 @@ def generate_player_card_image(
         league_y = header_center_y - league_height // 2 - league_offset - 3
         
         # Position season text below league text with moderate gap
-        line_gap = 16  # Increased gap to prevent overlap
+        line_gap = 20  # Increased from 16 for better spacing between league and season text
         season_y = league_y + league_height + line_gap - season_offset - 3
 
         if league_logo_img:
