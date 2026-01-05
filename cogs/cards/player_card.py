@@ -14,7 +14,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from db import get_supabase, queries
-from utils.player_card_image_generator import generate_player_card, calculate_star_rating
+from utils.player_card_image_generator import generate_player_card
 from utils.team_player_cache import TeamPlayerCache
 
 logger = logging.getLogger(__name__)
@@ -111,9 +111,17 @@ class PlayerCardCog(commands.Cog):
             if not season_row:
                 # Fallback to any active season
                 season_row = await queries.get_active_season(self.supabase)
+
+            # If player isn't currently on a team, fall back to season league_type for card styling
+            if not league_code and season_row:
+                league_code = season_row.get('league_type')
             
             # Fetch player stats for the season
             stats = {}
+            seasons_played = []
+            awards = []
+            teams_played = []
+            
             if season_row:
                 try:
                     player_stats = await queries.get_player_stats_for_season(
@@ -125,20 +133,33 @@ class PlayerCardCog(commands.Cog):
                         total_assists = sum(s.get('assists', 0) or 0 for s in player_stats)
                         total_saves = sum(s.get('saves', 0) or 0 for s in player_stats)
                         total_points = sum(s.get('points', 0) or 0 for s in player_stats)
+                        total_blocks = sum(s.get('blocks', 0) or 0 for s in player_stats)
+                        total_own_goals = sum(s.get('own_goals', 0) or 0 for s in player_stats)
+                        total_pp_plays = sum(s.get('powerup_plays', 0) or 0 for s in player_stats)
+                        total_pp_used = sum(s.get('powerups_used', 0) or 0 for s in player_stats)
                         games_played = len(player_stats)
-                        
-                        ppg = total_points / games_played if games_played > 0 else 0
-                        
+
+                        powerup_percentage = (total_pp_plays / total_pp_used * 100) if total_pp_used > 0 else 0
+
                         stats = {
-                            'ppg': ppg,
-                            'games': games_played,
-                            'avg_goals': total_goals / max(games_played, 1),
-                            'avg_assists': total_assists / max(games_played, 1),
-                            'avg_saves': total_saves / max(games_played, 1),
-                            'total_points': total_points,
+                            'goals': total_goals,
+                            'assists': total_assists,
+                            'saves': total_saves,
+                            'points': total_points,
+                            'games_played': games_played,
+                            'blocks': total_blocks,
+                            'own_goals': total_own_goals,
+                            'powerup_plays': total_pp_plays,
+                            'powerups_used': total_pp_used,
+                            'powerup_percentage': round(powerup_percentage, 2),
                         }
                 except Exception as e:
                     logger.error(f"Failed to fetch player stats: {e}")
+            
+            # TODO: Fetch seasons played and teams played from rosters
+            # For now, keep empty
+            seasons_played = []
+            teams_played = []
             
             # Generate the card image
             # Get avatar URL from Discord user if available
@@ -153,11 +174,14 @@ class PlayerCardCog(commands.Cog):
             
             card_image = await generate_player_card(
                 player_name=player_name,
-                team_name=team_name or 'Free Agent',
-                team_code=team_code or 'FA',
-                league_type=league_code or 'NBL',
+                team_name=team_name,
+                team_code=team_code,
+                league_type=league_code,
                 avatar_url=avatar_url,
                 stats=stats,
+                seasons=seasons_played,
+                awards=awards,
+                teams_played=teams_played,
             )
             
             if not card_image:
@@ -168,12 +192,11 @@ class PlayerCardCog(commands.Cog):
             file = discord.File(io.BytesIO(card_image), filename=f"player_card_{player_name.replace(' ', '_')}.png")
             
             # Add a simple embed with context
-            star_rating = calculate_star_rating(stats)
             season_name = season_row.get('name', 'Unknown') if season_row else 'N/A'
             
             embed = discord.Embed(
-                title=f"⭐ {player_name}",
-                description=f"**Team:** {team_name or 'Free Agent'}\n**Season:** {season_name}\n**Rating:** {'⭐' * int(star_rating)}{'✨' if star_rating % 1 >= 0.5 else ''} ({star_rating:.1f}/5.0)",
+                title=f"🎴 {player_name}",
+                description=f"**Team:** {team_name or 'Free Agent'}\n**Season:** {season_name}",
                 color=discord.Color.gold(),
             )
             
