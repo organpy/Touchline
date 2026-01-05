@@ -531,7 +531,7 @@ def generate_player_card_image(
         league_y = header_center_y - league_height // 2 - league_offset
         
         # Position season text below league text with moderate gap
-        line_gap = 6  # Moderate gap
+        line_gap = 10  # Moderate gap to prevent overlap
         season_y = league_y + league_height + line_gap - season_offset
 
         if league_logo_img:
@@ -579,6 +579,27 @@ def generate_player_card_image(
             card.paste(team_logo_img, (logo_x, logo_y), team_logo_img)
         card_draw.text((text_x, text_y), display_team, fill=_to_rgba(theme["text_muted"]), font=team_font)
         y += team_height + 18
+
+        # Hero stat (featured stat) - full width box
+        hero_value = goals  # All leagues focus on goals
+        hero_label = "GOALS"
+        
+        hero_value_str = str(int(hero_value))
+        hero_cell_h = 80  # Height for the hero cell
+        
+        _draw_stat_cell(
+            card_draw,
+            cx,
+            y,
+            cw,
+            hero_cell_h,
+            label=hero_label,
+            value=hero_value_str,
+            theme=theme,
+            value_font=hero_value_font,
+            label_font=hero_label_font,
+        )
+        y += hero_cell_h + 12
 
         # Seasons (optional)
         if seasons:
@@ -665,7 +686,7 @@ def generate_player_card_image(
             shown = history[-max_fit:]
 
             card_draw.text((cx, y), "TEAMS", fill=_to_rgba(theme["text_muted"]), font=section_font)
-            y += 18
+            y += 20
 
             logos_w = len(shown) * logo_size + (len(shown) - 1) * spacing
             lx = cx + _center_x(cw, logos_w)
