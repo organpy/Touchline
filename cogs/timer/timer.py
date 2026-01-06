@@ -118,12 +118,11 @@ class TimerCog(commands.Cog):
     MIN_DURATION_MINUTES = 1    # Min timer duration
     MAX_MESSAGE_EDITS = 9000    # Discord's rough edit limit per message
 
-    def __init__(self, bot: commands.Bot):
-        self.bot = bot
-        # Changed from guild_id -> session to (guild_id, user_id) -> session
-        # This allows multiple timers per guild (one per user)
-        self.active_timers: Dict[tuple, TimerSession] = {}  # (guild_id, user_id) -> TimerSession
-        self.timer_loop.start()
+    # Create a timer config group for admin commands
+    timer_config = app_commands.Group(
+        name="timer-config",
+        description="[ADMIN] Timer configuration and management commands"
+    )
 
     def cog_unload(self):
         """Clean up when cog is unloaded - stop all timers gracefully"""
@@ -138,12 +137,12 @@ class TimerCog(commands.Cog):
         
         logger.info(f"✅ Cleaned up {timer_count} active timers")
 
-    @app_commands.command(
-        name="timer-emergency-stop",
-        description="[ADMIN] Emergency stop all timers in this server"
+    @timer_config.command(
+        name="emergency-stop",
+        description="Emergency stop all timers in this server"
     )
     @app_commands.checks.has_permissions(administrator=True)
-    async def emergency_stop_all(self, interaction: discord.Interaction):
+    async def config_emergency_stop(self, interaction: discord.Interaction):
         """Emergency stop all timers in the guild - admin only"""
         await interaction.response.defer(ephemeral=True)
         
@@ -212,11 +211,12 @@ class TimerCog(commands.Cog):
             # Re-raise other errors to be handled by global error handler
             raise error
 
-    @app_commands.command(
-        name="timer-status",
-        description="[MEMBERS] Check timer status for this server"
+    @timer_config.command(
+        name="status",
+        description="Check timer status for this server"
     )
-    async def timer_status(self, interaction: discord.Interaction):
+    @app_commands.checks.has_permissions(administrator=True)
+    async def config_status(self, interaction: discord.Interaction):
         """Check how many timers are active in this server"""
         await interaction.response.defer(ephemeral=True)
         
@@ -530,35 +530,108 @@ class TimerCog(commands.Cog):
         
         await interaction.followup.send("✅ Timer stopped", ephemeral=True)
 
-    @app_commands.command(
-        name="timer-config",
-        description="[ADMIN] Configure timer settings for this server"
+    @timer_config.command(
+        name="settings",
+        description="View current timer settings and limits"
     )
     @app_commands.checks.has_permissions(administrator=True)
-    async def configure_timer(
-        self,
-        interaction: discord.Interaction,
-        duration_minutes: int = 10,
-        auto_end: bool = True
-    ):
-        """Configure timer settings"""
+    async def config_settings(self, interaction: discord.Interaction):
+        """View current timer settings - admin only"""
+        await interaction.response.defer(ephemeral=True)
         
-        try:
-            await interaction.response.defer(ephemeral=True)
-            
-            embed = discord.Embed(
-                title="⏱️ Timer Configuration Updated",
-                color=discord.Color.green()
-            )
-            
-            embed.add_field(name="Duration", value=f"{duration_minutes} minutes", inline=False)
-            embed.add_field(name="Auto-End", value="✅ Enabled" if auto_end else "❌ Disabled", inline=False)
-            
-            await interaction.followup.send(embed=embed, ephemeral=True)
+        guild_id = interaction.guild_id
+        guild_timers = [(k, v) for k, v in self.active_timers.items() if k[0] == guild_id]
         
-        except Exception as e:
-            logger.error(f"Error configuring timer: {e}")
-            await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
+        embed = discord.Embed(
+            title="⚙️ Timer Settings",
+            description="Current timer configuration",
+            color=discord.Color.blue()
+        )
+        
+        embed.add_field(
+            name="Max Concurrent Timers",
+            value=f"{self.MAX_CONCURRENT_TIMERS}",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="Active Timers",
+            value=f"{len(guild_timers)}",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="Rate Limit",
+            value="1 timer per 5 seconds per user",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="Update Interval",
+            value="5 seconds",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="Message Caching",
+            value="Enabled (reduces API calls)",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="Safety Limits",
+            value="50 timers max per guild",
+            inline=True
+        )
+        
+        embed.set_footer(text="Use /timer-config emergency-stop to stop all timers")
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @timer_config.command(
+        name="emergency-stop",
+        description="Emergency stop all timers in this server"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def config_emergency_stop(self, interaction: discord.Interaction):
+        """Emergency stop all timers in the guild - admin only"""
+        await interaction.response.defer(ephemeral=True)
+        
+        guild_id = interaction.guild_id
+        guild_timers = [(k, v) for k, v in self.active_timers.items() if k[0] == guild_id]
+        
+        if not guild_timers:
+            await interaction.followup.send("✅ No active timers to stop", ephemeral=True)
+            return
+        
+        stopped_count = 0
+        for (timer_key, session) in guild_timers:
+            try:
+                # Try to update the message to show stopped state
+                if session.message:
+                    embed = discord.Embed(
+                        title="⏹️ Timer Emergency Stopped",
+                        description=f"**{session.formatted_time}**",
+                        color=discord.Color.red()
+                    )
+                    embed.add_field(name="Reason", value="Emergency stop by admin", inline=False)
+                    await session.message.edit(embed=embed, view=None)
+            except Exception as e:
+                logger.error(f"Error updating emergency stopped timer {timer_key}: {e}")
+            
+            # Remove from active timers
+            del self.active_timers[timer_key]
+            stopped_count += 1
+        
+        embed = discord.Embed(
+            title="🚨 Emergency Timer Stop",
+            description=f"Stopped {stopped_count} timer{'s' if stopped_count != 1 else ''}",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="All timers in this server have been stopped")
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        logger.info(f"🚨 Admin {interaction.user} emergency stopped {stopped_count} timers in guild {guild_id}")
 
 
 async def setup(bot: commands.Bot):
