@@ -14,9 +14,10 @@ logger = logging.getLogger(__name__)
 class HealthCheckServer:
     """Simple HTTP server for health checks"""
     
-    def __init__(self, bot, port: int = 8080):
+    def __init__(self, bot, port: int = 8080, host: str = "127.0.0.1"):
         self.bot = bot
         self.port = port
+        self.host = host
         self.app = web.Application()
         self.runner = None
         self.site = None
@@ -75,9 +76,9 @@ class HealthCheckServer:
         try:
             self.runner = web.AppRunner(self.app)
             await self.runner.setup()
-            self.site = web.TCPSite(self.runner, '0.0.0.0', self.port)
+            self.site = web.TCPSite(self.runner, self.host, self.port)
             await self.site.start()
-            logger.info(f"✅ Health check server started on port {self.port}")
+            logger.info(f"✅ Health check server started on {self.host}:{self.port}")
         except Exception as e:
             logger.error(f"❌ Failed to start health check server: {e}", exc_info=True)
     
