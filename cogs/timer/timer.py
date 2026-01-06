@@ -7,12 +7,21 @@ from discord import app_commands
 from discord.ext import commands, tasks
 import logging
 from datetime import datetime
+from dataclasses import dataclass
 from typing import Optional, Dict
 
 from utils.rate_limiter import timer_requests_limiter
 from utils.error_embeds import rate_limit_embed
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TimerGuildSettings:
+    max_concurrent_timers: int = 50
+    min_duration_minutes: int = 1
+    max_duration_minutes: int = 120
+    update_interval_seconds: int = 5
 
 
 class TimerSession:
@@ -125,10 +134,17 @@ class TimerCog(commands.Cog):
     """Simple timer cog for matches"""
 
     # Limits to prevent abuse and performance issues
-    MAX_CONCURRENT_TIMERS = 50  # Max timers per guild
-    MAX_DURATION_MINUTES = 120  # Max timer duration
-    MIN_DURATION_MINUTES = 1    # Min timer duration
+    MAX_CONCURRENT_TIMERS = 50  # Default max timers per guild
+    MAX_DURATION_MINUTES = 120  # Default max timer duration
+    MIN_DURATION_MINUTES = 1    # Default min timer duration
     MAX_MESSAGE_EDITS = 9000    # Discord's rough edit limit per message
+
+    # Hard caps (safety rails for GUI editing)
+    MAX_CONCURRENT_TIMERS_CAP = 200
+    MIN_UPDATE_INTERVAL_SECONDS = 3
+    MAX_UPDATE_INTERVAL_SECONDS = 30
+    MAX_DURATION_MINUTES_CAP = 360
+    MIN_DURATION_MINUTES_CAP = 1
 
     # Admin configuration is exposed as a single GUI command: /timer-config
 
@@ -136,9 +152,60 @@ class TimerCog(commands.Cog):
         self.bot = bot
         # Active timers stored as: (guild_id, user_id) -> TimerSession
         self.active_timers: Dict[tuple[int, int], TimerSession] = {}
+        self.guild_settings: Dict[int, TimerGuildSettings] = {}
 
         if not self.timer_loop.is_running():
             self.timer_loop.start()
+
+    def _get_guild_settings(self, guild_id: int) -> TimerGuildSettings:
+        settings = self.guild_settings.get(guild_id)
+        if settings is None:
+            settings = TimerGuildSettings(
+                max_concurrent_timers=self.MAX_CONCURRENT_TIMERS,
+                min_duration_minutes=self.MIN_DURATION_MINUTES,
+                max_duration_minutes=self.MAX_DURATION_MINUTES,
+                update_interval_seconds=5,
+            )
+            self.guild_settings[guild_id] = settings
+        return settings
+
+    def _apply_guild_settings(
+        self,
+        guild_id: int,
+        *,
+        max_concurrent_timers: int,
+        min_duration_minutes: int,
+        max_duration_minutes: int,
+        update_interval_seconds: int,
+    ) -> TimerGuildSettings:
+        max_concurrent_timers = int(max_concurrent_timers)
+        min_duration_minutes = int(min_duration_minutes)
+        max_duration_minutes = int(max_duration_minutes)
+        update_interval_seconds = int(update_interval_seconds)
+
+        if max_concurrent_timers < 1 or max_concurrent_timers > self.MAX_CONCURRENT_TIMERS_CAP:
+            raise ValueError(f"Max concurrent timers must be 1–{self.MAX_CONCURRENT_TIMERS_CAP}.")
+
+        if min_duration_minutes < self.MIN_DURATION_MINUTES_CAP or min_duration_minutes > self.MAX_DURATION_MINUTES_CAP:
+            raise ValueError(f"Min duration must be {self.MIN_DURATION_MINUTES_CAP}–{self.MAX_DURATION_MINUTES_CAP} minutes.")
+
+        if max_duration_minutes < self.MIN_DURATION_MINUTES_CAP or max_duration_minutes > self.MAX_DURATION_MINUTES_CAP:
+            raise ValueError(f"Max duration must be {self.MIN_DURATION_MINUTES_CAP}–{self.MAX_DURATION_MINUTES_CAP} minutes.")
+
+        if min_duration_minutes > max_duration_minutes:
+            raise ValueError("Min duration cannot be greater than max duration.")
+
+        if update_interval_seconds < self.MIN_UPDATE_INTERVAL_SECONDS or update_interval_seconds > self.MAX_UPDATE_INTERVAL_SECONDS:
+            raise ValueError(
+                f"Update interval must be {self.MIN_UPDATE_INTERVAL_SECONDS}–{self.MAX_UPDATE_INTERVAL_SECONDS} seconds."
+            )
+
+        settings = self._get_guild_settings(guild_id)
+        settings.max_concurrent_timers = max_concurrent_timers
+        settings.min_duration_minutes = min_duration_minutes
+        settings.max_duration_minutes = max_duration_minutes
+        settings.update_interval_seconds = update_interval_seconds
+        return settings
 
     def cog_unload(self):
         """Clean up when cog is unloaded - stop all timers gracefully"""
@@ -194,7 +261,8 @@ class TimerCog(commands.Cog):
             color=0x2B2D31,
         )
         embed.add_field(name="📊 Status", value="> View active timers", inline=True)
-        embed.add_field(name="⚙️ Settings", value="> View limits & behavior", inline=True)
+        embed.add_field(name="🛑 Stop Timer", value="> Stop a specific user", inline=True)
+        embed.add_field(name="⚙️ Settings", value="> View/edit safely", inline=True)
         embed.add_field(name="🚨 Emergency Stop", value="> Stop all timers", inline=True)
         embed.set_footer(text="/timer-config is admin-only")
         return embed
@@ -229,6 +297,7 @@ class TimerCog(commands.Cog):
         return embed
 
     def _build_settings_embed(self, guild_id: int) -> discord.Embed:
+        settings = self._get_guild_settings(guild_id)
         guild_timer_count = sum(1 for (g, _u) in self.active_timers.keys() if g == guild_id)
 
         embed = discord.Embed(
@@ -236,10 +305,14 @@ class TimerCog(commands.Cog):
             description="Current timer configuration",
             color=discord.Color.blue(),
         )
-        embed.add_field(name="Max Concurrent Timers", value=str(self.MAX_CONCURRENT_TIMERS), inline=True)
+        embed.add_field(name="Max Concurrent Timers", value=str(settings.max_concurrent_timers), inline=True)
         embed.add_field(name="Active Timers", value=str(guild_timer_count), inline=True)
-        embed.add_field(name="Duration Range", value=f"{self.MIN_DURATION_MINUTES}–{self.MAX_DURATION_MINUTES} minutes", inline=True)
-        embed.add_field(name="Update Interval", value="5 seconds (running)", inline=True)
+        embed.add_field(
+            name="Duration Range",
+            value=f"{settings.min_duration_minutes}–{settings.max_duration_minutes} minutes",
+            inline=True,
+        )
+        embed.add_field(name="Update Interval", value=f"{settings.update_interval_seconds} seconds (running)", inline=True)
         embed.add_field(name="Message Caching", value="Enabled", inline=True)
         embed.add_field(name="Edit Safety Limit", value=str(self.MAX_MESSAGE_EDITS), inline=True)
         embed.set_footer(text="Timers are in-memory only (lost on restart)")
@@ -278,7 +351,7 @@ class TimerCog(commands.Cog):
 
     @app_commands.command(
         name="timer-config",
-        description="[ADMIN] Timer control panel (GUI)"
+        description="[ADMIN] Timer control panel"
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def timer_config_dashboard(self, interaction: discord.Interaction):
@@ -350,8 +423,10 @@ class TimerCog(commands.Cog):
                             keys_to_remove.append((guild_id, user_id))
                             continue
 
-                        # Only edit the message every 5 seconds while running
-                        should_update = session.is_running and (session.elapsed_seconds % 5 == 0)
+                        # Only edit the message every N seconds while running (per-guild setting)
+                        update_interval = self._get_guild_settings(guild_id).update_interval_seconds
+                        update_interval = max(self.MIN_UPDATE_INTERVAL_SECONDS, min(self.MAX_UPDATE_INTERVAL_SECONDS, int(update_interval)))
+                        should_update = session.is_running and (session.elapsed_seconds % update_interval == 0)
                         
                         if should_update:
                             # Create embed with current time
@@ -444,6 +519,12 @@ class TimerCog(commands.Cog):
     @app_commands.describe(minutes="Duration in minutes (default: 10)")
     async def start_timer(self, interaction: discord.Interaction, minutes: int = 10):
         """Start a new match timer"""
+
+        if not interaction.guild_id:
+            await interaction.response.send_message("❌ This command can only be used inside a server.", ephemeral=True)
+            return
+
+        settings = self._get_guild_settings(interaction.guild_id)
         
         # Rate limit check (1 timer start per 5 seconds per user)
         limiter_key = f"timer_start_{interaction.guild_id}_{interaction.user.id}"
@@ -457,9 +538,9 @@ class TimerCog(commands.Cog):
         
         # Check concurrent timer limit per guild
         guild_timers = [k for k in self.active_timers.keys() if k[0] == interaction.guild_id]
-        if len(guild_timers) >= self.MAX_CONCURRENT_TIMERS:
+        if len(guild_timers) >= settings.max_concurrent_timers:
             await interaction.followup.send(
-                f"❌ Too many active timers in this server! Maximum: {self.MAX_CONCURRENT_TIMERS}",
+                f"❌ Too many active timers in this server! Maximum: {settings.max_concurrent_timers}",
                 ephemeral=True
             )
             return
@@ -475,9 +556,9 @@ class TimerCog(commands.Cog):
         
         try:
             # Validate duration with constants
-            if not isinstance(minutes, int) or minutes < self.MIN_DURATION_MINUTES or minutes > self.MAX_DURATION_MINUTES:
+            if not isinstance(minutes, int) or minutes < settings.min_duration_minutes or minutes > settings.max_duration_minutes:
                 await interaction.followup.send(
-                    f"❌ Duration must be between {self.MIN_DURATION_MINUTES} and {self.MAX_DURATION_MINUTES} minutes",
+                    f"❌ Duration must be between {settings.min_duration_minutes} and {settings.max_duration_minutes} minutes",
                     ephemeral=True
                 )
                 return
@@ -607,9 +688,29 @@ class TimerConfigDashboardView(discord.ui.View):
     async def status_button(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self._safe_edit(interaction, embed=self.cog._build_status_embed(self.guild_id))
 
+    @discord.ui.button(label="Stop Timer", style=discord.ButtonStyle.secondary, row=0)
+    async def stop_timer_button(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        select_view = TimerStopByUserView(self.cog, self.guild_id)
+        embed = discord.Embed(
+            title="🛑 Stop A Timer",
+            description="Select a user to stop their active timer.",
+            color=discord.Color.orange(),
+        )
+        await self._safe_edit(interaction, embed=embed, view=select_view)
+        try:
+            select_view.original_message = await interaction.original_response()
+        except Exception:
+            pass
+
     @discord.ui.button(label="Settings", style=discord.ButtonStyle.secondary, row=0)
     async def settings_button(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self._safe_edit(interaction, embed=self.cog._build_settings_embed(self.guild_id))
+
+    @discord.ui.button(label="Edit Settings", style=discord.ButtonStyle.primary, row=1)
+    async def edit_settings_button(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        settings = self.cog._get_guild_settings(self.guild_id)
+        modal = TimerSettingsModal(self.cog, self.guild_id, settings)
+        await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="Emergency Stop", style=discord.ButtonStyle.danger, row=1)
     async def emergency_stop_button(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
@@ -700,6 +801,161 @@ class TimerEmergencyStopConfirmView(discord.ui.View):
         except Exception:
             pass
         self.stop()
+
+
+class TimerStopByUserView(discord.ui.View):
+    """Select a user with an active timer and stop it."""
+
+    def __init__(self, cog: TimerCog, guild_id: int):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.guild_id = guild_id
+        self.original_message: Optional[discord.Message] = None
+
+        options: list[discord.SelectOption] = []
+        guild_timers = [((g, u), s) for ((g, u), s) in cog.active_timers.items() if g == guild_id]
+
+        for ((_, user_id), session) in guild_timers[:25]:
+            user = cog.bot.get_user(user_id)
+            username = user.name if user else f"User {user_id}"
+            desc = f"{session.formatted_time}{' (paused)' if not session.is_running else ''}"
+            options.append(discord.SelectOption(label=username[:100], description=desc[:100], value=str(user_id)))
+
+        if not options:
+            options.append(discord.SelectOption(label="No active timers", description="Nothing to stop", value="none"))
+
+        self.select = discord.ui.Select(
+            placeholder="Select a user...",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+        self.select.callback = self._on_select  # type: ignore[attr-defined]
+        self.add_item(self.select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        perms = getattr(interaction.user, "guild_permissions", None)
+        if not perms or not perms.administrator:
+            try:
+                await interaction.response.send_message(
+                    "❌ You need **Administrator** permissions to do this.",
+                    ephemeral=True,
+                )
+            except Exception:
+                pass
+            return False
+        return True
+
+    async def _on_select(self, interaction: discord.Interaction) -> None:
+        value = self.select.values[0]
+        if value == "none":
+            await interaction.response.edit_message(
+                embed=discord.Embed(title="✅ No Active Timers", description="Nothing to stop.", color=discord.Color.green()),
+                view=None,
+            )
+            self.stop()
+            return
+
+        user_id = int(value)
+        timer_key = (self.guild_id, user_id)
+        session = self.cog.active_timers.get(timer_key)
+        if not session:
+            await interaction.response.edit_message(
+                embed=discord.Embed(title="⚠️ Not Found", description="That timer is no longer active.", color=discord.Color.orange()),
+                view=None,
+            )
+            self.stop()
+            return
+
+        # Stop it
+        del self.cog.active_timers[timer_key]
+        try:
+            if session.message:
+                embed = discord.Embed(
+                    title="⏹️ Timer Stopped",
+                    description=f"Stopped at **{session.formatted_time}**",
+                    color=discord.Color.red(),
+                )
+                await session.message.edit(embed=embed, view=None)
+        except Exception:
+            pass
+
+        await interaction.response.edit_message(
+            embed=discord.Embed(
+                title="✅ Timer Stopped",
+                description=f"Stopped timer for <@{user_id}>.",
+                color=discord.Color.green(),
+            ),
+            view=None,
+        )
+        self.stop()
+
+
+class TimerSettingsModal(discord.ui.Modal):
+    title = "Timer Settings"
+
+    def __init__(self, cog: TimerCog, guild_id: int, settings: TimerGuildSettings):
+        super().__init__(timeout=180)
+        self.cog = cog
+        self.guild_id = guild_id
+
+        self.max_timers = discord.ui.TextInput(
+            label="Max concurrent timers (1–200)",
+            default=str(settings.max_concurrent_timers),
+            required=True,
+            max_length=4,
+        )
+        self.min_minutes = discord.ui.TextInput(
+            label="Min duration minutes (1–360)",
+            default=str(settings.min_duration_minutes),
+            required=True,
+            max_length=3,
+        )
+        self.max_minutes = discord.ui.TextInput(
+            label="Max duration minutes (1–360)",
+            default=str(settings.max_duration_minutes),
+            required=True,
+            max_length=3,
+        )
+        self.update_interval = discord.ui.TextInput(
+            label="Update interval seconds (3–30)",
+            default=str(settings.update_interval_seconds),
+            required=True,
+            max_length=2,
+        )
+
+        self.add_item(self.max_timers)
+        self.add_item(self.min_minutes)
+        self.add_item(self.max_minutes)
+        self.add_item(self.update_interval)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        try:
+            updated = self.cog._apply_guild_settings(
+                self.guild_id,
+                max_concurrent_timers=int(self.max_timers.value),
+                min_duration_minutes=int(self.min_minutes.value),
+                max_duration_minutes=int(self.max_minutes.value),
+                update_interval_seconds=int(self.update_interval.value),
+            )
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            return
+        except Exception:
+            await interaction.response.send_message("❌ Failed to update settings.", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="✅ Timer Settings Updated",
+            description=(
+                f"Max timers: **{updated.max_concurrent_timers}**\n"
+                f"Duration range: **{updated.min_duration_minutes}–{updated.max_duration_minutes}** minutes\n"
+                f"Update interval: **{updated.update_interval_seconds}** seconds"
+            ),
+            color=discord.Color.green(),
+        )
+        embed.set_footer(text="These settings apply immediately in this server")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
