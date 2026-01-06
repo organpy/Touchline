@@ -28,6 +28,8 @@ class TimerSession:
         self.is_running = True
         self.created_at = datetime.utcnow()
         self.message = None  # Cache the message object to avoid API calls
+        self.edit_count = 0  # Track message edits to avoid hitting Discord limits
+        self.last_error_time = None  # Track when last error occurred
 
     @property
     def time_remaining(self) -> int:
@@ -110,6 +112,12 @@ class TimerControlView(discord.ui.View):
 class TimerCog(commands.Cog):
     """Simple timer cog for matches"""
 
+    # Limits to prevent abuse and performance issues
+    MAX_CONCURRENT_TIMERS = 50  # Max timers per guild
+    MAX_DURATION_MINUTES = 120  # Max timer duration
+    MIN_DURATION_MINUTES = 1    # Min timer duration
+    MAX_MESSAGE_EDITS = 9000    # Discord's rough edit limit per message
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         # Changed from guild_id -> session to (guild_id, user_id) -> session
@@ -118,8 +126,62 @@ class TimerCog(commands.Cog):
         self.timer_loop.start()
 
     def cog_unload(self):
-        """Clean up when cog is unloaded"""
+        """Clean up when cog is unloaded - stop all timers gracefully"""
+        logger.info("🛑 Stopping all active timers due to cog unload...")
+        
+        # Cancel the loop
         self.timer_loop.cancel()
+        
+        # Clear all active timers (they will be lost, but that's acceptable)
+        timer_count = len(self.active_timers)
+        self.active_timers.clear()
+        
+        logger.info(f"✅ Cleaned up {timer_count} active timers")
+
+    @app_commands.command(
+        name="timer-emergency-stop",
+        description="[ADMIN] Emergency stop all timers in this server"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def emergency_stop_all(self, interaction: discord.Interaction):
+        """Emergency stop all timers in the guild - admin only"""
+        await interaction.response.defer(ephemeral=True)
+        
+        guild_id = interaction.guild_id
+        guild_timers = [(k, v) for k, v in self.active_timers.items() if k[0] == guild_id]
+        
+        if not guild_timers:
+            await interaction.followup.send("✅ No active timers to stop", ephemeral=True)
+            return
+        
+        stopped_count = 0
+        for (timer_key, session) in guild_timers:
+            try:
+                # Try to update the message to show stopped state
+                if session.message:
+                    embed = discord.Embed(
+                        title="⏹️ Timer Emergency Stopped",
+                        description=f"**{session.formatted_time}**",
+                        color=discord.Color.red()
+                    )
+                    embed.add_field(name="Reason", value="Emergency stop by admin", inline=False)
+                    await session.message.edit(embed=embed, view=None)
+            except Exception as e:
+                logger.error(f"Error updating emergency stopped timer {timer_key}: {e}")
+            
+            # Remove from active timers
+            del self.active_timers[timer_key]
+            stopped_count += 1
+        
+        embed = discord.Embed(
+            title="🚨 Emergency Timer Stop",
+            description=f"Stopped {stopped_count} timer{'s' if stopped_count != 1 else ''}",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="All timers in this server have been stopped")
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        logger.info(f"🚨 Admin {interaction.user} emergency stopped {stopped_count} timers in guild {guild_id}")
 
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         """Handle app command errors for this cog"""
@@ -141,16 +203,81 @@ class TimerCog(commands.Cog):
                     await interaction.response.send_message(embed=embed, ephemeral=True)
                 else:
                     await interaction.followup.send(embed=embed, ephemeral=True)
+            except discord.Forbidden:
+                # Bot can't send messages - this is a bigger issue
+                logger.error(f"Bot lacks permission to send error messages in guild {interaction.guild_id}")
             except Exception as e:
                 logger.error(f"Error sending permission error message: {e}")
         else:
             # Re-raise other errors to be handled by global error handler
             raise error
 
+    @app_commands.command(
+        name="timer-status",
+        description="[MEMBERS] Check timer status for this server"
+    )
+    async def timer_status(self, interaction: discord.Interaction):
+        """Check how many timers are active in this server"""
+        await interaction.response.defer(ephemeral=True)
+        
+        guild_id = interaction.guild_id
+        guild_timers = [(k, v) for k, v in self.active_timers.items() if k[0] == guild_id]
+        
+        embed = discord.Embed(
+            title="⏱️ Timer Status",
+            color=discord.Color.blue()
+        )
+        
+        if not guild_timers:
+            embed.description = "No active timers in this server"
+            embed.color = discord.Color.green()
+        else:
+            embed.add_field(
+                name="Active Timers",
+                value=f"{len(guild_timers)} timer{'s' if len(guild_timers) != 1 else ''}",
+                inline=False
+            )
+            
+            # List timer owners (without pinging them)
+            timer_list = []
+            for (guild_id, user_id), session in guild_timers[:5]:  # Show max 5
+                try:
+                    user = self.bot.get_user(user_id)
+                    username = user.name if user else f"User {user_id}"
+                    timer_list.append(f"• {username}: {session.formatted_time}")
+                except:
+                    timer_list.append(f"• User {user_id}: {session.formatted_time}")
+            
+            if timer_list:
+                embed.add_field(
+                    name="Timer Details",
+                    value="\n".join(timer_list),
+                    inline=False
+                )
+            
+            if len(guild_timers) > 5:
+                embed.set_footer(text=f"And {len(guild_timers) - 5} more timers...")
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
     @tasks.loop(seconds=1)
     async def timer_loop(self):
-        """Main timer loop - runs every second with optimized API calls"""
+        """Main timer loop - runs every second with optimized API calls and safety limits"""
         try:
+            # Safety check: don't process too many timers at once to prevent blocking
+            if len(self.active_timers) > self.MAX_CONCURRENT_TIMERS * 2:  # Allow some overflow
+                logger.warning(f"Too many active timers ({len(self.active_timers)}), cleaning up old ones")
+                # Remove timers older than 24 hours as emergency cleanup
+                cutoff_time = datetime.utcnow().timestamp() - (24 * 60 * 60)
+                to_remove = []
+                for key, session in self.active_timers.items():
+                    if session.created_at.timestamp() < cutoff_time:
+                        to_remove.append(key)
+                
+                for key in to_remove:
+                    del self.active_timers[key]
+                    logger.info(f"Emergency cleanup: removed old timer {key}")
+            
             keys_to_remove = []
             
             # Create a copy of items to iterate over (prevents modification during iteration)
@@ -181,8 +308,11 @@ class TimerCog(commands.Cog):
                                 keys_to_remove.append((guild_id, user_id))
                                 continue
                         
-                        # Only update every 5 seconds to reduce API calls, or immediately when paused/resumed
-                        should_update = (session.elapsed_seconds % 5 == 0)
+                        # Check edit limit to prevent Discord API issues
+                        if session.edit_count >= self.MAX_MESSAGE_EDITS:
+                            logger.warning(f"Timer {session.message_id} hit edit limit ({self.MAX_MESSAGE_EDITS}), stopping updates")
+                            keys_to_remove.append((guild_id, user_id))
+                            continue
                         
                         if should_update:
                             # Create embed with current time
@@ -197,7 +327,24 @@ class TimerCog(commands.Cog):
                                 inline=False
                             )
                             
-                            await session.message.edit(embed=embed)
+                            try:
+                                await session.message.edit(embed=embed)
+                                session.edit_count += 1
+                            except discord.Forbidden:
+                                # Bot lost permissions to edit message
+                                logger.error(f"Lost permission to edit timer message {session.message_id}")
+                                keys_to_remove.append((guild_id, user_id))
+                                continue
+                            except discord.HTTPException as e:
+                                # Rate limited or other API error
+                                if e.status == 429:  # Rate limited
+                                    logger.warning(f"Rate limited editing timer message {session.message_id}")
+                                    # Don't remove timer, just skip this update
+                                    continue
+                                else:
+                                    logger.error(f"HTTP error editing timer message {session.message_id}: {e}")
+                                    keys_to_remove.append((guild_id, user_id))
+                                    continue
                     
                     except Exception as e:
                         logger.error(f"Error updating timer for {(guild_id, user_id)}: {e}")
@@ -223,7 +370,15 @@ class TimerCog(commands.Cog):
                                 description="**00:00**",
                                 color=discord.Color.green()
                             )
-                            await channel.send(embed=embed)
+                            try:
+                                await channel.send(embed=embed)
+                            except discord.Forbidden:
+                                logger.error(f"Lost permission to send completion message in channel {session.channel_id}")
+                            except discord.HTTPException as e:
+                                if e.status == 429:
+                                    logger.warning(f"Rate limited sending completion message in channel {session.channel_id}")
+                                else:
+                                    logger.error(f"HTTP error sending completion message: {e}")
                         
                         keys_to_remove.append((guild_id, user_id))
                     except Exception as e:
@@ -259,7 +414,14 @@ class TimerCog(commands.Cog):
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         
-        await interaction.response.defer(ephemeral=False)
+        # Check concurrent timer limit per guild
+        guild_timers = [k for k in self.active_timers.keys() if k[0] == interaction.guild_id]
+        if len(guild_timers) >= self.MAX_CONCURRENT_TIMERS:
+            await interaction.followup.send(
+                f"❌ Too many active timers in this server! Maximum: {self.MAX_CONCURRENT_TIMERS}",
+                ephemeral=True
+            )
+            return
         
         # Check if this user already has an active timer
         timer_key = (interaction.guild_id, interaction.user.id)
@@ -271,9 +433,12 @@ class TimerCog(commands.Cog):
             return
         
         try:
-            # Validate duration
-            if minutes < 1 or minutes > 120:
-                await interaction.followup.send("❌ Duration must be between 1 and 120 minutes", ephemeral=True)
+            # Validate duration with constants
+            if not isinstance(minutes, int) or minutes < self.MIN_DURATION_MINUTES or minutes > self.MAX_DURATION_MINUTES:
+                await interaction.followup.send(
+                    f"❌ Duration must be between {self.MIN_DURATION_MINUTES} and {self.MAX_DURATION_MINUTES} minutes",
+                    ephemeral=True
+                )
                 return
             
             duration_seconds = minutes * 60
@@ -398,5 +563,15 @@ class TimerCog(commands.Cog):
 
 async def setup(bot: commands.Bot):
     """Setup function called by bot when loading this cog"""
-    await bot.add_cog(TimerCog(bot))
-    logger.info("✅ TimerCog loaded")
+    try:
+        # Validate that required permissions are available
+        if not hasattr(bot, 'get_guild'):
+            raise RuntimeError("Bot missing required methods for timer functionality")
+        
+        await bot.add_cog(TimerCog(bot))
+        logger.info("✅ TimerCog loaded successfully")
+        logger.info(f"📊 Timer limits: Max {TimerCog.MAX_CONCURRENT_TIMERS} concurrent timers per guild")
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to load TimerCog: {e}", exc_info=True)
+        raise
