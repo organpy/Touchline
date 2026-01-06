@@ -54,7 +54,8 @@ class NBLBot(commands.Bot):
         
         # Initialize health check server
         health_port = int(os.getenv("HEALTH_CHECK_PORT", "8080"))
-        self.health_server = HealthCheckServer(self, port=health_port)
+        health_host = os.getenv("HEALTH_CHECK_HOST", "127.0.0.1")
+        self.health_server = HealthCheckServer(self, port=health_port, host=health_host)
 
     def discover_cogs(self, cogs_directory: str = "cogs") -> list:
         """
