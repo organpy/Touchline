@@ -27,6 +27,7 @@ class TimerSession:
         self.elapsed_seconds = 0
         self.is_running = True
         self.created_at = datetime.utcnow()
+        self.message = None  # Cache the message object to avoid API calls
 
     @property
     def time_remaining(self) -> int:
@@ -120,9 +121,35 @@ class TimerCog(commands.Cog):
         """Clean up when cog is unloaded"""
         self.timer_loop.cancel()
 
+    async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        """Handle app command errors for this cog"""
+        if isinstance(error, app_commands.MissingPermissions):
+            embed = discord.Embed(
+                title="❌ Permission Denied",
+                description="You need **Administrator** permissions to use this command.",
+                color=discord.Color.red()
+            )
+            embed.add_field(
+                name="Required Permission",
+                value="🛡️ Server Administrator",
+                inline=False
+            )
+            embed.set_footer(text="Contact a server admin if you need access to this feature")
+            
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(embed=embed, ephemeral=True)
+                else:
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+            except Exception as e:
+                logger.error(f"Error sending permission error message: {e}")
+        else:
+            # Re-raise other errors to be handled by global error handler
+            raise error
+
     @tasks.loop(seconds=1)
     async def timer_loop(self):
-        """Main timer loop - runs every second"""
+        """Main timer loop - runs every second with optimized API calls"""
         try:
             keys_to_remove = []
             
@@ -133,52 +160,75 @@ class TimerCog(commands.Cog):
                 # Advance timer
                 session.tick()
                 
-                # Update display
-                try:
-                    guild = self.bot.get_guild(guild_id)
-                    if not guild:
-                        keys_to_remove.append((guild_id, user_id))
-                        continue
-                    
-                    channel = guild.get_channel(session.channel_id)
-                    if not channel:
-                        keys_to_remove.append((guild_id, user_id))
-                        continue
-                    
+                # Update display (only if timer is still running and not just finished)
+                if not session.is_finished:
                     try:
-                        message = await channel.fetch_message(session.message_id)
+                        # Cache message object to avoid repeated API calls
+                        if session.message is None:
+                            guild = self.bot.get_guild(guild_id)
+                            if not guild:
+                                keys_to_remove.append((guild_id, user_id))
+                                continue
+                            
+                            channel = guild.get_channel(session.channel_id)
+                            if not channel:
+                                keys_to_remove.append((guild_id, user_id))
+                                continue
+                            
+                            try:
+                                session.message = await channel.fetch_message(session.message_id)
+                            except discord.NotFound:
+                                keys_to_remove.append((guild_id, user_id))
+                                continue
                         
-                        # Create embed with current time
-                        embed = discord.Embed(
-                            title="⏱️ Match Timer",
-                            description=f"**{session.formatted_time}**",
-                            color=discord.Color.blue() if session.is_running else discord.Color.orange()
-                        )
-                        embed.add_field(
-                            name="Status",
-                            value="▶️ Running" if session.is_running else "⏸️ Paused",
-                            inline=False
-                        )
+                        # Only update every 5 seconds to reduce API calls, or immediately when paused/resumed
+                        should_update = (session.elapsed_seconds % 5 == 0)
                         
-                        await message.edit(embed=embed)
-                    except discord.NotFound:
+                        if should_update:
+                            # Create embed with current time
+                            embed = discord.Embed(
+                                title="⏱️ Match Timer",
+                                description=f"**{session.formatted_time}**",
+                                color=discord.Color.blue() if session.is_running else discord.Color.orange()
+                            )
+                            embed.add_field(
+                                name="Status",
+                                value="▶️ Running" if session.is_running else "⏸️ Paused",
+                                inline=False
+                            )
+                            
+                            await session.message.edit(embed=embed)
+                    
+                    except Exception as e:
+                        logger.error(f"Error updating timer for {(guild_id, user_id)}: {e}")
                         keys_to_remove.append((guild_id, user_id))
                         continue
-                    
-                    # Check if timer finished
-                    if session.is_finished:
-                        # Send completion message
-                        embed = discord.Embed(
-                            title="⏱️ Match Timer Complete!",
-                            description="**00:00**",
-                            color=discord.Color.green()
-                        )
-                        await channel.send(embed=embed)
-                        keys_to_remove.append((guild_id, user_id))
                 
-                except Exception as e:
-                    logger.error(f"Error updating timer for {(guild_id, user_id)}: {e}")
-                    keys_to_remove.append((guild_id, user_id))
+                # Check if timer finished
+                if session.is_finished:
+                    # Send completion message
+                    try:
+                        if session.message:
+                            channel = session.message.channel
+                        else:
+                            guild = self.bot.get_guild(guild_id)
+                            if guild:
+                                channel = guild.get_channel(session.channel_id)
+                            else:
+                                channel = None
+                        
+                        if channel:
+                            embed = discord.Embed(
+                                title="⏱️ Match Timer Complete!",
+                                description="**00:00**",
+                                color=discord.Color.green()
+                            )
+                            await channel.send(embed=embed)
+                        
+                        keys_to_remove.append((guild_id, user_id))
+                    except Exception as e:
+                        logger.error(f"Error sending completion for {(guild_id, user_id)}: {e}")
+                        keys_to_remove.append((guild_id, user_id))
             
             # Clean up finished timers
             for key in keys_to_remove:
@@ -258,7 +308,10 @@ class TimerCog(commands.Cog):
                     color=discord.Color.red()
                 )
                 try:
-                    await message.edit(embed=embed, view=None)
+                    if session.message:
+                        await session.message.edit(embed=embed, view=None)
+                    else:
+                        await message.edit(embed=embed, view=None)
                 except:
                     pass
             
@@ -267,6 +320,7 @@ class TimerCog(commands.Cog):
             # Send message
             message = await interaction.followup.send(embed=embed, view=view)
             session.message_id = message.id
+            session.message = message  # Cache the message object
             
             # Store session (one per user)
             self.active_timers[timer_key] = session
@@ -299,10 +353,13 @@ class TimerCog(commands.Cog):
         )
         
         try:
-            channel = interaction.guild.get_channel(session.channel_id)
-            if channel:
-                message = await channel.fetch_message(session.message_id)
-                await message.edit(embed=embed, view=None)
+            if session.message:
+                await session.message.edit(embed=embed, view=None)
+            else:
+                channel = interaction.guild.get_channel(session.channel_id)
+                if channel:
+                    message = await channel.fetch_message(session.message_id)
+                    await message.edit(embed=embed, view=None)
         except:
             pass
         
