@@ -385,7 +385,7 @@ class TimerCog(commands.Cog):
                 
                 for key in to_remove:
                     del self.active_timers[key]
-                    logger.info(f"Emergency cleanup: removed old timer {key}")
+                    logger.info(f"Emergency cleanup: removed old timer(s) {key}")
             
             keys_to_remove = []
             
