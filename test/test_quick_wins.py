@@ -99,13 +99,12 @@ class TestCommandCategory:
             CommandCategory.TEAM_OWNER,
             CommandCategory.MEMBERS,
             CommandCategory.SEARCH,
-            CommandCategory.TIMER,
             CommandCategory.SCORE,
             CommandCategory.ADMIN,
             CommandCategory.HELP,
             CommandCategory.OTHER,
         ]
-        assert len(categories) == 9
+        assert len(categories) == 8
     
     def test_category_values(self):
         """Test category display values."""

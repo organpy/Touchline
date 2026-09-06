@@ -5,7 +5,7 @@ Tests for rate limiting utilities.
 import pytest
 import time
 
-from utils.rate_limiter import RateLimiter, timer_requests_limiter
+from utils.rate_limiter import RateLimiter
 
 
 class TestRateLimiter:
@@ -90,13 +90,6 @@ class TestRateLimiter:
         # Should be allowed again
         assert limiter.allow("key1") is True
 
-    def test_global_timer_limiter(self):
-        """Test that global timer_requests_limiter is configured."""
-        assert timer_requests_limiter is not None
-        assert isinstance(timer_requests_limiter, RateLimiter)
-        # Should allow ~1 per 5 seconds (refill_rate = 1/5)
-        assert timer_requests_limiter.max_tokens == 1
-
     def test_cost_parameter(self):
         """Test that cost parameter works correctly."""
         limiter = RateLimiter(max_tokens=10, refill_rate=0.0)
@@ -160,19 +153,19 @@ class TestRateLimiter:
 class TestRateLimiterIntegration:
     """Integration tests for rate limiting patterns."""
 
-    def test_simulated_timer_requests(self):
-        """Simulate timer request pattern from bot."""
+    def test_simulated_command_requests(self):
+        """Simulate per-guild command request pattern."""
         limiter = RateLimiter(max_tokens=1, refill_rate=1.0 / 5.0)  # 1 per 5 sec
         guild_id = 12345
         
         # First request allowed
-        assert limiter.allow(f"timer_start_{guild_id}") is True
+        assert limiter.allow(f"cmd_{guild_id}") is True
         
         # Immediate retry denied
-        assert limiter.allow(f"timer_start_{guild_id}") is False
+        assert limiter.allow(f"cmd_{guild_id}") is False
         
         # Different guild not affected
-        assert limiter.allow(f"timer_start_{67890}") is True
+        assert limiter.allow(f"cmd_{67890}") is True
 
     def test_multiple_guilds_independent(self):
         """Test that multiple guilds have independent rate limits."""

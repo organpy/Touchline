@@ -19,7 +19,6 @@ class CommandCategory(Enum):
     TEAM_OWNER = ("👔 Team Owner", "Player recruitment and roster management")
     MEMBERS = ("👥 Members", "Public league information and commands")
     SEARCH = ("🔍 Search", "Find players and teams")
-    TIMER = ("⏱️ Timer", "Match timing and management")
     SCORE = ("🏀 Score", "Recording match results and stats")
     ADMIN = ("⚙️ Admin", "Server and league administration")
     HELP = ("❓ Help", "Help and documentation")
@@ -190,7 +189,6 @@ class AdminHelpView(discord.ui.View):
         embed.add_field(
             name="🔧 Server Configuration",
             value="`/configure-server` - Interactive server config panel\n"
-                  "`/timer-config` - Timer settings\n"
                   "Configure: roles, channels, transaction settings, notifications",
             inline=False
         )
@@ -308,7 +306,6 @@ class HelpCog(commands.Cog):
                     "TEAM OWNER": CommandCategory.TEAM_OWNER,
                     "MEMBERS": CommandCategory.MEMBERS,
                     "SEARCH": CommandCategory.SEARCH,
-                    "TIMER": CommandCategory.TIMER,
                     "SCORE": CommandCategory.SCORE,
                     "ADMIN": CommandCategory.ADMIN,
                     "HELP": CommandCategory.HELP,

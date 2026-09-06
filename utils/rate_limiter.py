@@ -129,8 +129,3 @@ class RateLimiter:
         tokens_needed = 1 - bucket.tokens
         return tokens_needed / self.refill_rate
 
-
-# Global rate limiters for different cogs/features
-timer_requests_limiter = RateLimiter(
-    max_tokens=1, refill_rate=1.0 / 5.0  # 1 request per 5 seconds per guild
-)

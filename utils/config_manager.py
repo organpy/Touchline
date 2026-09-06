@@ -62,7 +62,7 @@ class GuildConfig:
         self._cache[key] = value
 
     def get_nested(self, path: str, default: Any = None) -> Any:
-        """Get nested config value using dot notation (e.g., 'timer.duration')"""
+        """Get nested config value using dot notation (e.g., 'transactions.channel_id')"""
         keys = path.split('.')
         value = self._cache
         for key in keys:
@@ -128,7 +128,7 @@ class ConfigManager:
         channel_type: str,
         channel: discord.TextChannel
     ):
-        """Set a channel configuration (e.g., 'transactions', 'logs', 'timer')"""
+        """Set a channel configuration (e.g., 'transactions', 'logs')"""
         config = await self.get_guild_config(guild_id)
         
         if 'channels' not in config._cache:
@@ -161,34 +161,6 @@ class ConfigManager:
         if channel_id:
             return guild.get_channel(channel_id)
         return None
-
-    async def set_timer_config(
-        self,
-        guild_id: int,
-        duration_seconds: int = 600,
-        auto_end: bool = True
-    ):
-        """Configure timer settings"""
-        config = await self.get_guild_config(guild_id)
-        
-        if 'timer' not in config._cache:
-            config.set('timer', {})
-
-        timer_config = config.get('timer', {})
-        timer_config['duration_seconds'] = duration_seconds
-        timer_config['auto_end'] = auto_end
-        config.set('timer', timer_config)
-        
-        await config.save()
-        logger.info(f"⏱️  Set timer config for guild {guild_id}: {duration_seconds}s")
-
-    async def get_timer_config(self, guild_id: int) -> Dict[str, Any]:
-        """Get timer configuration"""
-        config = await self.get_guild_config(guild_id)
-        return config.get('timer', {
-            'duration_seconds': 600,  # Default 10 minutes
-            'auto_end': True
-        })
 
     async def update_transactions_config(
         self,

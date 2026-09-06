@@ -34,8 +34,7 @@ class ConfigUtility:
             "transactionsChannelId": "",
             "admin_role_id": "",
             "adminCommandsChannelId": "",
-            # Namespaced config groups (timer/stats/transactions etc.)
-            "timer": {},
+            # Namespaced config groups (stats/transactions etc.)
             "stats": {},
             "transactions": {
                 "default_expiry_minutes": 60,
