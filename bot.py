@@ -15,7 +15,12 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Initialize health check server only (no Supabase for timer-only)
+# Initialize Supabase client for config manager
+from db import get_supabase
+from utils.config_manager import init_config_manager
+from utils.team_player_cache import TeamPlayerCache
+from utils.season_cache import SeasonCache
+from cogs.score.roster_cache import RosterCache
 from utils.health_check import HealthCheckServer
 
 # ============================================================================
@@ -50,7 +55,12 @@ class NBLBot(commands.Bot):
         if BOT_OWNER_ID:
             self.owner_id = int(BOT_OWNER_ID)
 
-        # No Supabase initialization for timer-only production
+        try:
+            self.supabase = get_supabase()
+            logger.info("✅ Supabase client initialized")
+        except Exception as exc:
+            logger.error("❌ Failed to initialize Supabase client", exc_info=True)
+            raise exc
         
         # Initialize health check server
         health_port = int(os.getenv("HEALTH_CHECK_PORT", "8080"))
@@ -59,12 +69,71 @@ class NBLBot(commands.Bot):
 
     def discover_cogs(self, cogs_directory: str = "cogs") -> list:
         """
-        Production timer-only: Load only the timer cog.
+        Automatically discover all cogs in the cogs directory and subdirectories.
+        Returns list of module paths ready for load_extension().
         """
-        return ["cogs.timer.timer"]
+        cog_extensions = []
+        excluded_files = {
+            '__init__.py', 'utils.py', 'models.py', 'roster_cache.py',
+            # Shared base classes (not standalone cogs)
+            'base.py',
+            # Autocomplete modules (not standalone cogs)
+            'autocomplete.py',
+            # Transaction helper modules (not standalone cogs)
+            'history.py', 'history_view.py', 'trade_approval.py', 'trade_views.py',
+            'trade_utils.py', 'views.py', 'pick_trading.py', 'configuration.py', 'picks_view.py',
+            'roster_transactions.py', 'trading.py', 'persistent_views.py',
+            # Admin panel helper modules (deprecated/excluded)
+            'admin_transactions_views_example.py', 'teams.py', 'rosters.py', 'picks.py', "common.py",
+            # Stats helper modules (deprecated)
+            'stats_commands.py',
+        }
+
+        for root, dirs, files in os.walk(cogs_directory):
+            # Skip __pycache__ directories
+            dirs[:] = [d for d in dirs if d != '__pycache__']
+
+            for file in files:
+                if file.endswith('.py') and file not in excluded_files:
+                    file_path = os.path.join(root, file)
+                    # Convert file path to module path
+                    module_path = file_path.replace(os.sep, '.').replace('.py', '')
+                    cog_extensions.append(module_path)
+
+        return cog_extensions
 
     async def setup_hook(self):
-        """Setup hook: discover and load only timer cog (no DB/cache init for production)"""
+        """Setup hook: discover and load all cogs"""
+        logger.info("🔄 Initializing ConfigManager...")
+        try:
+            init_config_manager(self.supabase)
+            logger.info("✅ ConfigManager initialized")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize ConfigManager: {e}", exc_info=True)
+        
+        logger.info("🔄 Initializing TeamPlayerCache...")
+        try:
+            TeamPlayerCache.set_supabase(self.supabase)
+            await TeamPlayerCache.refresh()
+            logger.info("✅ TeamPlayerCache initialized")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize TeamPlayerCache: {e}", exc_info=True)
+
+        logger.info("🔄 Initializing SeasonCache...")
+        try:
+            SeasonCache.set_supabase(self.supabase)
+            await SeasonCache.refresh()
+            logger.info("✅ SeasonCache initialized")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize SeasonCache: {e}", exc_info=True)
+        
+        logger.info("🔄 Initializing RosterCache...")
+        try:
+            roster_cache = RosterCache()
+            await roster_cache.load_cache(self.supabase)
+            logger.info("✅ RosterCache initialized")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize RosterCache: {e}", exc_info=True)
         
         logger.info("🔄 Discovering cogs...")
         extensions = self.discover_cogs()
@@ -81,7 +150,15 @@ class NBLBot(commands.Bot):
             except Exception as e:
                 logger.error(f"❌ Failed to load {extension}: {e}", exc_info=True)
 
-        # Sync app commands (timer cog may have commands)
+        # Register persistent views
+        try:
+            from cogs.transactions.persistent_views import SigningAcceptButton, SigningDeclineButton
+            self.add_dynamic_items(SigningAcceptButton, SigningDeclineButton)
+            logger.info("✅ Persistent views registered")
+        except Exception as e:
+            logger.error(f"❌ Failed to register persistent views: {e}", exc_info=True)
+
+        # Sync app commands
         try:
             synced = await self.tree.sync()
             logger.info(f"✅ Synced {len(synced)} app commands")
