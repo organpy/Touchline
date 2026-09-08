@@ -13,6 +13,7 @@ from db import get_supabase, queries
 from db.transactions_repository import TransactionsRepository
 from utils.team_player_cache import TeamPlayerCache
 from utils.autocomplete_helper import AutocompleteHelper
+from utils.config_utility import ConfigUtility
 from cogs.transactions.trade_utils import can_trade_picks, get_available_trade_assets
 
 logger = logging.getLogger(__name__)
@@ -261,6 +262,27 @@ class ForceTradeCommand(commands.Cog):
         team2: str,
     ) -> None:
         """Allow admin to force a trade between two teams."""
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "❌ This command can only be used inside a Discord server.",
+                ephemeral=True,
+            )
+            return
+
+        guild_config = await ConfigUtility.get_guild_config(self.bot, interaction.guild.id)
+
+        channel_allowed, channel_error_embed = await ConfigUtility.check_admin_channel_restriction(
+            interaction, guild_config
+        )
+        if not channel_allowed:
+            await interaction.response.send_message(embed=channel_error_embed, ephemeral=True)
+            return
+
+        has_permission = await ConfigUtility.check_admin_permissions(interaction, guild_config)
+        if not has_permission:
+            await ConfigUtility.send_permission_denied_message(interaction)
+            return
+
         await interaction.response.defer(ephemeral=True)
 
         supabase = get_supabase()
