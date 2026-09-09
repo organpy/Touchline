@@ -20,6 +20,7 @@ from .views import (
     MatchConfirmationView
 )
 from .roster_cache import RosterCache
+from .access import NOT_ALLOWED_MESSAGE, NOT_YOUR_MATCH_MESSAGE, resolve_reporter_access
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +44,15 @@ class StatRegistrationCog(commands.Cog):
 
     @app_commands.command(
         name="report-stats",
-        description="[MEMBERS] Start recording a match with individual player statistics"
+        description="[TEAM OWNER] Start recording a match with individual player statistics"
     )
     async def report_stats(self, interaction: discord.Interaction):
         """Main command to initiate stat registration flow"""
+
+        access = await resolve_reporter_access(self.bot, self.supabase, interaction)
+        if access is None:
+            await interaction.response.send_message(NOT_ALLOWED_MESSAGE, ephemeral=True)
+            return
 
         # Auto-reload cache if it was invalidated (e.g., after a transaction)
         if not self.roster_cache.loaded:
@@ -70,6 +76,10 @@ class StatRegistrationCog(commands.Cog):
                     "❌ Team data not found",
                     ephemeral=True
                 )
+                return
+
+            if not access.can_report(team1_data.team_id, team2_data.team_id):
+                await team_select_interaction.response.send_message(NOT_YOUR_MATCH_MESSAGE, ephemeral=True)
                 return
 
             # Validate both teams are in the same league

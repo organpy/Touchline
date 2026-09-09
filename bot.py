@@ -74,7 +74,7 @@ class NBLBot(commands.Bot):
         """
         cog_extensions = []
         excluded_files = {
-            '__init__.py', 'utils.py', 'models.py', 'roster_cache.py',
+            '__init__.py', 'utils.py', 'models.py', 'roster_cache.py', 'access.py',
             # Shared base classes (not standalone cogs)
             'base.py',
             # Autocomplete modules (not standalone cogs)

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from db import get_supabase, queries
 from .models import MatchEntry, TeamMatchEntry, PlayerStatEntry
 from .roster_cache import RosterCache
+from .access import NOT_ALLOWED_MESSAGE, NOT_YOUR_MATCH_MESSAGE, resolve_reporter_access
 from utils.team_player_cache import TeamPlayerCache
 from utils.config_manager import get_config_manager
 
@@ -368,10 +369,15 @@ class BulkStatsCog(commands.Cog):
     
     @app_commands.command(
         name="report-stats-bulk",
-        description="[MEMBERS] Report match with bulk player stats (single text input)"
+        description="[TEAM OWNER] Report match with bulk player stats (single text input)"
     )
     async def report_stats_bulk(self, interaction: discord.Interaction):
         """Start bulk stats entry flow."""
+        access = await resolve_reporter_access(self.bot, self.supabase, interaction)
+        if access is None:
+            await interaction.response.send_message(NOT_ALLOWED_MESSAGE, ephemeral=True)
+            return
+
         # Auto-reload cache if it was invalidated (e.g., after a transaction)
         if not self.roster_cache.loaded:
             logger.info("📦 Roster cache not loaded, reloading for bulk stats...")
@@ -390,6 +396,10 @@ class BulkStatsCog(commands.Cog):
             
             if not team1 or not team2:
                 await teams_interaction.response.send_message("❌ Team not found.", ephemeral=True)
+                return
+
+            if not access.can_report(team1.team_id, team2.team_id):
+                await teams_interaction.response.send_message(NOT_YOUR_MATCH_MESSAGE, ephemeral=True)
                 return
             
             # Store entry state
@@ -745,10 +755,15 @@ class BulkStatsCog(commands.Cog):
     
     @app_commands.command(
         name="report-score",
-        description="[MEMBERS] Report match score only (no player stats)"
+        description="[TEAM OWNER] Report match score only (no player stats)"
     )
     async def report_score(self, interaction: discord.Interaction):
         """Report just the match score without player stats."""
+        access = await resolve_reporter_access(self.bot, self.supabase, interaction)
+        if access is None:
+            await interaction.response.send_message(NOT_ALLOWED_MESSAGE, ephemeral=True)
+            return
+
         # Auto-reload cache if it was invalidated (e.g., after a transaction)
         if not self.roster_cache.loaded:
             logger.info("📦 Roster cache not loaded, reloading for score report...")
@@ -767,6 +782,10 @@ class BulkStatsCog(commands.Cog):
             
             if not team1 or not team2:
                 await teams_interaction.response.send_message("❌ Team not found.", ephemeral=True)
+                return
+
+            if not access.can_report(team1.team_id, team2.team_id):
+                await teams_interaction.response.send_message(NOT_YOUR_MATCH_MESSAGE, ephemeral=True)
                 return
             
             # Store entry state for score-only
