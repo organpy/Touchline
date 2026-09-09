@@ -230,6 +230,22 @@ async def get_team_by_owner(supabase, owner_discord_id: int) -> Optional[Dict[st
         return None
 
 
+async def get_teams_by_owner(supabase, owner_discord_id: int) -> List[Dict[str, Any]]:
+    """Get every team managed by a Discord user (an owner may run teams in several divisions)."""
+    try:
+        response = (
+            supabase
+            .table('teams')
+            .select('id, code, division_id')
+            .eq('owner_discord_id', owner_discord_id)
+            .execute()
+        )
+        return response.data or []
+    except Exception as e:
+        logger.error(f"Error fetching teams for owner {owner_discord_id}: {e}")
+        return []
+
+
 async def get_player_by_discord_id(supabase, discord_id: int) -> Optional[Dict[str, Any]]:
     """Fetch a player row by Discord account id."""
     try:
