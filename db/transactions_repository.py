@@ -6,7 +6,33 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from postgrest.exceptions import APIError
+
 logger = logging.getLogger(__name__)
+
+# Error codes raised (as the HINT) by the execute_trade_proposal database function.
+TRADE_ERROR_MESSAGES: Dict[str, str] = {
+    'TRADE_NOT_FOUND': "This trade proposal no longer exists.",
+    'TRADE_NOT_PENDING': "This trade has already been resolved.",
+    'TRADE_EXPIRED': "This trade proposal has expired.",
+    'TRADE_PLAYER_UNAVAILABLE': "A player in this trade is no longer on the expected team.",
+    'TRADE_PICK_UNAVAILABLE': "A draft pick in this trade is no longer owned by the expected team.",
+    'TRADE_HAS_NO_ASSETS': "This trade has no players or picks to move.",
+    'TRADE_INVALID_ASSET': "This trade contains an invalid asset.",
+    'TRADE_FAILED': "The trade could not be executed. Please contact an admin.",
+}
+
+
+class TradeExecutionError(Exception):
+    """Raised when the database refuses to execute a trade proposal."""
+
+    def __init__(self, code: str, detail: Optional[str] = None):
+        super().__init__(detail or code)
+        self.code = code if code in TRADE_ERROR_MESSAGES else 'TRADE_FAILED'
+
+    @property
+    def user_message(self) -> str:
+        return TRADE_ERROR_MESSAGES[self.code]
 
 
 class TransactionsRepository:
@@ -298,6 +324,53 @@ class TransactionsRepository:
         except Exception as exc:
             logger.error("Failed to update trade %s -> %s: %s", proposal_id, status, exc)
             return False
+
+    def resolve_pending_trade(
+        self,
+        proposal_id: str,
+        status: str,
+        reviewed_by: Optional[int] = None,
+    ) -> bool:
+        """Move a still-pending proposal to a final status. Returns False if it was no longer pending."""
+        update_payload: Dict[str, Any] = {
+            'status': status,
+            'updated_at': datetime.utcnow().isoformat() + 'Z',
+        }
+        if reviewed_by is not None:
+            update_payload['reviewed_by'] = reviewed_by
+        try:
+            response = (
+                self.supabase
+                .table('trade_proposals')
+                .update(update_payload)
+                .eq('id', proposal_id)
+                .eq('status', 'pending')
+                .execute()
+            )
+            return bool(response.data)
+        except Exception as exc:
+            logger.error("Failed to resolve trade %s -> %s: %s", proposal_id, status, exc)
+            return False
+
+    def execute_trade_proposal(self, proposal_id: str, executed_by: int) -> int:
+        """
+        Atomically execute a pending trade proposal (rosters, picks, transaction log, status).
+
+        Returns the number of assets moved. Raises TradeExecutionError if the database refuses
+        the trade; in that case nothing was changed.
+        """
+        try:
+            response = self.supabase.rpc(
+                'execute_trade_proposal',
+                {'p_proposal_id': proposal_id, 'p_executed_by': executed_by},
+            ).execute()
+        except APIError as exc:
+            logger.warning("Trade %s refused by database: %s (%s)", proposal_id, exc.message, exc.hint)
+            raise TradeExecutionError(exc.hint or 'TRADE_FAILED', exc.message) from exc
+        except Exception as exc:
+            logger.error("Failed to execute trade %s: %s", proposal_id, exc, exc_info=True)
+            raise TradeExecutionError('TRADE_FAILED', str(exc)) from exc
+        return int(response.data or 0)
 
     def get_trade_with_assets(self, proposal_id: str) -> Optional[Dict[str, Any]]:
         """Fetch a trade proposal along with its assets."""
