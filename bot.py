@@ -153,7 +153,8 @@ class NBLBot(commands.Bot):
         # Register persistent views
         try:
             from cogs.transactions.persistent_views import SigningAcceptButton, SigningDeclineButton
-            self.add_dynamic_items(SigningAcceptButton, SigningDeclineButton)
+            from cogs.transactions.trade_approval import TradeAcceptButton, TradeDeclineButton
+            self.add_dynamic_items(SigningAcceptButton, SigningDeclineButton, TradeAcceptButton, TradeDeclineButton)
             logger.info("✅ Persistent views registered")
         except Exception as e:
             logger.error(f"❌ Failed to register persistent views: {e}", exc_info=True)
