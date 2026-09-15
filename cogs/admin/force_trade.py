@@ -10,7 +10,8 @@ from discord import app_commands
 from discord.ext import commands
 
 from db import get_supabase, queries
-from db.transactions_repository import TransactionsRepository
+from db.transactions_repository import TradeExecutionError, TransactionsRepository
+from cogs.score.roster_cache import RosterCache
 from utils.team_player_cache import TeamPlayerCache
 from utils.autocomplete_helper import AutocompleteHelper
 from utils.config_utility import ConfigUtility
@@ -127,7 +128,7 @@ class ForceTradeSelectionView(discord.ui.View):
                 'season_id': self.season['id'],
                 'initiating_team_id': self.team1['id'],
                 'counterparty_team_id': self.team2['id'],
-                'status': 'executed',
+                'status': 'pending',
                 'created_by': interaction.user.id,
                 'metadata': {'force_trade': True}
             })
@@ -138,71 +139,31 @@ class ForceTradeSelectionView(discord.ui.View):
 
             # Attach assets
             trade_assets = []
-            for asset in assets['outbound']:
-                trade_assets.append({
-                    'proposal_id': proposal['id'],
-                    'direction': 'outbound',
-                    'asset_type': asset.get('type', 'player'),
-                    'player_id': asset.get('player_id'),
-                    'draft_pick_id': asset.get('pick_id'),
-                    'metadata': {}
-                })
-            for asset in assets['inbound']:
-                trade_assets.append({
-                    'proposal_id': proposal['id'],
-                    'direction': 'inbound',
-                    'asset_type': asset.get('type', 'player'),
-                    'player_id': asset.get('player_id'),
-                    'draft_pick_id': asset.get('pick_id'),
-                    'metadata': {}
-                })
+            for direction in ('outbound', 'inbound'):
+                for asset in assets[direction]:
+                    trade_assets.append({
+                        'proposal_id': proposal['id'],
+                        'direction': direction,
+                        'asset_type': asset.get('type', 'player'),
+                        'player_id': asset.get('player_id'),
+                        'draft_pick_id': asset.get('pick_id'),
+                        'metadata': {}
+                    })
 
-            repo.attach_trade_assets(trade_assets)
+            if not repo.attach_trade_assets(trade_assets):
+                repo.resolve_pending_trade(proposal['id'], 'cancelled', reviewed_by=interaction.user.id)
+                await interaction.followup.send("❌ Failed to save trade assets.", ephemeral=True)
+                return
 
-            # ===== ACTUALLY TRANSFER ASSETS (critical fix) =====
-            # Transfer players: outbound players go from team1 to team2
-            for asset in assets['outbound']:
-                if asset.get('type') == 'player' and asset.get('player_id'):
-                    success = repo.transfer_player_between_teams(
-                        self.season['id'],
-                        asset['player_id'],
-                        self.team1['id'],
-                        self.team2['id']
-                    )
-                    if not success:
-                        logger.error(f"Failed to transfer player {asset['player_id']} in force trade")
+            # Move players/picks, log transactions, and mark executed in one database transaction
+            try:
+                repo.execute_trade_proposal(proposal['id'], interaction.user.id)
+            except TradeExecutionError as exc:
+                repo.resolve_pending_trade(proposal['id'], 'cancelled', reviewed_by=interaction.user.id)
+                await interaction.followup.send(f"❌ {exc.user_message}", ephemeral=True)
+                return
 
-            # Transfer players: inbound players go from team2 to team1
-            for asset in assets['inbound']:
-                if asset.get('type') == 'player' and asset.get('player_id'):
-                    success = repo.transfer_player_between_teams(
-                        self.season['id'],
-                        asset['player_id'],
-                        self.team2['id'],
-                        self.team1['id']
-                    )
-                    if not success:
-                        logger.error(f"Failed to transfer player {asset['player_id']} in force trade")
-
-            # Transfer picks: outbound picks go from team1 to team2
-            for asset in assets['outbound']:
-                if asset.get('type') == 'pick':
-                    pick_id = asset.get('draft_pick_id') or asset.get('pick_id')
-                    if pick_id:
-                        result = repo.update_draft_pick_owner(pick_id, self.team2['id'])
-                        if not result:
-                            logger.error(f"Failed to transfer pick {pick_id} in force trade")
-
-            # Transfer picks: inbound picks go from team2 to team1
-            for asset in assets['inbound']:
-                if asset.get('type') == 'pick':
-                    pick_id = asset.get('draft_pick_id') or asset.get('pick_id')
-                    if pick_id:
-                        result = repo.update_draft_pick_owner(pick_id, self.team1['id'])
-                        if not result:
-                            logger.error(f"Failed to transfer pick {pick_id} in force trade")
-            # ===== END TRANSFER ASSETS =====
-
+            RosterCache().invalidate()
             await TeamPlayerCache.refresh(self.supabase)
 
             # Build result embed
