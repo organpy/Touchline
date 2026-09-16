@@ -68,3 +68,76 @@ async def test_dm_is_rejected(cog):
 
     interaction.response.send_message.assert_awaited_once()
     interaction.response.defer.assert_not_awaited()
+
+
+class TestForceTradeExecution:
+    """The Execute button must go through the atomic database function."""
+
+    def _view(self):
+        view = force_trade_module.ForceTradeSelectionView(
+            team1={'id': 'team-a', 'code': 'aaa', 'name': 'Team A'},
+            team2={'id': 'team-b', 'code': 'bbb', 'name': 'Team B'},
+            season={'id': 'season-1'},
+            supabase=Mock(),
+            team1_player_assets=[],
+            team1_pick_assets=[],
+            team2_player_assets=[],
+            team2_pick_assets=[],
+            initiator_discord_id=123,
+            guild_id=987654321,
+        )
+        view.get_selected_assets = Mock(return_value={
+            'outbound': [{'type': 'player', 'player_id': 'p1', 'label': 'Player One'}],
+            'inbound': [{'type': 'pick', 'pick_id': 'k1', 'label': 'R1 #3'}],
+        })
+        return view
+
+    def _repo(self):
+        repo = Mock()
+        repo.create_trade_proposal.return_value = {'id': 'prop-1234567890'}
+        repo.attach_trade_assets.return_value = [{'id': 'a1'}, {'id': 'a2'}]
+        return repo
+
+    @pytest.mark.asyncio
+    async def test_execute_uses_atomic_function(self):
+        view, repo = self._view(), self._repo()
+        interaction = _make_interaction(administrator=True)
+
+        with patch.object(force_trade_module, "TransactionsRepository", return_value=repo), patch.object(
+            force_trade_module, "RosterCache"
+        ), patch.object(force_trade_module.TeamPlayerCache, "refresh", AsyncMock()):
+            await view.execute_trade.callback(interaction)
+
+        assert repo.create_trade_proposal.call_args.args[0]['status'] == 'pending'
+        saved_assets = repo.attach_trade_assets.call_args.args[0]
+        assert [(a['direction'], a['asset_type'], a['player_id'], a['draft_pick_id']) for a in saved_assets] == [
+            ('outbound', 'player', 'p1', None),
+            ('inbound', 'pick', None, 'k1'),
+        ]
+        repo.execute_trade_proposal.assert_called_once_with('prop-1234567890', 123)
+        repo.transfer_player_between_teams.assert_not_called()
+        repo.update_draft_pick_owner.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_refused_trade_is_cancelled(self):
+        view, repo = self._view(), self._repo()
+        repo.execute_trade_proposal.side_effect = force_trade_module.TradeExecutionError('TRADE_PICK_UNAVAILABLE')
+        interaction = _make_interaction(administrator=True)
+
+        with patch.object(force_trade_module, "TransactionsRepository", return_value=repo):
+            await view.execute_trade.callback(interaction)
+
+        repo.resolve_pending_trade.assert_called_once_with('prop-1234567890', 'cancelled', reviewed_by=123)
+        assert "no longer owned" in interaction.followup.send.await_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_failed_asset_save_cancels_before_executing(self):
+        view, repo = self._view(), self._repo()
+        repo.attach_trade_assets.return_value = []
+        interaction = _make_interaction(administrator=True)
+
+        with patch.object(force_trade_module, "TransactionsRepository", return_value=repo):
+            await view.execute_trade.callback(interaction)
+
+        repo.execute_trade_proposal.assert_not_called()
+        repo.resolve_pending_trade.assert_called_once_with('prop-1234567890', 'cancelled', reviewed_by=123)
