@@ -413,7 +413,13 @@ class TradeAssetSelectionView(discord.ui.View):
                 'metadata': {}
             })
 
-        self.cog.repo.attach_trade_assets(trade_assets)
+        if not self.cog.repo.attach_trade_assets(trade_assets):
+            self.cog.repo.resolve_pending_trade(proposal['id'], 'cancelled')
+            await interaction.followup.send(
+                "❌ Failed to save the trade assets. Please try again.",
+                ephemeral=True,
+            )
+            return
 
         # Now send approval message to counterparty
         from .trade_approval import TradeApprovalView
