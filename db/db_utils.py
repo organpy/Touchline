@@ -15,6 +15,24 @@ T = TypeVar("T")
 SLOW_QUERY_THRESHOLD_MS = 100
 
 
+async def execute_async(query: Any) -> Any:
+    """
+    Run a Supabase query builder's blocking .execute() in a worker thread.
+
+    The Supabase client is synchronous; calling .execute() directly inside a coroutine
+    freezes the whole bot (gateway heartbeats, every other command) until the HTTP
+    request returns. Exceptions propagate unchanged so callers keep their error handling.
+
+    Example:
+        response = await execute_async(
+            supabase
+            .table('players')
+            .select('*')
+        )
+    """
+    return await asyncio.to_thread(query.execute)
+
+
 async def run_query_in_thread(
     func: Callable[..., T], *args, **kwargs
 ) -> Optional[T]:
