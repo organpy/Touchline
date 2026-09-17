@@ -546,29 +546,31 @@ class ForceReleaseView(LazyInitView):
                     async def confirm(self, confirm_interaction: discord.Interaction, _: discord.ui.Button) -> None:
                         await confirm_interaction.response.defer(ephemeral=True)
                         try:
-                            # Mark player as released
-                            self.repo.mark_player_released(
-                                roster_entry['season_id'],
-                                roster_entry['player_id'],
-                                roster_entry['team_id']
-                            )
+                            # Insert transaction log; the trg_transactions_apply_roster trigger closes
+                            # the roster row for from_team_id.
+                            transaction = self.repo.insert_transaction({
+                                'season_id': roster_entry['season_id'],
+                                'transaction_type': 'admin_force_release',
+                                'player_id': roster_entry['player_id'],
+                                'metadata': {
+                                    'from_team_id': str(roster_entry['team_id']),
+                                    'admin_user_id': str(confirm_interaction.user.id),
+                                    'reason': 'admin_force_release',
+                                },
+                            })
+                            if not transaction:
+                                await confirm_interaction.followup.send(
+                                    "❌ Failed to release player. Check server logs.",
+                                    ephemeral=True,
+                                )
+                                return
                             logger.info(
                                 "✅ Force release: %s from %s by %s",
                                 player_name,
                                 team_code,
                                 confirm_interaction.user.id,
                             )
-                            # Insert transaction log
-                            self.repo.insert_transaction({
-                                'season_id': roster_entry['season_id'],
-                                'transaction_type': 'admin_force_release',
-                                'player_id': roster_entry['player_id'],
-                                'team_id': roster_entry['team_id'],
-                                'metadata': {
-                                    'admin_user_id': str(confirm_interaction.user.id),
-                                    'reason': 'admin_force_release',
-                                },
-                            })
+                            RosterCache().invalidate()
                             await TeamPlayerCache.refresh(self.supabase)
                             
                             # Post to transactions channel
