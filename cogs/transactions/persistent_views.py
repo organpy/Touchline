@@ -79,6 +79,11 @@ class SigningAcceptButton(ui.DynamicItem[ui.Button], template=r'signing:accept:(
             repo.update_pending_signing_status(signing['id'], 'declined')
             return
 
+        # Claim the offer first so a double click cannot sign the player twice
+        if not repo.claim_pending_signing(signing['id'], 'accepted'):
+            await interaction.followup.send("⚠️ This offer has already been answered.", ephemeral=True)
+            return
+
         # Execute signing
         transaction = repo.insert_transaction({
             'season_id': signing['season_id'],
@@ -93,10 +98,10 @@ class SigningAcceptButton(ui.DynamicItem[ui.Button], template=r'signing:accept:(
         })
 
         if not transaction:
+            repo.update_pending_signing_status(signing['id'], 'pending')
             await interaction.followup.send("❌ Failed to record transaction.", ephemeral=True)
             return
 
-        repo.update_pending_signing_status(signing['id'], 'accepted')
         repo.cancel_other_pending_signings(signing['player_id'], keep_id=signing['id'])
 
         # Refresh caches
@@ -223,8 +228,10 @@ class SigningDeclineButton(ui.DynamicItem[ui.Button], template=r'signing:decline
             await interaction.followup.send(f"⚠️ Offer is {signing['status']}.", ephemeral=True)
             return
 
-        repo.update_pending_signing_status(signing['id'], 'declined')
-        
+        if not repo.claim_pending_signing(signing['id'], 'declined'):
+            await interaction.followup.send("⚠️ This offer has already been answered.", ephemeral=True)
+            return
+
         try:
             team = supabase.table('teams').select('*').eq('id', signing['team_id']).single().execute().data
             builder = EmbedBuilder(
