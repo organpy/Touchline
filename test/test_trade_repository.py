@@ -83,3 +83,50 @@ class TestResolvePendingTrade:
         supabase = self._supabase([])
 
         assert not TransactionsRepository(supabase).resolve_pending_trade("prop-1", 'declined')
+
+
+class TestInsertTransaction:
+    def _insert(self, payload):
+        supabase = MagicMock()
+        supabase.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[{'id': 'tx-1'}])
+        result = TransactionsRepository(supabase).insert_transaction(payload)
+        row = supabase.table.return_value.insert.call_args_list[0].args[0]
+        event = supabase.table.return_value.insert.call_args_list[1].args[0]
+        return result, row, event
+
+    def test_release_with_table_column_names_is_recorded_correctly(self):
+        result, row, event = self._insert({
+            'season_id': 's1',
+            'type': 'release',
+            'player_id': 'p1',
+            'from_team_id': 'team-a',
+            'to_team_id': None,
+            'executed_by': 42,
+            'details': {'reason': 'cut'},
+        })
+
+        assert result == {'id': 'tx-1'}
+        assert row == {
+            'season_id': 's1',
+            'type': 'release',
+            'player_id': 'p1',
+            'from_team_id': 'team-a',
+            'executed_by': 42,
+            'details': {'reason': 'cut'},
+        }
+        assert event['event_type'] == 'release'
+
+    def test_signing_workflow_shape_is_mapped(self):
+        _, row, event = self._insert({
+            'season_id': 's1',
+            'transaction_type': 'admin_force_sign',
+            'player_id': 'p1',
+            'team_id': 'team-b',
+            'metadata': {'from_team_id': None, 'admin_user_id': 7},
+        })
+
+        assert row['type'] == 'sign'
+        assert row['to_team_id'] == 'team-b'
+        assert row['executed_by'] == 7
+        assert 'from_team_id' not in row
+        assert event['event_type'] == 'admin_force_sign'
