@@ -128,6 +128,22 @@ class TransactionsRepository:
         """Shortcut for updating pending signing status."""
         return self.update_pending_signing(signing_id, {'status': status})
 
+    def claim_pending_signing(self, signing_id: str, status: str) -> bool:
+        """Move a signing from pending to status in one update. Returns False if it was no longer pending."""
+        try:
+            response = (
+                self.supabase
+                .table('pending_signings')
+                .update({'status': status})
+                .eq('id', signing_id)
+                .eq('status', 'pending')
+                .execute()
+            )
+            return bool(response.data)
+        except Exception as exc:
+            logger.error("Failed to claim signing %s -> %s: %s", signing_id, status, exc)
+            return False
+
     def cancel_other_pending_signings(self, player_id: str, keep_id: Optional[str] = None) -> None:
         """Set all pending signings for player to declined, except keep_id."""
         try:
