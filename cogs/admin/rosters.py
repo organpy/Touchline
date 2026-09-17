@@ -15,6 +15,7 @@ from db.transactions_repository import TransactionsRepository
 from cogs.admin.common import LazyInitView
 from cogs.admin.base import AdminBaseManager
 from utils.team_player_cache import TeamPlayerCache
+from cogs.score.roster_cache import RosterCache
 from utils.config_manager import get_config_manager
 from utils.embed_assets import (
     apply_league_badge,
@@ -778,22 +779,9 @@ class ForceTransferView(LazyInitView):
                     async def confirm(self, confirm_interaction: discord.Interaction, _: discord.ui.Button) -> None:
                         await confirm_interaction.response.defer(ephemeral=True)
                         try:
-                            # Transfer player
-                            self.repo.transfer_player_between_teams(
-                                self._selected_roster['season_id'],
-                                self._selected_roster['player_id'],
-                                self._selected_roster['team_id'],
-                                destination_team_id,
-                            )
-                            logger.info(
-                                "✅ Force transfer: %s from %s to %s by %s",
-                                player_name,
-                                current_code,
-                                dest_code,
-                                confirm_interaction.user.id,
-                            )
-                            # Insert transaction log
-                            self.repo.insert_transaction({
+                            # Insert transaction log; the trg_transactions_apply_roster trigger moves the
+                            # roster row, so the roster must not also be updated here.
+                            transaction = self.repo.insert_transaction({
                                 'season_id': self._selected_roster['season_id'],
                                 'transaction_type': 'admin_force_transfer',
                                 'player_id': self._selected_roster['player_id'],
@@ -804,6 +792,20 @@ class ForceTransferView(LazyInitView):
                                     'reason': 'admin_force_transfer',
                                 },
                             })
+                            if not transaction:
+                                await confirm_interaction.followup.send(
+                                    "❌ Failed to transfer player. Check server logs.",
+                                    ephemeral=True,
+                                )
+                                return
+                            logger.info(
+                                "✅ Force transfer: %s from %s to %s by %s",
+                                player_name,
+                                current_code,
+                                dest_code,
+                                confirm_interaction.user.id,
+                            )
+                            RosterCache().invalidate()
                             await TeamPlayerCache.refresh(self.supabase)
                             
                             # Post to transactions channel
