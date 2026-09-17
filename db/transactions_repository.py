@@ -225,17 +225,25 @@ class TransactionsRepository:
     # Transactions log
     # ------------------------------------------------------------------
     def insert_transaction(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Insert a transaction row and return the created record. Also creates a transaction_event."""
+        """
+        Insert a transaction row and return the created record. Also creates a transaction_event.
+
+        Accepts either the workflow shape (transaction_type / team_id / metadata) or the
+        table's own column names (type / from_team_id / to_team_id / executed_by / details).
+        """
         try:
+            metadata = payload.get('metadata') or payload.get('details') or {}
+            transaction_type = payload.get('transaction_type') or payload.get('type') or 'unknown'
+
             # Map transaction payload to transactions table schema
             tx_payload = {
                 'season_id': payload.get('season_id'),
-                'type': self._map_transaction_type(payload.get('transaction_type', 'unknown')),
+                'type': self._map_transaction_type(transaction_type),
                 'player_id': payload.get('player_id'),
-                'from_team_id': payload.get('metadata', {}).get('from_team_id'),
-                'to_team_id': payload.get('team_id'),  # destination team
-                'executed_by': payload.get('metadata', {}).get('admin_user_id'),
-                'details': payload.get('metadata', {}),
+                'from_team_id': payload.get('from_team_id') or metadata.get('from_team_id'),
+                'to_team_id': payload.get('to_team_id') or payload.get('team_id'),  # destination team
+                'executed_by': payload.get('executed_by') or metadata.get('admin_user_id'),
+                'details': metadata,
             }
             
             # Remove None values
@@ -249,7 +257,7 @@ class TransactionsRepository:
                 # Also create a transaction_event for the audit trail
                 event_payload = {
                     'transaction_id': transaction.get('id'),
-                    'event_type': payload.get('transaction_type', 'unknown'),
+                    'event_type': transaction_type,
                     'payload': payload,
                 }
                 try:
