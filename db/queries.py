@@ -5,6 +5,7 @@ Keep as pure functions to avoid circular imports
 
 import logging
 from typing import Optional, Dict, List, Any
+from .db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +16,7 @@ async def get_active_season(supabase, division_id: Optional[str] = None) -> Opti
         query = supabase.table('seasons').select('*').eq('active', True)
         if division_id:
             query = query.eq('division_id', division_id)
-        response = query.limit(1).execute()
+        response = await execute_async(query.limit(1))
         return response.data[0] if response.data else None
     except Exception as e:
         logger.error(f"Error fetching active season: {e}")
@@ -30,14 +31,13 @@ async def get_matches_between_teams(
 ) -> List[Dict[str, Any]]:
     """Get all matches played between two teams in a season (both orders)."""
     try:
-        response = (
+        response = await execute_async(
             supabase
             .table('matches')
             .select('*')
             .eq('season_id', season_id)
             .or_(f"and(team1_id.eq.{team1_id},team2_id.eq.{team2_id}),and(team1_id.eq.{team2_id},team2_id.eq.{team1_id})")
             .order('played_at', desc=True)
-            .execute()
         )
         return response.data or []
     except Exception as e:
@@ -53,13 +53,12 @@ async def get_schedules_between_teams(
 ) -> List[Dict[str, Any]]:
     """Get all scheduled fixtures between two teams for a season (both orders)."""
     try:
-        response = (
+        response = await execute_async(
             supabase
             .table('schedules')
             .select('*')
             .eq('season_id', season_id)
             .or_(f"and(team1_id.eq.{team1_id},team2_id.eq.{team2_id}),and(team1_id.eq.{team2_id},team2_id.eq.{team1_id})")
-            .execute()
         )
         return response.data or []
     except Exception as e:
@@ -71,14 +70,13 @@ async def is_ncba_player(supabase, player_id: str) -> bool:
     """Return True if the player belongs to NCBA division based on current roster/team."""
     try:
         # Join rosters -> teams -> divisions to infer league_type
-        response = (
+        response = await execute_async(
             supabase
             .table('rosters')
             .select('players!inner(id), teams!inner(id, division_id), divisions!inner(id, league_type)')
             .eq('player_id', player_id)
             .is_('left_at', 'null')
             .limit(1)
-            .execute()
         )
         row = (response.data or [None])[0]
         if not row:
@@ -98,7 +96,7 @@ async def get_team_recent_matches(
 ) -> List[Dict[str, Any]]:
     """Get recent matches for a team in a season, most recent first."""
     try:
-        response = (
+        response = await execute_async(
             supabase
             .table('matches')
             .select('id, team1_id, team2_id, team1_score, team2_score, status, played_at')
@@ -106,7 +104,6 @@ async def get_team_recent_matches(
             .or_(f"team1_id.eq.{team_id},team2_id.eq.{team_id}")
             .order('played_at', desc=True)
             .limit(limit)
-            .execute()
         )
         return response.data or []
     except Exception as e:
@@ -117,9 +114,9 @@ async def get_team_recent_matches(
 async def get_all_active_seasons(supabase) -> List[Dict[str, Any]]:
     """Get all active seasons across all divisions"""
     try:
-        response = supabase.table('seasons').select(
+        response = await execute_async(supabase.table('seasons').select(
             '*, divisions(id, league_type, name)'
-        ).eq('active', True).execute()
+        ).eq('active', True))
         
         # Enrich seasons with division league type and name
         if response.data:
@@ -138,9 +135,9 @@ async def get_all_active_seasons(supabase) -> List[Dict[str, Any]]:
 async def get_all_seasons(supabase) -> List[Dict[str, Any]]:
     """Get all seasons (active and inactive) across all divisions"""
     try:
-        response = supabase.table('seasons').select(
+        response = await execute_async(supabase.table('seasons').select(
             '*, divisions(id, league_type, name)'
-        ).order('name', desc=True).execute()
+        ).order('name', desc=True))
         
         # Enrich seasons with division league type and name
         if response.data:
@@ -159,7 +156,7 @@ async def get_all_seasons(supabase) -> List[Dict[str, Any]]:
 async def get_division_by_type(supabase, league_type: str = 'NBL') -> Optional[Dict[str, Any]]:
     """Get division by league type (NBL, MBL, NCBA, etc.)"""
     try:
-        response = supabase.table('divisions').select('*').eq('league_type', league_type).limit(1).execute()
+        response = await execute_async(supabase.table('divisions').select('*').eq('league_type', league_type).limit(1))
         return response.data[0] if response.data else None
     except Exception as e:
         logger.error(f"Error fetching division {league_type}: {e}")
@@ -169,7 +166,7 @@ async def get_division_by_type(supabase, league_type: str = 'NBL') -> Optional[D
 async def get_division_by_id(supabase, division_id: str) -> Optional[Dict[str, Any]]:
     """Get division by ID."""
     try:
-        response = supabase.table('divisions').select('*').eq('id', division_id).limit(1).execute()
+        response = await execute_async(supabase.table('divisions').select('*').eq('id', division_id).limit(1))
         return response.data[0] if response.data else None
     except Exception as e:
         logger.error(f"Error fetching division {division_id}: {e}")
@@ -182,7 +179,7 @@ async def get_all_teams(supabase, division_id: Optional[str] = None) -> List[Dic
         query = supabase.table('teams').select('*')
         if division_id:
             query = query.eq('division_id', division_id)
-        response = query.execute()
+        response = await execute_async(query)
         return response.data if response.data else []
     except Exception as e:
         logger.error(f"Error fetching teams: {e}")
@@ -192,11 +189,11 @@ async def get_all_teams(supabase, division_id: Optional[str] = None) -> List[Dic
 async def get_active_rosters(supabase, season_id: str) -> List[Dict[str, Any]]:
     """Get all active rosters for a season (left_at IS NULL)"""
     try:
-        response = supabase.table('rosters').select(
+        response = await execute_async(supabase.table('rosters').select(
             'id, player_id, team_id, season_id, joined_at, '
             'players(id, display_name, discord_id), '
             'teams(id, code, name, emoji)'
-        ).eq('season_id', season_id).is_('left_at', 'null').execute()
+        ).eq('season_id', season_id).is_('left_at', 'null'))
         return response.data if response.data else []
     except Exception as e:
         logger.error(f"Error fetching active rosters: {e}")
@@ -206,7 +203,7 @@ async def get_active_rosters(supabase, season_id: str) -> List[Dict[str, Any]]:
 async def get_team_by_code(supabase, code: str) -> Optional[Dict[str, Any]]:
     """Get team by code"""
     try:
-        response = supabase.table('teams').select('*').eq('code', code).limit(1).execute()
+        response = await execute_async(supabase.table('teams').select('*').eq('code', code).limit(1))
         return response.data[0] if response.data else None
     except Exception as e:
         logger.error(f"Error fetching team {code}: {e}")
@@ -216,13 +213,12 @@ async def get_team_by_code(supabase, code: str) -> Optional[Dict[str, Any]]:
 async def get_team_by_owner(supabase, owner_discord_id: int) -> Optional[Dict[str, Any]]:
     """Get the team managed by a Discord user."""
     try:
-        response = (
+        response = await execute_async(
             supabase
             .table('teams')
             .select('*')
             .eq('owner_discord_id', owner_discord_id)
             .limit(1)
-            .execute()
         )
         return response.data[0] if response.data else None
     except Exception as e:
@@ -233,12 +229,11 @@ async def get_team_by_owner(supabase, owner_discord_id: int) -> Optional[Dict[st
 async def get_teams_by_owner(supabase, owner_discord_id: int) -> List[Dict[str, Any]]:
     """Get every team managed by a Discord user (an owner may run teams in several divisions)."""
     try:
-        response = (
+        response = await execute_async(
             supabase
             .table('teams')
             .select('id, code, division_id')
             .eq('owner_discord_id', owner_discord_id)
-            .execute()
         )
         return response.data or []
     except Exception as e:
@@ -249,13 +244,12 @@ async def get_teams_by_owner(supabase, owner_discord_id: int) -> List[Dict[str, 
 async def get_player_by_discord_id(supabase, discord_id: int) -> Optional[Dict[str, Any]]:
     """Fetch a player row by Discord account id."""
     try:
-        response = (
+        response = await execute_async(
             supabase
             .table('players')
             .select('*')
             .eq('discord_id', discord_id)
             .limit(1)
-            .execute()
         )
         return response.data[0] if response.data else None
     except Exception as e:
@@ -269,12 +263,11 @@ async def get_blocked_teams_for_guild(supabase, guild_id: int) -> List[str]:
         return []
 
     try:
-        response = (
+        response = await execute_async(
             supabase.table('transaction_blocker_entries')
             .select('team_id')
             .eq('guild_id', guild_id)
             .eq('blocked', True)
-            .execute()
         )
         data = response.data or []
         return [entry.get('team_id') for entry in data if entry.get('team_id')]
@@ -286,7 +279,7 @@ async def get_blocked_teams_for_guild(supabase, guild_id: int) -> List[str]:
 async def get_player_by_name(supabase, display_name: str) -> Optional[Dict[str, Any]]:
     """Get player by display name (case-insensitive)"""
     try:
-        response = supabase.table('players').select('*').ilike('display_name', display_name).limit(1).execute()
+        response = await execute_async(supabase.table('players').select('*').ilike('display_name', display_name).limit(1))
         return response.data[0] if response.data else None
     except Exception as e:
         logger.error(f"Error fetching player {display_name}: {e}")
@@ -306,7 +299,7 @@ async def get_or_create_player(supabase, display_name: str, discord_id: Optional
         if discord_id:
             insert_data['discord_id'] = discord_id
 
-        response = supabase.table('players').insert(insert_data).execute()
+        response = await execute_async(supabase.table('players').insert(insert_data))
         return response.data[0] if response.data else None
     except Exception as e:
         logger.error(f"Error getting/creating player {display_name}: {e}")
@@ -316,7 +309,7 @@ async def get_or_create_player(supabase, display_name: str, discord_id: Optional
 async def insert_match(supabase, match_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Insert a match row"""
     try:
-        response = supabase.table('matches').insert(match_data).execute()
+        response = await execute_async(supabase.table('matches').insert(match_data))
         return response.data[0] if response.data else None
     except Exception as e:
         logger.error(f"Error inserting match: {e}")
@@ -328,7 +321,7 @@ async def insert_player_stats_batch(supabase, stats_list: List[Dict[str, Any]]) 
     try:
         if not stats_list:
             return []
-        response = supabase.table('player_stats').insert(stats_list).execute()
+        response = await execute_async(supabase.table('player_stats').insert(stats_list))
         return response.data if response.data else []
     except Exception as e:
         logger.error(f"Error inserting player stats: {e}")
@@ -341,7 +334,7 @@ async def get_standings(supabase, season_id: str, league_type: Optional[str] = N
         query = supabase.table('view_standings').select('*, teams(emoji, code)').eq('season_id', season_id)
         if league_type:
             query = query.eq('league_type', league_type)
-        response = query.execute()
+        response = await execute_async(query)
         
         # Enrich standings data with team emoji from joined teams
         if response.data:
@@ -360,9 +353,9 @@ async def get_standings(supabase, season_id: str, league_type: Optional[str] = N
 async def get_player_stats_for_season(supabase, player_id: str, season_id: str) -> List[Dict[str, Any]]:
     """Get all player stats for a season"""
     try:
-        response = supabase.table('player_stats').select(
+        response = await execute_async(supabase.table('player_stats').select(
             '*, matches(id, played_at, team1_score, team2_score)'
-        ).eq('player_id', player_id).eq('matches.season_id', season_id).execute()
+        ).eq('player_id', player_id).eq('matches.season_id', season_id))
         return response.data if response.data else []
     except Exception as e:
         logger.error(f"Error fetching player stats: {e}")
@@ -376,10 +369,10 @@ async def get_player_stats_for_season(supabase, player_id: str, season_id: str) 
 async def get_player_averages(supabase, player_id: str, season_id: str) -> Optional[Dict[str, Any]]:
     """Get player per-game averages for a season"""
     try:
-        response = supabase.rpc('get_player_averages', {
+        response = await execute_async(supabase.rpc('get_player_averages', {
             'p_player_id': player_id,
             'p_season_id': season_id
-        }).execute()
+        }))
         return response.data[0] if response.data else None
     except Exception as e:
         logger.error(f"Error fetching player averages: {e}")
@@ -389,10 +382,10 @@ async def get_player_averages(supabase, player_id: str, season_id: str) -> Optio
 async def get_player_totals(supabase, player_id: str, season_id: str) -> Optional[Dict[str, Any]]:
     """Get player season totals"""
     try:
-        response = supabase.rpc('get_player_totals', {
+        response = await execute_async(supabase.rpc('get_player_totals', {
             'p_player_id': player_id,
             'p_season_id': season_id
-        }).execute()
+        }))
         return response.data[0] if response.data else None
     except Exception as e:
         logger.error(f"Error fetching player totals: {e}")
@@ -402,10 +395,10 @@ async def get_player_totals(supabase, player_id: str, season_id: str) -> Optiona
 async def get_team_totals(supabase, team_id: str, season_id: str) -> Optional[Dict[str, Any]]:
     """Get team season totals"""
     try:
-        response = supabase.rpc('get_team_totals', {
+        response = await execute_async(supabase.rpc('get_team_totals', {
             'p_team_id': team_id,
             'p_season_id': season_id
-        }).execute()
+        }))
         return response.data[0] if response.data else None
     except Exception as e:
         logger.error(f"Error fetching team totals: {e}")
@@ -415,10 +408,10 @@ async def get_team_totals(supabase, team_id: str, season_id: str) -> Optional[Di
 async def get_team_averages(supabase, team_id: str, season_id: str) -> Optional[Dict[str, Any]]:
     """Get team per-game averages"""
     try:
-        response = supabase.rpc('get_team_averages', {
+        response = await execute_async(supabase.rpc('get_team_averages', {
             'p_team_id': team_id,
             'p_season_id': season_id
-        }).execute()
+        }))
         return response.data[0] if response.data else None
     except Exception as e:
         logger.error(f"Error fetching team averages: {e}")
@@ -438,12 +431,12 @@ async def get_leaderboard(supabase, metric: str, season_id: str, limit: int = 10
     """
     try:
         limit = min(limit, 100)  # Cap at 100 per request
-        response = supabase.rpc('get_leaderboard', {
+        response = await execute_async(supabase.rpc('get_leaderboard', {
             'p_metric': metric,
             'p_season_id': season_id,
             'p_limit': limit,
             'p_offset': offset
-        }).execute()
+        }))
         return response.data if response.data else []
     except Exception as e:
         logger.error(f"Error fetching leaderboard: {e}")
@@ -463,12 +456,12 @@ async def get_player_history(supabase, player_id: str, season_id: str, limit: in
     """
     try:
         limit = min(limit, 100)  # Cap at 100 per request
-        response = supabase.rpc('get_player_history', {
+        response = await execute_async(supabase.rpc('get_player_history', {
             'p_player_id': player_id,
             'p_season_id': season_id,
             'p_limit': limit,
             'p_offset': offset
-        }).execute()
+        }))
         return response.data if response.data else []
     except Exception as e:
         logger.error(f"Error fetching player history: {e}")
@@ -478,11 +471,11 @@ async def get_player_history(supabase, player_id: str, season_id: str, limit: in
 async def compare_players(supabase, player_a_id: str, player_b_id: str, season_id: str) -> List[Dict[str, Any]]:
     """Compare two players across a season"""
     try:
-        response = supabase.rpc('compare_players', {
+        response = await execute_async(supabase.rpc('compare_players', {
             'p_player_a_id': player_a_id,
             'p_player_b_id': player_b_id,
             'p_season_id': season_id
-        }).execute()
+        }))
         return response.data if response.data else []
     except Exception as e:
         logger.error(f"Error comparing players: {e}")
@@ -492,9 +485,9 @@ async def compare_players(supabase, player_a_id: str, player_b_id: str, season_i
 async def get_season_summary(supabase, season_id: str) -> Optional[Dict[str, Any]]:
     """Get season summary statistics"""
     try:
-        response = supabase.rpc('get_season_summary', {
+        response = await execute_async(supabase.rpc('get_season_summary', {
             'p_season_id': season_id
-        }).execute()
+        }))
         return response.data[0] if response.data else None
     except Exception as e:
         logger.error(f"Error fetching season summary: {e}")
@@ -504,10 +497,10 @@ async def get_season_summary(supabase, season_id: str) -> Optional[Dict[str, Any
 async def get_roster_for_team_season(supabase, team_id: str, season_id: str) -> List[Dict[str, Any]]:
     """Get roster for a specific team in a season (active or historical)"""
     try:
-        response = supabase.table('rosters').select(
+        response = await execute_async(supabase.table('rosters').select(
             'id, player_id, team_id, season_id, joined_at, left_at, '
             'players(id, display_name, discord_id)'
-        ).eq('team_id', team_id).eq('season_id', season_id).execute()
+        ).eq('team_id', team_id).eq('season_id', season_id))
         return response.data if response.data else []
     except Exception as e:
         logger.error(f"Error fetching roster for team {team_id} in season {season_id}: {e}")
@@ -517,11 +510,11 @@ async def get_roster_for_team_season(supabase, team_id: str, season_id: str) -> 
 async def get_matches_for_season(supabase, season_id: str) -> List[Dict[str, Any]]:
     """Get all completed matches for a season with team info."""
     try:
-        response = supabase.table('matches').select(
+        response = await execute_async(supabase.table('matches').select(
             'id, team1_id, team2_id, team1_score, team2_score, played_at, status, '
             'team1:team1_id(id, code, name, emoji), '
             'team2:team2_id(id, code, name, emoji)'
-        ).eq('season_id', season_id).eq('status', 'final').order('played_at', desc=False).execute()
+        ).eq('season_id', season_id).eq('status', 'final').order('played_at', desc=False))
         return response.data if response.data else []
     except Exception as e:
         logger.error(f"Error fetching matches for season {season_id}: {e}")
@@ -531,11 +524,11 @@ async def get_matches_for_season(supabase, season_id: str) -> List[Dict[str, Any
 async def get_all_matches_for_season(supabase, season_id: str) -> List[Dict[str, Any]]:
     """Get ALL matches for a season (played and scheduled) with team info."""
     try:
-        response = supabase.table('matches').select(
+        response = await execute_async(supabase.table('matches').select(
             'id, team1_id, team2_id, team1_score, team2_score, played_at, status, '
             'team1:team1_id(id, code, name, emoji), '
             'team2:team2_id(id, code, name, emoji)'
-        ).eq('season_id', season_id).order('played_at', desc=False).execute()
+        ).eq('season_id', season_id).order('played_at', desc=False))
         return response.data if response.data else []
     except Exception as e:
         logger.error(f"Error fetching all matches for season {season_id}: {e}")
