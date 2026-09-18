@@ -6,6 +6,7 @@ Handles bot_config table in Supabase with nested JSON for extensibility
 import discord
 from typing import Optional, Dict, Any
 import logging
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -22,15 +23,15 @@ class GuildConfig:
     async def load(self):
         """Load config from database"""
         try:
-            result = self.supabase.table('bot_config').select('*').eq('guild_id', self.guild_id).execute()
+            result = await execute_async(self.supabase.table('bot_config').select('*').eq('guild_id', self.guild_id))
             if result.data:
                 self._cache = result.data[0].get('config', {})
             else:
                 # Create empty config
-                self.supabase.table('bot_config').insert({
+                await execute_async(self.supabase.table('bot_config').insert({
                     'guild_id': self.guild_id,
                     'config': {}
-                }).execute()
+                }))
                 self._cache = {}
             self._loaded = True
             logger.debug(f"✅ Loaded config for guild {self.guild_id}")
@@ -42,9 +43,9 @@ class GuildConfig:
     async def save(self):
         """Save config to database"""
         try:
-            self.supabase.table('bot_config').update({
+            await execute_async(self.supabase.table('bot_config').update({
                 'config': self._cache
-            }).eq('guild_id', self.guild_id).execute()
+            }).eq('guild_id', self.guild_id))
             logger.debug(f"✅ Saved config for guild {self.guild_id}")
         except Exception as e:
             logger.error(f"❌ Failed to save config for guild {self.guild_id}: {e}")

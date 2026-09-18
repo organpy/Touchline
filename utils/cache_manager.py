@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -158,24 +159,22 @@ class CacheManager:
 
         try:
             logger.info("🔄 Refreshing season cache...")
-            seasons_response = (
+            seasons_response = await execute_async(
                 cls._supabase
                 .table("seasons")
                 .select("id,name,active,division_id,created_at,start_date,end_date")
                 .order("created_at", desc=True)
-                .execute()
             )
             seasons = seasons_response.data or []
 
             division_ids = {s.get("division_id") for s in seasons if s.get("division_id")}
             division_map: Dict[str, Dict[str, Any]] = {}
             if division_ids:
-                division_response = (
+                division_response = await execute_async(
                     cls._supabase
                     .table("divisions")
                     .select("id,name,league_type")
                     .in_("id", list(division_ids))
-                    .execute()
                 )
                 division_map = {d["id"]: d for d in (division_response.data or []) if d.get("id")}
 

@@ -4,6 +4,7 @@ import logging
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta, timezone
 from utils.team_colors import get_team_color
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ class TeamPlayerCache:
             logger.info("♻️ Invalidating team cache for %s", team_id)
 
             # Reload just this team and its roster
-            team_response = cls._supabase.table("teams").select("*").eq("id", team_id).execute()
+            team_response = await execute_async(cls._supabase.table("teams").select("*").eq("id", team_id))
             if not team_response.data:
                 logger.warning("Team %s not found in database", team_id)
                 return
@@ -54,18 +55,17 @@ class TeamPlayerCache:
 
             # Reload division info
             division_response = (
-                cls._supabase.table("divisions").select("id, league_type, name").eq("id", division_id).execute()
+                await execute_async(cls._supabase.table("divisions").select("id, league_type, name").eq("id", division_id))
             )
             division = division_response.data[0] if division_response.data else {}
 
             # Reload active season for this team's division
-            season_response = (
+            season_response = await execute_async(
                 cls._supabase
                 .table("seasons")
                 .select("id, name, division_id")
                 .eq("division_id", division_id)
                 .eq("active", True)
-                .execute()
             )
             active_season = season_response.data[0] if season_response.data else {}
 
@@ -85,9 +85,9 @@ class TeamPlayerCache:
                 cls._teams_by_code[code.lower()] = team
 
             # Reload team roster
-            roster_response = cls._supabase.table("rosters").select(
+            roster_response = await execute_async(cls._supabase.table("rosters").select(
                 "*, players(id, display_name, discord_id)"
-            ).eq("team_id", team_id).is_("left_at", None).execute()
+            ).eq("team_id", team_id).is_("left_at", None))
 
             cls._team_players[team_id] = []
             for roster in roster_response.data or []:
@@ -115,7 +115,7 @@ class TeamPlayerCache:
             logger.info("♻️ Invalidating cache for season %s", season_id)
 
             # Get all teams in this season's division
-            season_response = cls._supabase.table("seasons").select("division_id").eq("id", season_id).execute()
+            season_response = await execute_async(cls._supabase.table("seasons").select("division_id").eq("id", season_id))
             if not season_response.data:
                 logger.warning("Season %s not found", season_id)
                 return
@@ -123,7 +123,7 @@ class TeamPlayerCache:
             division_id = season_response.data[0].get("division_id")
 
             # Find all teams in this division
-            teams_response = cls._supabase.table("teams").select("id").eq("division_id", division_id).execute()
+            teams_response = await execute_async(cls._supabase.table("teams").select("id").eq("division_id", division_id))
 
             for team_data in teams_response.data or []:
                 await cls.invalidate_team(team_data["id"])
@@ -147,20 +147,19 @@ class TeamPlayerCache:
             logger.info("🔄 Refreshing TeamPlayerCache...")
             
             # Load supporting metadata
-            divisions_response = cls._supabase.table('divisions').select('id, league_type, name').execute()
+            divisions_response = await execute_async(cls._supabase.table('divisions').select('id, league_type, name'))
             division_map = {d['id']: d for d in (divisions_response.data or [])}
 
-            active_seasons_response = (
+            active_seasons_response = await execute_async(
                 cls._supabase
                 .table('seasons')
                 .select('id, name, division_id')
                 .eq('active', True)
-                .execute()
             )
             active_season_map = {s['division_id']: s for s in (active_seasons_response.data or []) if s.get('division_id')}
 
             # Load teams and enrich with league/season metadata
-            teams_response = cls._supabase.table('teams').select('*').execute()
+            teams_response = await execute_async(cls._supabase.table('teams').select('*'))
             cls._teams = {}
             cls._teams_by_code = {}
             for raw_team in (teams_response.data or []):
@@ -190,7 +189,7 @@ class TeamPlayerCache:
                     cls._teams_by_code[code.lower()] = team
             
             # Load players
-            players_response = cls._supabase.table('players').select('*').execute()
+            players_response = await execute_async(cls._supabase.table('players').select('*'))
             cls._players = {}
             for raw_player in (players_response.data or []):
                 player = dict(raw_player)
@@ -198,19 +197,18 @@ class TeamPlayerCache:
                     cls._players[player['id']] = player
             
             # Load active rosters (team -> players mapping)
-            rosters_response = cls._supabase.table('rosters').select(
+            rosters_response = await execute_async(cls._supabase.table('rosters').select(
                 '*, players(id, display_name, discord_id), teams(id, code)'
-            ).is_('left_at', None).execute()
+            ).is_('left_at', None))
 
             season_ids = {r.get('season_id') for r in (rosters_response.data or []) if r.get('season_id')}
             seasons_map: Dict[str, dict] = {}
             if season_ids:
-                seasons_response = (
+                seasons_response = await execute_async(
                     cls._supabase
                     .table('seasons')
                     .select('id, name, division_id')
                     .in_('id', list(season_ids))
-                    .execute()
                 )
                 seasons_map = {s['id']: s for s in (seasons_response.data or [])}
             

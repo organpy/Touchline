@@ -7,6 +7,7 @@ import discord
 import logging
 from typing import Optional, Dict, Any
 from db import get_supabase, queries
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -26,39 +27,39 @@ class DashboardMetricsView(discord.ui.View):
             supabase = get_supabase()
             
             # Fetch counts
-            teams_response = supabase.table('teams').select('id').execute()
+            teams_response = await execute_async(supabase.table('teams').select('id'))
             teams_count = len(teams_response.data) if teams_response.data else 0
             
-            players_response = supabase.table('players').select('id').execute()
+            players_response = await execute_async(supabase.table('players').select('id'))
             players_count = len(players_response.data) if players_response.data else 0
             
-            rosters_response = supabase.table('rosters').select('id').filter('left_at', 'is', 'null').execute()
+            rosters_response = await execute_async(supabase.table('rosters').select('id').filter('left_at', 'is', 'null'))
             active_rosters_count = len(rosters_response.data) if rosters_response.data else 0
             
-            matches_response = supabase.table('matches').select('id').eq('status', 'final').execute()
+            matches_response = await execute_async(supabase.table('matches').select('id').eq('status', 'final'))
             completed_matches_count = len(matches_response.data) if matches_response.data else 0
             
-            pending_signings = supabase.table('pending_signings').select('id').eq('status', 'pending').execute()
+            pending_signings = await execute_async(supabase.table('pending_signings').select('id').eq('status', 'pending'))
             pending_signings_count = len(pending_signings.data) if pending_signings.data else 0
 
-            pending_trades = supabase.table('trade_proposals').select('id').eq('status', 'pending').execute()
+            pending_trades = await execute_async(supabase.table('trade_proposals').select('id').eq('status', 'pending'))
             pending_trades_count = len(pending_trades.data) if pending_trades.data else 0
             
             pending_offers_count = pending_signings_count + pending_trades_count
             
-            picks_response = supabase.table('draft_picks').select('id').eq('current_owner_team_id', None).execute()
+            picks_response = await execute_async(supabase.table('draft_picks').select('id').eq('current_owner_team_id', None))
             unassigned_picks_count = len(picks_response.data) if picks_response.data else 0
             
             # Fetch season info
-            divisions_response = supabase.table('divisions').select('*').execute()
+            divisions_response = await execute_async(supabase.table('divisions').select('*'))
             divisions_count = len(divisions_response.data) if divisions_response.data else 0
             
             active_seasons = []
             if divisions_response.data:
                 for division in divisions_response.data:
-                    seasons_response = supabase.table('seasons').select('id').eq(
+                    seasons_response = await execute_async(supabase.table('seasons').select('id').eq(
                         'division_id', division['id']
-                    ).eq('active', True).execute()
+                    ).eq('active', True))
                     if seasons_response.data:
                         active_seasons.append({
                             'name': division.get('name', 'Unknown'),

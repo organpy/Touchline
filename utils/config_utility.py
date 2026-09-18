@@ -9,6 +9,7 @@ from copy import deepcopy
 import discord
 
 from utils.config_manager import get_config_manager
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ class ConfigUtility:
         # Load all guild rows from Supabase.
         try:
             supabase_client = manager.supabase
-            rows = supabase_client.table("bot_config").select("guild_id, config").execute()
+            rows = await execute_async(supabase_client.table("bot_config").select("guild_id, config"))
             for row in rows.data or []:
                 guild_id = str(row.get("guild_id"))
                 config = row.get("config") or {}
