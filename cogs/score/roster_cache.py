@@ -7,6 +7,7 @@ Imported independently to avoid circular imports
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 import logging
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ class RosterCache:
         logger.info("🔄 Loading roster cache...")
         try:
             # Get all teams across all divisions with division_id for league validation
-            teams_response = supabase_client.table('teams').select('id, code, name, emoji, division_id').execute()
+            teams_response = await execute_async(supabase_client.table('teams').select('id, code, name, emoji, division_id'))
             for team_row in teams_response.data:
                 team = CachedTeam(
                     team_id=team_row['id'],
@@ -68,10 +69,10 @@ class RosterCache:
 
             # Get all active rosters (left_at IS NULL) - NO season filter
             # This includes players from ALL seasons who are currently active (left_at IS NULL)
-            rosters_response = supabase_client.table('rosters').select(
+            rosters_response = await execute_async(supabase_client.table('rosters').select(
                 'id, player_id, team_id, season_id, joined_at, left_at, '
                 'players(id, display_name, discord_id), teams(code)'
-            ).is_('left_at', 'null').execute()
+            ).is_('left_at', 'null'))
 
             roster_count = 0
             loaded_player_ids = set()  # Track unique players to avoid duplicates

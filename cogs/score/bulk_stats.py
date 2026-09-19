@@ -19,6 +19,7 @@ from .roster_cache import RosterCache
 from .access import NOT_ALLOWED_MESSAGE, NOT_YOUR_MATCH_MESSAGE, resolve_reporter_access
 from utils.team_player_cache import TeamPlayerCache
 from utils.config_manager import get_config_manager
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -642,7 +643,7 @@ class BulkStatsCog(commands.Cog):
             
             # Insert match - use the team's division_id
             match_data = match_entry.to_supabase_match(season['id'], team1.division_id)
-            match_response = self.supabase.table('matches').insert(match_data).execute()
+            match_response = await execute_async(self.supabase.table('matches').insert(match_data))
             
             if not match_response.data:
                 await interaction.followup.send("❌ Failed to insert match.", ephemeral=True)
@@ -653,7 +654,7 @@ class BulkStatsCog(commands.Cog):
             # Insert player stats
             player_stats = match_entry.to_supabase_player_stats(match_id)
             if player_stats:
-                stats_response = self.supabase.table('player_stats').insert(player_stats).execute()
+                stats_response = await execute_async(self.supabase.table('player_stats').insert(player_stats))
                 if not stats_response.data:
                     await interaction.followup.send("❌ Failed to insert player stats.", ephemeral=True)
                     return
@@ -901,7 +902,7 @@ class BulkStatsCog(commands.Cog):
             
             # Insert match - use the team's division_id
             match_data = match_entry.to_supabase_match(season['id'], team1.division_id)
-            match_response = self.supabase.table('matches').insert(match_data).execute()
+            match_response = await execute_async(self.supabase.table('matches').insert(match_data))
             
             if not match_response.data:
                 await interaction.followup.send("❌ Failed to insert match.", ephemeral=True)

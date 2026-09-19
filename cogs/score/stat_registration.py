@@ -21,6 +21,7 @@ from .views import (
 )
 from .roster_cache import RosterCache
 from .access import NOT_ALLOWED_MESSAGE, NOT_YOUR_MATCH_MESSAGE, resolve_reporter_access
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +215,7 @@ class StatRegistrationCog(commands.Cog):
 
             # Insert match
             logger.info(f"🔄 Inserting match: {match_entry.team1.team_code} vs {match_entry.team2.team_code}")
-            match_response = self.supabase.table('matches').insert(match_data).execute()
+            match_response = await execute_async(self.supabase.table('matches').insert(match_data))
 
             if not match_response.data:
                 await interaction.followup.send("❌ Failed to insert match", ephemeral=True)
@@ -229,7 +230,7 @@ class StatRegistrationCog(commands.Cog):
 
             if player_stats_list:
                 logger.info(f"🔄 Inserting {len(player_stats_list)} player stats...")
-                stats_response = self.supabase.table('player_stats').insert(player_stats_list).execute()
+                stats_response = await execute_async(self.supabase.table('player_stats').insert(player_stats_list))
 
                 if not stats_response.data:
                     await interaction.followup.send("❌ Failed to insert player stats", ephemeral=True)
