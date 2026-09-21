@@ -15,6 +15,7 @@ from discord.ext import commands
 
 from db import get_supabase, queries
 from utils.team_player_cache import TeamPlayerCache
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -80,10 +81,10 @@ class StatsCogBase(commands.Cog):
         season_row: Optional[Dict[str, Any]] = None
         try:
             # Prefer active season when none specified explicitly
-            result = _build_query(active_only=not season_input).execute()
+            result = await execute_async(_build_query(active_only=not season_input))
             season_row = (result.data or [None])[0]
             if not season_row:
-                result = _build_query(active_only=False).execute()
+                result = await execute_async(_build_query(active_only=False))
                 season_row = (result.data or [None])[0]
         except Exception as exc:  # pragma: no cover - network failure path
             logger.error("Failed to fetch season for league=%s season=%s: %s", league_input, season_input, exc)
@@ -133,13 +134,12 @@ class StatsCogBase(commands.Cog):
             return cached
 
         try:
-            response = (
+            response = await execute_async(
                 self.supabase
                 .table('divisions')
                 .select('id, league_type, name')
                 .eq('id', division_id)
                 .limit(1)
-                .execute()
             )
             division = (response.data or [None])[0]
             if division:
@@ -158,13 +158,12 @@ class StatsCogBase(commands.Cog):
             return None
 
         try:
-            response = (
+            response = await execute_async(
                 self.supabase
                 .table('seasons')
                 .select('*')
                 .eq('id', season_id)
                 .limit(1)
-                .execute()
             )
             return (response.data or [None])[0]
         except Exception as exc:  # pragma: no cover - network failure path
@@ -213,13 +212,12 @@ class StatsCogBase(commands.Cog):
             return cached
 
         try:
-            response = (
+            response = await execute_async(
                 self.supabase
                 .table('divisions')
                 .select('id, league_type, name')
                 .ilike('league_type', normalized)
                 .limit(1)
-                .execute()
             )
             division = (response.data or [None])[0]
             if division:
@@ -353,14 +351,13 @@ class StatsCogBase(commands.Cog):
             return False
         
         try:
-            response = (
+            response = await execute_async(
                 self.supabase
                 .table('rosters')
                 .select('id')
                 .eq('player_id', player_id)
                 .eq('season_id', season_id)
                 .limit(1)
-                .execute()
             )
             return bool(response.data)
         except Exception as exc:

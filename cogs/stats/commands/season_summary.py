@@ -19,6 +19,7 @@ from cogs.stats.autocomplete import (
     _season_autocomplete,
 )
 from utils.embed_builder import EmbedBuilder
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +62,9 @@ class SeasonSummaryCog(StatsCogBase):
             standings_data = await queries.get_standings(self.supabase, season_row['id'])
             supabase = get_supabase()
             # Fetch all matches to get count
-            response = supabase.table('matches').select(
+            response = await execute_async(supabase.table('matches').select(
                 'id',
-            ).eq('season_id', season_row['id']).eq('status', 'final').execute()
+            ).eq('season_id', season_row['id']).eq('status', 'final'))
             total_matches = len(response.data) if response.data else 0
 
             # Get top scorer
