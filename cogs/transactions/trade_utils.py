@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 from db import get_supabase, queries
 from utils.team_player_cache import TeamPlayerCache
 import logging
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ async def enrich_trade_assets(
         elif asset.get('asset_type') == 'pick' and asset.get('draft_pick_id'):
             # Look up pick info
             try:
-                response = supabase.table('draft_picks').select('*').eq('id', asset['draft_pick_id']).execute()
+                response = await execute_async(supabase.table('draft_picks').select('*').eq('id', asset['draft_pick_id']))
                 if response.data and len(response.data) > 0:
                     pick = response.data[0]
                     enriched_asset['label'] = f"R{pick.get('round', '?')}P{pick.get('overall', '?'):02d}"
@@ -78,7 +79,7 @@ async def can_trade_picks(team1_division_id: str, team2_division_id: str, supaba
     
     # Same division - check if it's NBL
     try:
-        response = supabase.table('divisions').select('league_type').eq('id', team1_division_id).execute()
+        response = await execute_async(supabase.table('divisions').select('league_type').eq('id', team1_division_id))
         if response.data and len(response.data) > 0:
             division = response.data[0]
             league_type = division.get('league_type', '').upper()

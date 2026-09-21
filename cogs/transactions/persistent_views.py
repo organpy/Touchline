@@ -11,6 +11,7 @@ from db.transactions_repository import TransactionsRepository
 from utils.team_player_cache import TeamPlayerCache
 from utils.embed_builder import EmbedBuilder
 from cogs.score.roster_cache import RosterCache
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ class SigningAcceptButton(ui.DynamicItem[ui.Button], template=r'signing:accept:(
             return
 
         # Check user
-        player_record = supabase.table('players').select('*').eq('id', signing['player_id']).single().execute()
+        player_record = await execute_async(supabase.table('players').select('*').eq('id', signing['player_id']).single())
         if not player_record.data:
             await interaction.followup.send("❌ Player record not found.", ephemeral=True)
             return
@@ -111,14 +112,14 @@ class SigningAcceptButton(ui.DynamicItem[ui.Button], template=r'signing:accept:(
 
         # Update message and post announcement
         try:
-            team = supabase.table('teams').select('*').eq('id', signing['team_id']).single().execute().data
+            team = (await execute_async(supabase.table('teams').select('*').eq('id', signing['team_id']).single())).data
             
             # Get league info for styling
             league_code = ''
             division_id = team.get('division_id')
             if division_id:
                 try:
-                    div_resp = supabase.table('divisions').select('league_type').eq('id', division_id).limit(1).execute()
+                    div_resp = await execute_async(supabase.table('divisions').select('league_type').eq('id', division_id).limit(1))
                     if div_resp.data:
                         league_code = div_resp.data[0].get('league_type', '').upper()
                 except Exception:
@@ -127,7 +128,7 @@ class SigningAcceptButton(ui.DynamicItem[ui.Button], template=r'signing:accept:(
             # Get season name
             season_name = 'Unknown Season'
             try:
-                season_resp = supabase.table('seasons').select('name').eq('id', signing['season_id']).limit(1).execute()
+                season_resp = await execute_async(supabase.table('seasons').select('name').eq('id', signing['season_id']).limit(1))
                 if season_resp.data:
                     season_name = season_resp.data[0].get('name', 'Unknown Season')
             except Exception:
@@ -219,7 +220,7 @@ class SigningDeclineButton(ui.DynamicItem[ui.Button], template=r'signing:decline
             await interaction.followup.send("❌ Offer not found.", ephemeral=True)
             return
 
-        player_record = supabase.table('players').select('*').eq('id', signing['player_id']).single().execute()
+        player_record = await execute_async(supabase.table('players').select('*').eq('id', signing['player_id']).single())
         if not player_record.data or interaction.user.id != player_record.data['discord_id']:
              await interaction.followup.send("❌ Only the targeted player can respond.", ephemeral=True)
              return
@@ -233,7 +234,7 @@ class SigningDeclineButton(ui.DynamicItem[ui.Button], template=r'signing:decline
             return
 
         try:
-            team = supabase.table('teams').select('*').eq('id', signing['team_id']).single().execute().data
+            team = (await execute_async(supabase.table('teams').select('*').eq('id', signing['team_id']).single())).data
             builder = EmbedBuilder(
                 title="Signing Declined",
                 description=f"<@{interaction.user.id}> declined the offer from **{team['name']}**.",

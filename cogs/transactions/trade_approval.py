@@ -26,6 +26,7 @@ from utils.embed_assets import (
     target_thumbnail,
 )
 from utils.embed_builder import EmbedBuilder
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -67,12 +68,11 @@ async def load_trade_context(supabase, proposal_id: str) -> Optional[TradeContex
     initiating_id = proposal['initiating_team_id']
     counterparty_id = proposal['counterparty_team_id']
     try:
-        teams_response = (
+        teams_response = await execute_async(
             supabase
             .table('teams')
             .select('*')
             .in_('id', [initiating_id, counterparty_id])
-            .execute()
         )
     except Exception as exc:
         logger.error("Failed to load teams for trade %s: %s", proposal_id, exc)
@@ -88,13 +88,12 @@ async def load_trade_context(supabase, proposal_id: str) -> Optional[TradeContex
     division_id = initiating_team.get('division_id')
     if division_id:
         try:
-            division_response = (
+            division_response = await execute_async(
                 supabase
                 .table('divisions')
                 .select('league_type')
                 .eq('id', division_id)
                 .limit(1)
-                .execute()
             )
             if division_response.data:
                 league_code = (division_response.data[0].get('league_type') or '').upper() or None

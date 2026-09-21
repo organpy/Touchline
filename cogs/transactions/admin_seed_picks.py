@@ -10,6 +10,7 @@ from typing import Optional
 from uuid import UUID
 
 from db import get_supabase, queries
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ class AdminSeedPicksCog(commands.GroupCog, name="admin_seed_picks"):
             return
 
         try:
-            response = self.supabase.table('draft_picks').insert(picks_to_insert).execute()
+            response = await execute_async(self.supabase.table('draft_picks').insert(picks_to_insert))
             inserted = len(response.data) if response.data else 0
             await interaction.followup.send(
                 f"✅ Seeded {inserted} draft picks for season {season['name']}:\n"

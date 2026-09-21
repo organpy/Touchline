@@ -36,6 +36,7 @@ from utils.team_display import (
 from .views import PendingSigningView, ReleaseConfirmationModal
 from .trade_views import TradeAssetModal
 from .history import fetch_filtered_transactions, build_history_embed
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -116,11 +117,10 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         logger.info("🔄 Recovering pending signing offers from database...")
         try:
             # Query only pending offers (status='pending') since others are terminal
-            result = (
+            result = await execute_async(
                 self.supabase.table('pending_signings')
                 .select('*')
                 .eq('status', 'pending')
-                .execute()
             )
             pending_offers = result.data or []
             
@@ -915,7 +915,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             if not counterparty_season:
                 # Try DB fallback
                 try:
-                    resp = self.supabase.table('seasons').select('*').eq('division_id', counterparty['division_id']).eq('active', True).limit(1).execute()
+                    resp = await execute_async(self.supabase.table('seasons').select('*').eq('division_id', counterparty['division_id']).eq('active', True).limit(1))
                     if resp.data:
                         counterparty_season = resp.data[0]
                 except Exception:
@@ -1069,7 +1069,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         teams = await queries.get_all_teams(self.supabase, season['division_id'])
         team_by_id = {team['id']: team for team in teams}
 
-        players = self.supabase.table('players').select('id, display_name').execute().data or []
+        players = (await execute_async(self.supabase.table('players').select('id, display_name'))).data or []
         player_by_id = {p['id']: p for p in players}
 
         embed = build_history_embed(transactions, team_by_id, player_by_id)
@@ -1204,9 +1204,9 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                 
                 try:
                     # Update team owner
-                    update_result = self.cog.supabase.table('teams').update({
+                    update_result = await execute_async(self.cog.supabase.table('teams').update({
                         'owner_discord_id': self.new_owner_member.id,
-                    }).eq('id', self.team_data['id']).execute()
+                    }).eq('id', self.team_data['id']))
 
                     if not update_result.data:
                         await btn_interaction.followup.send(
@@ -1231,7 +1231,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                     division_id = self.team_data.get('division_id')
                     if division_id:
                         try:
-                            div_resp = self.cog.supabase.table('divisions').select('league_type').eq('id', division_id).limit(1).execute()
+                            div_resp = await execute_async(self.cog.supabase.table('divisions').select('league_type').eq('id', division_id).limit(1))
                             if div_resp.data:
                                 league_code = div_resp.data[0].get('league_type', '').upper()
                         except Exception:

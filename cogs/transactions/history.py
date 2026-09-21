@@ -12,6 +12,7 @@ from discord import app_commands
 from db import queries
 from utils.embed_builder import EmbedBuilder
 from utils.team_display import format_team_label_from_record
+from db.db_utils import execute_async
 
 if TYPE_CHECKING:  # pragma: no cover - hints only
     from .transactions import TransactionsCog
@@ -43,14 +44,13 @@ class TransactionHistoryPaginator:
         """Fetch paginated transactions directly from Supabase (server-side pagination)."""
         try:
             logger.debug("Fetching transactions with offset=%d, limit=%d", offset, limit)
-            response = (
+            response = await execute_async(
                 supabase
                 .table("transaction_events")
                 .select("*")
                 .order("created_at", desc=True)
                 .offset(offset)
                 .limit(limit)
-                .execute()
             )
             transactions = response.data or []
             return transactions, offset + limit
@@ -196,7 +196,7 @@ async def fetch_filtered_transactions(
         if txn_type:
             query = query.eq('type', txn_type)
 
-        response = query.execute()
+        response = await execute_async(query)
         transactions = response.data or []
 
         # Client-side filtering for team and player

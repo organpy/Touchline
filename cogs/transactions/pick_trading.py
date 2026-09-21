@@ -7,6 +7,7 @@ import logging
 from typing import Optional, Dict, Any, List
 
 from db import queries
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ NBL_LEAGUE_TYPE = "NBL"
 async def get_nbl_division(supabase) -> Optional[Dict[str, Any]]:
     """Get the NBL division."""
     try:
-        response = supabase.table('divisions').select('*').eq('league_type', NBL_LEAGUE_TYPE).limit(1).execute()
+        response = await execute_async(supabase.table('divisions').select('*').eq('league_type', NBL_LEAGUE_TYPE).limit(1))
         return response.data[0] if response.data else None
     except Exception as e:
         logger.error(f"Failed to get NBL division: {e}")
@@ -27,7 +28,7 @@ async def get_nbl_division(supabase) -> Optional[Dict[str, Any]]:
 async def validate_nbl_season(supabase, season_id: str) -> bool:
     """Verify that a season belongs to NBL division."""
     try:
-        response = supabase.table('seasons').select('division_id').eq('id', season_id).limit(1).execute()
+        response = await execute_async(supabase.table('seasons').select('division_id').eq('id', season_id).limit(1))
         if not response.data:
             return False
         
@@ -46,9 +47,9 @@ async def get_available_picks_for_team(
 ) -> List[Dict[str, Any]]:
     """Get all available picks currently owned by a team in a season."""
     try:
-        response = supabase.table('draft_picks').select(
+        response = await execute_async(supabase.table('draft_picks').select(
             '*, teams:current_owner_team_id(id, code, name)'
-        ).eq('season_id', season_id).eq('current_owner_team_id', team_id).order('overall', desc=False).execute()
+        ).eq('season_id', season_id).eq('current_owner_team_id', team_id).order('overall', desc=False))
         return response.data or []
     except Exception as e:
         logger.error(f"Failed to fetch available picks for team {team_id}: {e}")
@@ -65,10 +66,10 @@ async def transfer_pick_ownership(
     Keeps original_team_id unchanged (for lottery/history purposes).
     """
     try:
-        result = supabase.table('draft_picks').update({
+        result = await execute_async(supabase.table('draft_picks').update({
             'current_owner_team_id': new_owner_id,
             'updated_at': 'now()'
-        }).eq('id', pick_id).execute()
+        }).eq('id', pick_id))
         
         if result.data:
             logger.info(f"✅ Pick {pick_id} transferred to team {new_owner_id}")
@@ -82,9 +83,9 @@ async def transfer_pick_ownership(
 async def get_pick_details(supabase, pick_id: str) -> Optional[Dict[str, Any]]:
     """Get detailed information about a specific pick."""
     try:
-        response = supabase.table('draft_picks').select(
+        response = await execute_async(supabase.table('draft_picks').select(
             '*, seasons(name), current_owner_team:current_owner_team_id(code, name), original_team:original_team_id(code, name)'
-        ).eq('id', pick_id).limit(1).execute()
+        ).eq('id', pick_id).limit(1))
         return response.data[0] if response.data else None
     except Exception as e:
         logger.error(f"Failed to get pick details: {e}")
@@ -129,13 +130,13 @@ async def validate_picks_for_trade(
                 return False, f"❌ Your team doesn't own pick #{pick.get('overall', '?')}"
             
             # Check if pick is in pending trade
-            pending = supabase.table('trade_assets').select('id').eq(
+            pending = await execute_async(supabase.table('trade_assets').select('id').eq(
                 'draft_pick_id', pick_id
             ).in_('proposal_id', [
-                p['id'] for p in (supabase.table('trade_proposals').select('id').eq(
+                p['id'] for p in ((await execute_async(supabase.table('trade_proposals').select('id').eq(
                     'status', 'pending'
-                ).execute().data or [])
-            ]).limit(1).execute()
+                ))).data or [])
+            ]).limit(1))
             
             if pending.data:
                 return False, f"❌ Pick #{pick.get('overall', '?')} is already in a pending trade"

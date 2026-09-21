@@ -21,6 +21,7 @@ from utils.embed_assets import (
     target_thumbnail,
 )
 from utils.embed_builder import EmbedBuilder
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +80,9 @@ class TeamDraftPicksCog(commands.Cog):
             else:
                 # Get active season for this division
                 try:
-                    seasons_response = self.supabase.table('seasons').select('id').eq(
+                    seasons_response = await execute_async(self.supabase.table('seasons').select('id').eq(
                         'division_id', division_id
-                    ).eq('active', True).limit(1).execute()
+                    ).eq('active', True).limit(1))
                     if not seasons_response.data:
                         return []
                     season_id = seasons_response.data[0]['id']
@@ -91,9 +92,9 @@ class TeamDraftPicksCog(commands.Cog):
 
                 # Get all teams in this division
                 try:
-                    teams_response = self.supabase.table('teams').select('id').eq(
+                    teams_response = await execute_async(self.supabase.table('teams').select('id').eq(
                         'division_id', division_id
-                    ).execute()
+                    ))
                     division_team_ids = {t['id'] for t in (teams_response.data or [])}
                     if not division_team_ids:
                         return []
@@ -103,11 +104,11 @@ class TeamDraftPicksCog(commands.Cog):
 
                 # Get all available players from rosters in this season (only division teams)
                 try:
-                    response = self.supabase.table('rosters').select(
+                    response = await execute_async(self.supabase.table('rosters').select(
                         'players(id, display_name)'
                     ).eq('season_id', season_id).is_(
                         'left_at', 'null'
-                    ).execute()
+                    ))
                     
                     roster_player_ids = set()
                     for roster in (response.data or []):
@@ -125,9 +126,9 @@ class TeamDraftPicksCog(commands.Cog):
 
                 # Get picked player IDs (already drafted this season)
                 try:
-                    picked_response = self.supabase.table('draft_picks').select(
+                    picked_response = await execute_async(self.supabase.table('draft_picks').select(
                         'selected_player_id'
-                    ).eq('season_id', season_id).not_.is_('selected_player_id', 'null').execute()
+                    ).eq('season_id', season_id).not_.is_('selected_player_id', 'null'))
                     picked_ids = {p['selected_player_id'] for p in (picked_response.data or [])}
                 except Exception as e:
                     logger.warning(f"Failed to get picked players: {e}")
@@ -140,9 +141,9 @@ class TeamDraftPicksCog(commands.Cog):
 
                 # Get full player details for available players
                 try:
-                    all_players_response = self.supabase.table('players').select(
+                    all_players_response = await execute_async(self.supabase.table('players').select(
                         'id, display_name'
-                    ).in_('id', list(available_ids)).execute()
+                    ).in_('id', list(available_ids)))
                     all_players = all_players_response.data or []
                 except Exception as e:
                     logger.warning(f"Failed to get available players: {e}")
@@ -214,9 +215,9 @@ class TeamDraftPicksCog(commands.Cog):
 
             # Check if this is NBL division (picks only work for NBL)
             try:
-                div_response = self.supabase.table('divisions').select('league_type').eq(
+                div_response = await execute_async(self.supabase.table('divisions').select('league_type').eq(
                     'id', team['division_id']
-                ).limit(1).execute()
+                ).limit(1))
                 if div_response.data:
                     league_type = div_response.data[0].get('league_type', '').upper()
                     if league_type != 'NBL':
@@ -230,9 +231,9 @@ class TeamDraftPicksCog(commands.Cog):
 
             # Get active season
             try:
-                seasons_response = self.supabase.table('seasons').select('*').eq(
+                seasons_response = await execute_async(self.supabase.table('seasons').select('*').eq(
                     'division_id', team['division_id']
-                ).eq('active', True).limit(1).execute()
+                ).eq('active', True).limit(1))
                 if not seasons_response.data:
                     await interaction.followup.send(
                         "❌ No active season for your division.",
@@ -261,11 +262,11 @@ class TeamDraftPicksCog(commands.Cog):
 
             # Get team's next available pick (only unpicked picks)
             try:
-                picks_response = self.supabase.table('draft_picks').select('*').eq(
+                picks_response = await execute_async(self.supabase.table('draft_picks').select('*').eq(
                     'season_id', season['id']
                 ).eq(
                     'current_owner_team_id', team['id']
-                ).is_('selected_player_id', 'null').order('overall', desc=False).limit(1).execute()
+                ).is_('selected_player_id', 'null').order('overall', desc=False).limit(1))
                 
                 if not picks_response.data:
                     await interaction.followup.send(
@@ -286,11 +287,11 @@ class TeamDraftPicksCog(commands.Cog):
 
             # Check if player is already picked (avoid duplicates)
             try:
-                existing_response = self.supabase.table('draft_picks').select('id').eq(
+                existing_response = await execute_async(self.supabase.table('draft_picks').select('id').eq(
                     'season_id', season['id']
                 ).eq(
                     'selected_player_id', player_id
-                ).limit(1).execute()
+                ).limit(1))
 
                 if existing_response.data:
                     await interaction.followup.send(
@@ -303,9 +304,9 @@ class TeamDraftPicksCog(commands.Cog):
 
             # Update pick with player selection
             try:
-                result = self.supabase.table('draft_picks').update({
+                result = await execute_async(self.supabase.table('draft_picks').update({
                     'selected_player_id': player_id,
-                }).eq('id', pick['id']).execute()
+                }).eq('id', pick['id']))
 
                 if not result.data:
                     await interaction.followup.send(
@@ -316,7 +317,7 @@ class TeamDraftPicksCog(commands.Cog):
 
                 # Get player display name
                 try:
-                    player_response = self.supabase.table('players').select('display_name').eq('id', player_id).limit(1).execute()
+                    player_response = await execute_async(self.supabase.table('players').select('display_name').eq('id', player_id).limit(1))
                     player_name = player_response.data[0]['display_name'] if player_response.data else 'Unknown'
                 except Exception as e:
                     logger.warning(f"Failed to get player name: {e}")
@@ -366,9 +367,9 @@ class TeamDraftPicksCog(commands.Cog):
 
             # Get active season
             try:
-                seasons_response = self.supabase.table('seasons').select('*').eq(
+                seasons_response = await execute_async(self.supabase.table('seasons').select('*').eq(
                     'division_id', team['division_id']
-                ).eq('active', True).limit(1).execute()
+                ).eq('active', True).limit(1))
                 if not seasons_response.data:
                     await interaction.followup.send(
                         "❌ No active season.",
@@ -386,11 +387,11 @@ class TeamDraftPicksCog(commands.Cog):
 
             # Get all team picks
             try:
-                picks_response = self.supabase.table('draft_picks').select('*').eq(
+                picks_response = await execute_async(self.supabase.table('draft_picks').select('*').eq(
                     'season_id', season['id']
                 ).eq(
                     'current_owner_team_id', team['id']
-                ).order('overall', desc=False).execute()
+                ).order('overall', desc=False))
 
                 if not picks_response.data:
                     await interaction.followup.send(
@@ -423,9 +424,9 @@ class TeamDraftPicksCog(commands.Cog):
                 if pick.get('selected_player_id'):
                     # Get player name for selected pick
                     try:
-                        player_response = self.supabase.table('players').select('display_name').eq(
+                        player_response = await execute_async(self.supabase.table('players').select('display_name').eq(
                             'id', pick['selected_player_id']
-                        ).limit(1).execute()
+                        ).limit(1))
                         player_name = player_response.data[0]['display_name'] if player_response.data else "Unknown"
                     except Exception:
                         player_name = "Unknown"
@@ -481,9 +482,9 @@ class TeamDraftPicksCog(commands.Cog):
         try:
             # Resolve team by code FIRST (need division_id for season lookup)
             try:
-                team_response = self.supabase.table('teams').select('*').ilike(
+                team_response = await execute_async(self.supabase.table('teams').select('*').ilike(
                     'code', team_code
-                ).limit(1).execute()
+                ).limit(1))
                 if not team_response.data:
                     await interaction.followup.send(
                         f"❌ Team code `{team_code}` not found.",
@@ -501,11 +502,11 @@ class TeamDraftPicksCog(commands.Cog):
 
             # Get active season FOR THIS TEAM'S DIVISION (critical fix)
             try:
-                seasons_response = self.supabase.table('seasons').select('*').eq(
+                seasons_response = await execute_async(self.supabase.table('seasons').select('*').eq(
                     'division_id', team['division_id']
                 ).eq(
                     'active', True
-                ).limit(1).execute()
+                ).limit(1))
                 if not seasons_response.data:
                     await interaction.followup.send(
                         f"❌ No active season found for {team['code']}'s division.",
@@ -523,9 +524,9 @@ class TeamDraftPicksCog(commands.Cog):
 
             # Resolve player by name
             try:
-                player_response = self.supabase.table('players').select('*').ilike(
+                player_response = await execute_async(self.supabase.table('players').select('*').ilike(
                     'display_name', player_name
-                ).limit(1).execute()
+                ).limit(1))
                 if not player_response.data:
                     await interaction.followup.send(
                         f"❌ Player `{player_name}` not found.",
@@ -545,11 +546,11 @@ class TeamDraftPicksCog(commands.Cog):
             try:
                 if pick_number:
                     # Use specific pick number
-                    pick_response = self.supabase.table('draft_picks').select('*').eq(
+                    pick_response = await execute_async(self.supabase.table('draft_picks').select('*').eq(
                         'season_id', season['id']
                     ).eq(
                         'overall', pick_number
-                    ).limit(1).execute()
+                    ).limit(1))
                     
                     if not pick_response.data:
                         league_season_display = self._format_league_season(season)
@@ -561,13 +562,13 @@ class TeamDraftPicksCog(commands.Cog):
                     pick = pick_response.data[0]
                 else:
                     # Find next available pick for team
-                    pick_response = self.supabase.table('draft_picks').select('*').eq(
+                    pick_response = await execute_async(self.supabase.table('draft_picks').select('*').eq(
                         'season_id', season['id']
                     ).eq(
                         'current_owner_team_id', team['id']
                     ).is_(
                         'selected_player_id', 'null'
-                    ).order('overall', desc=False).limit(1).execute()
+                    ).order('overall', desc=False).limit(1))
                     
                     if not pick_response.data:
                         await interaction.followup.send(
@@ -588,9 +589,9 @@ class TeamDraftPicksCog(commands.Cog):
 
             # Update the pick (force assign regardless of state)
             try:
-                result = self.supabase.table('draft_picks').update({
+                result = await execute_async(self.supabase.table('draft_picks').update({
                     'selected_player_id': player['id'],
-                }).eq('id', pick['id']).execute()
+                }).eq('id', pick['id']))
 
                 if not result.data:
                     await interaction.followup.send(
