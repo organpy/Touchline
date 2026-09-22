@@ -12,6 +12,7 @@ from db import get_supabase
 from db.transactions_repository import TransactionsRepository
 from cogs.admin.common import LazyInitView
 from utils.team_player_cache import TeamPlayerCache
+from db.db_utils import execute_async
 
 if TYPE_CHECKING:
     pass
@@ -106,12 +107,11 @@ class ViewPendingTradesView(LazyInitView):
             return
 
         try:
-            response = (
+            response = await execute_async(
                 self.supabase.table("trade_proposals")
                 .select("*, trade_assets(*)")
                 .eq("status", "pending")
                 .order("created_at", desc=True)
-                .execute()
             )
             self.trades_list = response.data or []
         except Exception as e:
@@ -212,13 +212,12 @@ class ViewTradeHistoryView(LazyInitView):
             return
 
         try:
-            response = (
+            response = await execute_async(
                 self.supabase.table("trade_proposals")
                 .select("*, trade_assets(*)")
                 .neq("status", "pending")
                 .order("created_at", desc=True)
                 .limit(50)
-                .execute()
             )
             self.trades_list = response.data or []
         except Exception as e:
@@ -336,23 +335,21 @@ class CancelTradeModal(discord.ui.Modal, title="Cancel Trade"):
 
             # Try full UUID first
             if len(trade_input) == 36:
-                response = (
+                response = await execute_async(
                     self.supabase.table("trade_proposals")
                     .select("*")
                     .eq("id", trade_input)
                     .limit(1)
-                    .execute()
                 )
                 trade = response.data[0] if response.data else None
             else:
                 # Prefix search
-                lookup_response = (
+                lookup_response = await execute_async(
                     self.supabase.table("trade_proposals")
                     .select("*")
                     .eq("status", "pending")
                     .order("created_at", desc=True)
                     .limit(100)
-                    .execute()
                 )
                 for candidate in lookup_response.data or []:
                     if isinstance(candidate.get("id"), str) and candidate["id"].startswith(trade_input):

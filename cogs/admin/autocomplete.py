@@ -10,6 +10,7 @@ from discord import app_commands
 
 from db import get_supabase, queries
 from utils.team_player_cache import TeamPlayerCache
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +24,9 @@ async def _admin_team_autocomplete(
         supabase = get_supabase()
         
         # Get divisions for guild
-        response = supabase.table('guild_divisions').select(
+        response = await execute_async(supabase.table('guild_divisions').select(
             'divisions ( id )'
-        ).eq('guild_id', interaction.guild_id).execute()
+        ).eq('guild_id', interaction.guild_id))
         
         if not response.data:
             return []
@@ -101,9 +102,9 @@ async def _admin_season_autocomplete(
         supabase = get_supabase()
         
         # Get divisions for guild
-        response = supabase.table('guild_divisions').select(
+        response = await execute_async(supabase.table('guild_divisions').select(
             'divisions ( id )'
-        ).eq('guild_id', interaction.guild_id).execute()
+        ).eq('guild_id', interaction.guild_id))
         
         if not response.data:
             return []
@@ -115,9 +116,9 @@ async def _admin_season_autocomplete(
         # Get seasons from those divisions
         all_seasons = []
         for div_id in division_ids:
-            response = supabase.table('seasons').select(
+            response = await execute_async(supabase.table('seasons').select(
                 '*'
-            ).eq('division_id', div_id).execute()
+            ).eq('division_id', div_id))
             all_seasons.extend(response.data or [])
         
         # Filter to matching names
@@ -149,9 +150,9 @@ async def _admin_division_autocomplete(
         supabase = get_supabase()
         
         # Get divisions for guild
-        response = supabase.table('guild_divisions').select(
+        response = await execute_async(supabase.table('guild_divisions').select(
             'divisions ( id, name, league_type )'
-        ).eq('guild_id', interaction.guild_id).execute()
+        ).eq('guild_id', interaction.guild_id))
         
         if not response.data:
             return []

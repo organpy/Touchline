@@ -10,6 +10,7 @@ from discord import app_commands
 
 from db import queries
 from utils.team_player_cache import TeamPlayerCache
+from db.db_utils import execute_async
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -162,12 +163,12 @@ class AddTeamModal(discord.ui.Modal, title="Add New Team"):
 
         try:
             # Insert team (minimal fields, division/owner can be set after)
-            result = self.supabase.table('teams').insert({
+            result = await execute_async(self.supabase.table('teams').insert({
                 'name': team_name,
                 'code': team_code,
                 'division_id': None,  # Can be set later
                 'owner_discord_id': None,  # Can be set later
-            }).execute()
+            }))
 
             if result.data:
                 logger.info("✅ Team created: %s (%s) by %s", team_name, team_code, interaction.user.id)

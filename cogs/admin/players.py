@@ -13,6 +13,7 @@ from db import queries, get_supabase
 from cogs.admin.base import AdminBaseManager, AdminUIView
 from cogs.admin.common import LazyInitView
 from utils.team_player_cache import TeamPlayerCache
+from db.db_utils import execute_async
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -76,7 +77,7 @@ class AddPlayerModal(discord.ui.Modal, title="Add Player"):
                 "display_name": self.display_name.value,
             }
 
-            response = supabase.table("players").insert(player_data).execute()
+            response = await execute_async(supabase.table("players").insert(player_data))
 
             if response.data and len(response.data) > 0:
                 new_player = response.data[0]
@@ -160,13 +161,12 @@ class LinkPlayerModal(discord.ui.Modal, title="Link Player to Discord"):
 
         # Find player by display name
         try:
-            response = (
+            response = await execute_async(
                 supabase.table("players")
                 .select("*")
                 .is_("discord_id", "null")
                 .ilike("display_name", f"%{self.player_name.value}%")
                 .order("display_name")
-                .execute()
             )
             matching_players = response.data or []
         except Exception as e:
@@ -200,11 +200,10 @@ class LinkPlayerModal(discord.ui.Modal, title="Link Player to Discord"):
 
         # Update player with Discord ID
         try:
-            response = (
+            response = await execute_async(
                 supabase.table("players")
                 .update({"discord_id": discord_id_int})
                 .eq("id", player["id"])
-                .execute()
             )
 
             if response.data:
@@ -248,7 +247,7 @@ class ViewPlayersView(LazyInitView):
             return
 
         try:
-            response = self.supabase.table("players").select("*").order("display_name").execute()
+            response = await execute_async(self.supabase.table("players").select("*").order("display_name"))
             self._players_list = response.data or []
         except Exception as e:
             logger.error(f"Error fetching players: {e}", exc_info=True)
@@ -315,11 +314,10 @@ class DeactivatePlayerModal(discord.ui.Modal, title="Deactivate Player"):
             if self.reason.value:
                 update_data["deactivation_reason"] = self.reason.value
 
-            response = (
+            response = await execute_async(
                 supabase.table("players")
                 .update(update_data)
                 .eq("id", player["id"])
-                .execute()
             )
 
             if response.data:
@@ -371,7 +369,7 @@ class ViewPlayersView(LazyInitView):
             return
 
         try:
-            response = self.supabase.table("players").select("*").execute()
+            response = await execute_async(self.supabase.table("players").select("*"))
             self.players_list = response.data or []
         except Exception as e:
             logger.error(f"Error fetching players: {e}", exc_info=True)

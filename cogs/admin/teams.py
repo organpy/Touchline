@@ -13,6 +13,7 @@ from db import get_supabase
 from cogs.admin.common import LazyInitView
 from cogs.admin.base import AdminBaseManager
 from utils.team_player_cache import TeamPlayerCache
+from db.db_utils import execute_async
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -195,12 +196,12 @@ class AddTeamModal(discord.ui.Modal, title="Add New Team"):
             division_id = active_season['division_id']
             
             # Insert team into correct division
-            result = self.supabase.table('teams').insert({
+            result = await execute_async(self.supabase.table('teams').insert({
                 'name': team_name,
                 'code': team_code,
                 'division_id': division_id,  # ✅ Now scoped to division
                 'owner_discord_id': None,  # Can be set later
-            }).execute()
+            }))
 
             if result.data:
                 logger.info("✅ Team created: %s (%s) by %s in division %s", 
@@ -295,9 +296,9 @@ class SetTeamOwnerView(LazyInitView):
                 new_owner_id = owner_interaction.data['values'][0]
 
                 try:
-                    update_result = self.supabase.table('teams').update({
+                    update_result = await execute_async(self.supabase.table('teams').update({
                         'owner_discord_id': int(new_owner_id),
-                    }).eq('id', self.selected_team['id']).execute()
+                    }).eq('id', self.selected_team['id']))
 
                     if update_result.data:
                         logger.info(
@@ -327,7 +328,7 @@ class SetTeamOwnerView(LazyInitView):
                                     division_id = self.selected_team.get('division_id')
                                     if division_id:
                                         try:
-                                            div_resp = self.supabase.table('divisions').select('league_type').eq('id', division_id).limit(1).execute()
+                                            div_resp = await execute_async(self.supabase.table('divisions').select('league_type').eq('id', division_id).limit(1))
                                             if div_resp.data:
                                                 league_code = div_resp.data[0].get('league_type', '').upper()
                                         except Exception:
@@ -478,9 +479,9 @@ class EditTeamModal(discord.ui.Modal, title="Edit Team Details"):
             return
 
         try:
-            result = self.supabase.table('teams').update({
+            result = await execute_async(self.supabase.table('teams').update({
                 'name': new_name,
-            }).eq('id', self.team['id']).execute()
+            }).eq('id', self.team['id']))
 
             if result.data:
                 logger.info(
@@ -572,7 +573,7 @@ class DeleteTeamView(LazyInitView):
             async def confirm(self, confirm_interaction: discord.Interaction, _: discord.ui.Button) -> None:
                 await confirm_interaction.response.defer(ephemeral=True)
                 try:
-                    delete_result = self.supabase.table('teams').delete().eq('id', self.team_data['id']).execute()
+                    delete_result = await execute_async(self.supabase.table('teams').delete().eq('id', self.team_data['id']))
                     logger.info(
                         "✅ Team deleted: %s (%s) by %s",
                         self.team_data.get('name', '?'),

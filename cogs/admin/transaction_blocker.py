@@ -14,6 +14,7 @@ from db import get_supabase, queries
 from utils.team_player_cache import TeamPlayerCache
 from utils.config_manager import get_config_manager
 from utils.config_utility import ConfigUtility
+from db.db_utils import execute_async
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -260,9 +261,8 @@ class TransactionBlockerPaginatedView(discord.ui.View):
                 if upserts:
                     logger.info("   ➕ Upserting %d blocked team entries", len(upserts))
                     (
-                        self.supabase.table("transaction_blocker_entries")
-                        .upsert(upserts, on_conflict="guild_id,team_id")
-                        .execute()
+                        await execute_async(self.supabase.table("transaction_blocker_entries")
+                        .upsert(upserts, on_conflict="guild_id,team_id"))
                     )
 
                 if removals:
@@ -271,11 +271,10 @@ class TransactionBlockerPaginatedView(discord.ui.View):
                     for i in range(0, len(removals), chunk_size):
                         chunk = removals[i : i + chunk_size]
                         (
-                            self.supabase.table("transaction_blocker_entries")
+                            await execute_async(self.supabase.table("transaction_blocker_entries")
                             .delete()
                             .eq("guild_id", self.guild_id)
-                            .in_("team_id", chunk)
-                            .execute()
+                            .in_("team_id", chunk))
                         )
 
                 latest_blocks = await queries.get_blocked_teams_for_guild(

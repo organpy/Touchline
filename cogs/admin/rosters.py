@@ -24,6 +24,7 @@ from utils.embed_assets import (
     target_thumbnail,
 )
 from utils.team_colors import get_team_color
+from db.db_utils import execute_async
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -331,14 +332,13 @@ class ForceSignView(discord.ui.View):
             player = await queries.get_player_by_discord_id(self.supabase, self._selected_member.id)
             if not player:
                 # Create new player record with Discord ID
-                result = (
+                result = await execute_async(
                     self.supabase
                     .table('players')
                     .insert({
                         'display_name': self._selected_member.display_name,
                         'discord_id': self._selected_member.id,
                     })
-                    .execute()
                 )
                 if result.data:
                     player = result.data[0]
@@ -348,14 +348,13 @@ class ForceSignView(discord.ui.View):
 
             # Get active season for team's division
             team_division_id = self._selected_team.get('division_id')
-            season_response = (
+            season_response = await execute_async(
                 self.supabase
                 .table('seasons')
                 .select('*')
                 .eq('division_id', team_division_id)
                 .eq('active', True)
                 .limit(1)
-                .execute()
             )
             season = season_response.data[0] if season_response.data else None
             if not season:
@@ -366,7 +365,7 @@ class ForceSignView(discord.ui.View):
                 return
 
             # Check if already on roster
-            existing_roster = (
+            existing_roster = await execute_async(
                 self.supabase
                 .table('rosters')
                 .select('*')
@@ -374,7 +373,6 @@ class ForceSignView(discord.ui.View):
                 .eq('team_id', self._selected_team['id'])
                 .eq('player_id', player['id'])
                 .is_('left_at', None)
-                .execute()
             )
             if existing_roster.data:
                 await interaction.followup.send(
@@ -408,7 +406,7 @@ class ForceSignView(discord.ui.View):
                 division_id = self._selected_team.get('division_id')
                 if division_id:
                     try:
-                        div_resp = self.supabase.table('divisions').select('league_type').eq('id', division_id).limit(1).execute()
+                        div_resp = await execute_async(self.supabase.table('divisions').select('league_type').eq('id', division_id).limit(1))
                         if div_resp.data:
                             league_code = div_resp.data[0].get('league_type', '').upper()
                     except Exception:
@@ -485,11 +483,11 @@ class ForceReleaseView(LazyInitView):
     async def populate(self) -> None:
         """Load active roster players."""
         try:
-            active_rosters = self.supabase.table('rosters').select(
+            active_rosters = await execute_async(self.supabase.table('rosters').select(
                 'id, player_id, team_id, season_id, joined_at, '
                 'players(id, display_name), '
                 'teams(code, name)'
-            ).is_('left_at', 'null').order('joined_at', desc=True).limit(100).execute()
+            ).is_('left_at', 'null').order('joined_at', desc=True).limit(100))
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to load roster entries for release: %s", exc)
             active_rosters = None
@@ -526,9 +524,9 @@ class ForceReleaseView(LazyInitView):
         roster_id = interaction.data['values'][0]
 
         try:
-            roster = self.supabase.table('rosters').select(
+            roster = await execute_async(self.supabase.table('rosters').select(
                 'id, player_id, team_id, season_id, players(display_name, discord_id), teams(name, code)'
-            ).eq('id', roster_id).limit(1).execute()
+            ).eq('id', roster_id).limit(1))
 
             if roster.data:
                 roster_entry = roster.data[0]
@@ -670,9 +668,9 @@ class ForceTransferView(LazyInitView):
     async def populate(self) -> None:
         """Load active roster players."""
         try:
-            active_rosters = self.supabase.table('rosters').select(
+            active_rosters = await execute_async(self.supabase.table('rosters').select(
                 'id, player_id, team_id, season_id, players(display_name, discord_id), teams(code, name)'
-            ).is_('left_at', 'null').order('joined_at', desc=True).limit(100).execute()
+            ).is_('left_at', 'null').order('joined_at', desc=True).limit(100))
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to load roster entries for transfer: %s", exc)
             active_rosters = None
@@ -708,9 +706,9 @@ class ForceTransferView(LazyInitView):
         roster_id = interaction.data['values'][0]
 
         try:
-            roster = self.supabase.table('rosters').select(
+            roster = await execute_async(self.supabase.table('rosters').select(
                 'id, player_id, team_id, season_id, players(display_name, discord_id), teams(name, code)'
-            ).eq('id', roster_id).limit(1).execute()
+            ).eq('id', roster_id).limit(1))
 
             if roster.data:
                 self._selected_roster = roster.data[0]
@@ -764,7 +762,7 @@ class ForceTransferView(LazyInitView):
         destination_team_id = interaction.data['values'][0]
 
         try:
-            dest_team = self.supabase.table('teams').select('*').eq('id', destination_team_id).limit(1).execute()
+            dest_team = await execute_async(self.supabase.table('teams').select('*').eq('id', destination_team_id).limit(1))
             if dest_team.data:
                 dest_team_data = dest_team.data[0]
                 player_name = self._selected_roster['players'].get('display_name', 'Unknown')
@@ -1089,7 +1087,7 @@ class BlacklistView(discord.ui.View):
             player = await queries.get_player_by_discord_id(self.supabase, member.id)
             if not player:
                 # Create new player record
-                result = (
+                result = await execute_async(
                     self.supabase
                     .table('players')
                     .insert({
@@ -1097,7 +1095,6 @@ class BlacklistView(discord.ui.View):
                         'discord_id': member.id,
                         'active': True,
                     })
-                    .execute()
                 )
                 if result.data:
                     player = result.data[0]
@@ -1109,7 +1106,7 @@ class BlacklistView(discord.ui.View):
             team_name = self._selected_team.get('name', 'Unknown')
 
             # Get blacklist data (stored in teams table as JSON metadata)
-            team_data = self.supabase.table('teams').select('metadata').eq('id', team_id).limit(1).execute()
+            team_data = await execute_async(self.supabase.table('teams').select('metadata').eq('id', team_id).limit(1))
             metadata = {}
             if team_data.data and team_data.data[0].get('metadata'):
                 metadata = team_data.data[0]['metadata']
@@ -1136,7 +1133,7 @@ class BlacklistView(discord.ui.View):
 
             # Update team metadata
             metadata['blacklist'] = blacklist
-            self.supabase.table('teams').update({'metadata': metadata}).eq('id', team_id).execute()
+            await execute_async(self.supabase.table('teams').update({'metadata': metadata}).eq('id', team_id))
 
             embed = discord.Embed(
                 title="🚫 Blacklist Updated",
@@ -1201,11 +1198,11 @@ class ViewRosterView(LazyInitView):
         team_id = interaction.data['values'][0]
 
         try:
-            active_rosters = self.supabase.table('rosters').select(
+            active_rosters = await execute_async(self.supabase.table('rosters').select(
                 'id, player_id, season_id, joined_at, players(display_name, discord_id), seasons(name)'
-            ).eq('team_id', team_id).is_('left_at', 'null').order('joined_at', desc=False).execute()
+            ).eq('team_id', team_id).is_('left_at', 'null').order('joined_at', desc=False))
 
-            team = self.supabase.table('teams').select('*').eq('id', team_id).limit(1).execute()
+            team = await execute_async(self.supabase.table('teams').select('*').eq('id', team_id).limit(1))
             if not team.data:
                 await interaction.followup.send("❌ Team not found.", ephemeral=True)
                 return

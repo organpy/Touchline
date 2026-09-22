@@ -13,6 +13,7 @@ from discord.ext import commands
 from db import queries, get_supabase
 from cogs.admin.base import AdminBaseManager, AdminUIView
 from cogs.admin.common import LazyInitView
+from db.db_utils import execute_async
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -111,7 +112,7 @@ class VoidTransactionModal(discord.ui.Modal, title="Void Transaction"):
                 return
 
             # Update transaction status to voided via payload
-            void_response = (
+            void_response = await execute_async(
                 supabase.table("transaction_events")
                 .update({
                     "payload": {
@@ -124,7 +125,6 @@ class VoidTransactionModal(discord.ui.Modal, title="Void Transaction"):
                     }
                 })
                 .eq("id", transaction["id"])
-                .execute()
             )
 
             if void_response.data:
@@ -217,11 +217,10 @@ class EditTransactionModal(discord.ui.Modal, title="Edit Transaction"):
                 }
             }
 
-            update_response = (
+            update_response = await execute_async(
                 supabase.table("transaction_events")
                 .update(update_data)
                 .eq("id", transaction["id"])
-                .execute()
             )
 
             if update_response.data:
@@ -348,11 +347,11 @@ class ResendAnnouncementModal(discord.ui.Modal, title="Resend Announcement"):
             league_code = None
             if season_id:
                 try:
-                    season_resp = supabase.table("seasons").select("division_id").eq("id", season_id).limit(1).execute()
+                    season_resp = await execute_async(supabase.table("seasons").select("division_id").eq("id", season_id).limit(1))
                     if season_resp.data:
                         division_id = season_resp.data[0].get("division_id")
                         if division_id:
-                            div_resp = supabase.table("divisions").select("league_type").eq("id", division_id).limit(1).execute()
+                            div_resp = await execute_async(supabase.table("divisions").select("league_type").eq("id", division_id).limit(1))
                             if div_resp.data:
                                 league_code = div_resp.data[0].get("league_type")
                 except Exception:
@@ -363,7 +362,7 @@ class ResendAnnouncementModal(discord.ui.Modal, title="Resend Announcement"):
             player_name = "Unknown Player"
             if player_id:
                 try:
-                    player_resp = supabase.table("players").select("display_name").eq("id", player_id).limit(1).execute()
+                    player_resp = await execute_async(supabase.table("players").select("display_name").eq("id", player_id).limit(1))
                     if player_resp.data:
                         player_name = player_resp.data[0].get("display_name", "Unknown Player")
                 except Exception:
@@ -395,7 +394,7 @@ class ResendAnnouncementModal(discord.ui.Modal, title="Resend Announcement"):
                 player_id_str = payload.get("player_id")
                 if player_id_str:
                     try:
-                        player_resp = supabase.table("players").select("discord_id").eq("id", player_id_str).limit(1).execute()
+                        player_resp = await execute_async(supabase.table("players").select("discord_id").eq("id", player_id_str).limit(1))
                         if player_resp.data and player_resp.data[0].get("discord_id"):
                             mentions.append(f"<@{player_resp.data[0]['discord_id']}>")
                     except Exception:
@@ -405,7 +404,7 @@ class ResendAnnouncementModal(discord.ui.Modal, title="Resend Announcement"):
                 from_team_id = payload.get("from_team_id")
                 if from_team_id:
                     try:
-                        team_resp = supabase.table("teams").select("owner_discord_id").eq("id", from_team_id).limit(1).execute()
+                        team_resp = await execute_async(supabase.table("teams").select("owner_discord_id").eq("id", from_team_id).limit(1))
                         if team_resp.data and team_resp.data[0].get("owner_discord_id"):
                             mentions.append(f"<@{team_resp.data[0]['owner_discord_id']}>")
                     except Exception:
@@ -468,12 +467,11 @@ class ViewTransactionHistoryView(LazyInitView):
             return
 
         try:
-            response = (
+            response = await execute_async(
                 self.supabase.table("transaction_events")
                 .select("*")
                 .order("created_at", desc=True)
                 .limit(100)
-                .execute()
             )
             self.transactions_list = response.data or []
         except Exception as e:

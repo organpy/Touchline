@@ -11,6 +11,7 @@ from discord.ext import commands
 from db import get_supabase, queries
 from utils.team_player_cache import TeamPlayerCache
 from utils.config_manager import get_config_manager
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ class AdminBaseManager:
     async def get_guild_divisions(self, guild_id: int) -> list[Dict[str, Any]]:
         """Get all divisions from Supabase (ignores guild_id - single server setup)."""
         try:
-            response = self.supabase.table('divisions').select('*').execute()
+            response = await execute_async(self.supabase.table('divisions').select('*'))
             return response.data or []
         except Exception as exc:
             logger.error(f"Failed to get divisions: {exc}")
@@ -68,35 +69,35 @@ class AdminBaseManager:
             search_term = team_code_or_name.strip()
             
             # Try by exact code first (faster)
-            response = self.supabase.table('teams').select(
+            response = await execute_async(self.supabase.table('teams').select(
                 '*'
-            ).eq('code', search_term.upper()).execute()
+            ).eq('code', search_term.upper()))
             
             if response.data and len(response.data) > 0:
                 return response.data[0]
             
             # Try without dashes (in case code stored without dashes)
             code_no_dash = search_term.upper().replace('-', '')
-            response = self.supabase.table('teams').select(
+            response = await execute_async(self.supabase.table('teams').select(
                 '*'
-            ).eq('code', code_no_dash).execute()
+            ).eq('code', code_no_dash))
             
             if response.data and len(response.data) > 0:
                 return response.data[0]
             
             # Try by name (case insensitive, partial match)
-            response = self.supabase.table('teams').select(
+            response = await execute_async(self.supabase.table('teams').select(
                 '*'
-            ).ilike('name', f"%{search_term}%").execute()
+            ).ilike('name', f"%{search_term}%"))
             
             if response.data and len(response.data) > 0:
                 return response.data[0]
             
             # Try name with dashes converted to spaces
             name_with_spaces = search_term.replace('-', ' ')
-            response = self.supabase.table('teams').select(
+            response = await execute_async(self.supabase.table('teams').select(
                 '*'
-            ).ilike('name', f"%{name_with_spaces}%").execute()
+            ).ilike('name', f"%{name_with_spaces}%"))
             
             if response.data and len(response.data) > 0:
                 return response.data[0]
@@ -109,7 +110,7 @@ class AdminBaseManager:
     async def get_teams_for_guild(self, guild_id: int) -> list[Dict[str, Any]]:
         """Get all teams from Supabase (guild_id ignored - single server setup)."""
         try:
-            response = self.supabase.table('teams').select('*').execute()
+            response = await execute_async(self.supabase.table('teams').select('*'))
             return response.data or []
         except Exception as exc:
             logger.error(f"Failed to get teams: {exc}")
@@ -126,9 +127,9 @@ class AdminBaseManager:
             if not division:
                 return None
             
-            response = self.supabase.table('seasons').select(
+            response = await execute_async(self.supabase.table('seasons').select(
                 '*'
-            ).eq('division_id', division['id']).eq('active', True).limit(1).execute()
+            ).eq('division_id', division['id']).eq('active', True).limit(1))
             
             return response.data[0] if response.data else None
         except Exception as exc:
@@ -151,9 +152,9 @@ class AdminBaseManager:
                 if not division:
                     return None
                 
-                response = self.supabase.table('seasons').select(
+                response = await execute_async(self.supabase.table('seasons').select(
                     '*'
-                ).eq('division_id', division['id']).eq('name', season_name).limit(1).execute()
+                ).eq('division_id', division['id']).eq('name', season_name).limit(1))
                 
                 return response.data[0] if response.data else None
             else:
@@ -180,9 +181,9 @@ class AdminBaseManager:
             
             division_ids = [d['id'] for d in divisions]
             
-            response = self.supabase.table('teams').select(
+            response = await execute_async(self.supabase.table('teams').select(
                 'id'
-            ).eq('id', team_id).in_('division_id', division_ids).limit(1).execute()
+            ).eq('id', team_id).in_('division_id', division_ids).limit(1))
             
             return len(response.data or []) > 0
         except Exception as exc:
@@ -196,9 +197,9 @@ class AdminBaseManager:
     ) -> bool:
         """Check if a player is on any roster in the season."""
         try:
-            response = self.supabase.table('rosters').select(
+            response = await execute_async(self.supabase.table('rosters').select(
                 'id'
-            ).eq('player_id', player_id).eq('season_id', season_id).is_('left_at', True).limit(1).execute()
+            ).eq('player_id', player_id).eq('season_id', season_id).is_('left_at', True).limit(1))
             
             return len(response.data or []) > 0
         except Exception as exc:

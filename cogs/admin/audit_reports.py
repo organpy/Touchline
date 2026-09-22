@@ -17,6 +17,7 @@ from db import queries, get_supabase
 from cogs.admin.base import AdminBaseManager, AdminUIView
 from cogs.admin.common import LazyInitView
 from utils.team_player_cache import TeamPlayerCache
+from db.db_utils import execute_async
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -154,19 +155,17 @@ class ExportDataModal(discord.ui.Modal, title="Export Transaction Data"):
             # Fetch transaction events
             if days > 0:
                 since_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
-                response = (
+                response = await execute_async(
                     supabase.table("transaction_events")
                     .select("*")
                     .gte("created_at", since_date)
                     .order("created_at", desc=True)
-                    .execute()
                 )
             else:
-                response = (
+                response = await execute_async(
                     supabase.table("transaction_events")
                     .select("*")
                     .order("created_at", desc=True)
-                    .execute()
                 )
 
             events = response.data or []
@@ -242,12 +241,11 @@ class ViewActivityTimelineView(LazyInitView):
 
         try:
             # Fetch last 100 events (performance optimization)
-            response = (
+            response = await execute_async(
                 self.supabase.table("transaction_events")
                 .select("*")
                 .order("created_at", desc=True)
                 .limit(100)
-                .execute()
             )
             self.events_list = response.data or []
         except Exception as e:
@@ -356,13 +354,12 @@ class ViewFlaggedActionsView(LazyInitView):
 
         try:
             # Fetch events with "VOID" or "EDIT" event types (flagged actions)
-            response = (
+            response = await execute_async(
                 self.supabase.table("transaction_events")
                 .select("*")
                 .in_("event_type", ["VOID", "EDIT"])
                 .order("created_at", desc=True)
                 .limit(100)
-                .execute()
             )
             self.flagged_list = response.data or []
         except Exception as e:

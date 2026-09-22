@@ -14,6 +14,7 @@ from db import queries, get_supabase
 from cogs.admin.base import AdminBaseManager, AdminUIView
 from cogs.admin.common import LazyInitView
 from utils.team_player_cache import TeamPlayerCache
+from db.db_utils import execute_async
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -50,23 +51,21 @@ class ResendOfferModal(discord.ui.Modal, title="Resend Signing Offer"):
 
             # Try full UUID first
             if len(offer_input) == 36:
-                response = (
+                response = await execute_async(
                     supabase.table("pending_signings")
                     .select("*")
                     .eq("id", offer_input)
                     .limit(1)
-                    .execute()
                 )
                 offer = response.data[0] if response.data else None
             else:
                 # Prefix search
-                lookup_response = (
+                lookup_response = await execute_async(
                     supabase.table("pending_signings")
                     .select("*")
                     .eq("status", "pending")
                     .order("created_at", desc=True)
                     .limit(200)
-                    .execute()
                 )
                 for candidate in lookup_response.data or []:
                     if isinstance(candidate.get("id"), str) and candidate["id"].startswith(offer_input):
@@ -92,9 +91,9 @@ class ResendOfferModal(discord.ui.Modal, title="Resend Signing Offer"):
             team_id = offer.get("team_id")
             season_id = offer.get("season_id")
 
-            player_resp = supabase.table("players").select("*").eq("id", player_id).limit(1).execute()
-            team_resp = supabase.table("teams").select("*").eq("id", team_id).limit(1).execute()
-            season_resp = supabase.table("seasons").select("*").eq("id", season_id).limit(1).execute()
+            player_resp = await execute_async(supabase.table("players").select("*").eq("id", player_id).limit(1))
+            team_resp = await execute_async(supabase.table("teams").select("*").eq("id", team_id).limit(1))
+            season_resp = await execute_async(supabase.table("seasons").select("*").eq("id", season_id).limit(1))
 
             if not player_resp.data or not team_resp.data or not season_resp.data:
                 await interaction.followup.send(
@@ -138,11 +137,11 @@ class ResendOfferModal(discord.ui.Modal, title="Resend Signing Offer"):
             league_code = None
             if season_id:
                 try:
-                    div_resp = supabase.table("seasons").select("division_id").eq("id", season_id).limit(1).execute()
+                    div_resp = await execute_async(supabase.table("seasons").select("division_id").eq("id", season_id).limit(1))
                     if div_resp.data:
                         division_id = div_resp.data[0].get("division_id")
                         if division_id:
-                            div_resp2 = supabase.table("divisions").select("league_type").eq("id", division_id).limit(1).execute()
+                            div_resp2 = await execute_async(supabase.table("divisions").select("league_type").eq("id", division_id).limit(1))
                             if div_resp2.data:
                                 league_code = div_resp2.data[0].get("league_type")
                 except Exception:
@@ -229,22 +228,20 @@ class ExpireOfferModal(discord.ui.Modal, title="Expire Signing Offer"):
             offer = None
 
             if offer_input and len(offer_input) == 36:
-                response = (
+                response = await execute_async(
                     supabase.table("pending_signings")
                     .select("*")
                     .eq("id", offer_input)
                     .limit(1)
-                    .execute()
                 )
                 offer = response.data[0] if response.data else None
             else:
-                lookup_response = (
+                lookup_response = await execute_async(
                     supabase.table("pending_signings")
                     .select("*")
                     .eq("status", "pending")
                     .order("created_at", desc=True)
                     .limit(200)
-                    .execute()
                 )
                 for candidate in lookup_response.data or []:
                     if isinstance(candidate.get("id"), str) and candidate["id"].startswith(offer_input):
@@ -267,7 +264,7 @@ class ExpireOfferModal(discord.ui.Modal, title="Expire Signing Offer"):
                 return
 
             # Mark as expired
-            expire_response = (
+            expire_response = await execute_async(
                 supabase.table("pending_signings")
                 .update({
                     "status": "expired",
@@ -278,7 +275,6 @@ class ExpireOfferModal(discord.ui.Modal, title="Expire Signing Offer"):
                     }
                 })
                 .eq("id", offer["id"])
-                .execute()
             )
 
             if expire_response.data:
@@ -333,12 +329,11 @@ class ViewPendingOffersView(LazyInitView):
             return
 
         try:
-            response = (
+            response = await execute_async(
                 self.supabase.table("pending_signings")
                 .select("*, players!left(id, display_name, discord_id), teams!left(id, name, code)")
                 .eq("status", "pending")
                 .order("created_at", desc=True)
-                .execute()
             )
             self.offers_list = response.data or []
         except Exception as e:

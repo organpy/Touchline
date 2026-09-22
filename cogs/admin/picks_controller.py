@@ -8,6 +8,7 @@ from discord.ext import commands
 
 from db import get_supabase, queries
 from utils.config_manager import get_config_manager
+from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ class PicksStatusButton(discord.ui.View):
                 return
 
             # Get NBL division and active season
-            nbl_div_response = supabase.table('divisions').select('*').eq('name', 'NBL').execute()
+            nbl_div_response = await execute_async(supabase.table('divisions').select('*').eq('name', 'NBL'))
             if not nbl_div_response.data:
                 await interaction.followup.send("❌ NBL division not found.", ephemeral=True)
                 return
@@ -50,7 +51,7 @@ class PicksStatusButton(discord.ui.View):
             nbl_div_id = nbl_div_response.data[0]['id']
 
             # Get active season for NBL
-            seasons_response = supabase.table('seasons').select('*').eq('division_id', nbl_div_id).eq('active', True).execute()
+            seasons_response = await execute_async(supabase.table('seasons').select('*').eq('division_id', nbl_div_id).eq('active', True))
             if not seasons_response.data:
                 await interaction.followup.send("❌ No active NBL season found.", ephemeral=True)
                 return

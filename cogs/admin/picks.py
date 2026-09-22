@@ -17,6 +17,7 @@ from cogs.transactions.pick_trading import (
     get_nbl_division, validate_nbl_season, get_available_picks_for_team, 
     format_pick, NBL_LEAGUE_TYPE
 )
+from db.db_utils import execute_async
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -191,13 +192,12 @@ class SeedPicksView(LazyInitView):
             return
 
         try:
-            seasons_response = (
+            seasons_response = await execute_async(
                 self.supabase
                 .table('seasons')
                 .select('*')
                 .eq('division_id', division_id)
                 .order('created_at', desc=True)
-                .execute()
             )
             seasons = seasons_response.data or []
         except Exception as exc:  # pragma: no cover
@@ -247,7 +247,7 @@ class SeedPicksView(LazyInitView):
         season_id = interaction.data['values'][0]
 
         try:
-            season = self.supabase.table('seasons').select('*').eq('id', season_id).limit(1).execute()
+            season = await execute_async(self.supabase.table('seasons').select('*').eq('id', season_id).limit(1))
             if season.data:
                 self._selected_season = season.data[0]
 
@@ -359,7 +359,7 @@ class NumTeamsModal(discord.ui.Modal, title="Number of Teams for Seeding"):
 
                         # Batch insert
                         if picks_to_insert:
-                            result = self.supabase.table('draft_picks').insert(picks_to_insert).execute()
+                            result = await execute_async(self.supabase.table('draft_picks').insert(picks_to_insert))
                             if result.data:
                                 logger.info(
                                     "✅ Seeded %d draft picks for %s (%d teams, %d rounds) by %s",
@@ -488,13 +488,12 @@ class ReassignPickView(LazyInitView):
             return
 
         try:
-            seasons_response = (
+            seasons_response = await execute_async(
                 self.supabase
                 .table('seasons')
                 .select('*')
                 .eq('division_id', division_id)
                 .order('created_at', desc=True)
-                .execute()
             )
             seasons = seasons_response.data or []
         except Exception as exc:  # pragma: no cover
@@ -545,7 +544,7 @@ class ReassignPickView(LazyInitView):
         season_id = interaction.data['values'][0]
 
         try:
-            season_response = self.supabase.table('seasons').select('*').eq('id', season_id).limit(1).execute()
+            season_response = await execute_async(self.supabase.table('seasons').select('*').eq('id', season_id).limit(1))
             if not season_response.data:
                 await interaction.followup.send("❌ Season not found.", ephemeral=True)
                 return
@@ -605,7 +604,7 @@ class ReassignPickView(LazyInitView):
         pick_id = interaction.data['values'][0]
 
         try:
-            pick_result = self.supabase.table('draft_picks').select('*').eq('id', pick_id).limit(1).execute()
+            pick_result = await execute_async(self.supabase.table('draft_picks').select('*').eq('id', pick_id).limit(1))
             if pick_result.data:
                 self._selected_pick = pick_result.data[0]
 
@@ -668,7 +667,7 @@ class ReassignPickView(LazyInitView):
             return
 
         try:
-            new_team = self.supabase.table('teams').select('*').eq('id', new_team_id).limit(1).execute()
+            new_team = await execute_async(self.supabase.table('teams').select('*').eq('id', new_team_id).limit(1))
             if new_team.data:
                 new_team_data = new_team.data[0]
                 new_team_label = f"{new_team_data.get('name')} (`{new_team_data.get('code')}`)"
@@ -818,13 +817,12 @@ class ViewPicksView(LazyInitView):
             return
 
         try:
-            seasons_response = (
+            seasons_response = await execute_async(
                 self.supabase
                 .table('seasons')
                 .select('*')
                 .eq('division_id', division_id)
                 .order('created_at', desc=True)
-                .execute()
             )
             seasons = seasons_response.data or []
         except Exception as exc:  # pragma: no cover
@@ -875,7 +873,7 @@ class ViewPicksView(LazyInitView):
         season_id = interaction.data['values'][0]
 
         try:
-            season_response = self.supabase.table('seasons').select('*').eq('id', season_id).limit(1).execute()
+            season_response = await execute_async(self.supabase.table('seasons').select('*').eq('id', season_id).limit(1))
             if not season_response.data:
                 await interaction.followup.send("❌ Season not found.", ephemeral=True)
                 return
@@ -1007,13 +1005,12 @@ class ViewPicksByTeamView(LazyInitView):
             return
 
         try:
-            seasons_response = (
+            seasons_response = await execute_async(
                 self.supabase
                 .table('seasons')
                 .select('*')
                 .eq('division_id', division_id)
                 .order('created_at', desc=True)
-                .execute()
             )
             seasons = seasons_response.data or []
         except Exception as exc:  # pragma: no cover
@@ -1064,7 +1061,7 @@ class ViewPicksByTeamView(LazyInitView):
         season_id = interaction.data['values'][0]
 
         try:
-            season_response = self.supabase.table('seasons').select('*').eq('id', season_id).limit(1).execute()
+            season_response = await execute_async(self.supabase.table('seasons').select('*').eq('id', season_id).limit(1))
             if not season_response.data:
                 await interaction.followup.send("❌ Season not found.", ephemeral=True)
                 return
@@ -1122,20 +1119,19 @@ class ViewPicksByTeamView(LazyInitView):
         team_id = interaction.data['values'][0]
 
         try:
-            picks_result = (
+            picks_result = await execute_async(
                 self.supabase
                 .table('draft_picks')
                 .select('*')
                 .eq('season_id', self._selected_season.get('id'))
                 .eq('current_owner_team_id', team_id)
                 .order('overall')
-                .execute()
             )
             picks = picks_result.data if picks_result.data else []
 
             team_data = self._team_map.get(team_id)
             if not team_data:
-                team_response = self.supabase.table('teams').select('*').eq('id', team_id).limit(1).execute()
+                team_response = await execute_async(self.supabase.table('teams').select('*').eq('id', team_id).limit(1))
                 if not team_response.data:
                     await interaction.followup.send("❌ Team not found.", ephemeral=True)
                     return

@@ -14,6 +14,7 @@ from cogs.admin.base import AdminBaseManager, AdminUIView
 from cogs.admin.common import LazyInitView
 from utils.team_player_cache import TeamPlayerCache
 from utils.season_cache import SeasonCache
+from db.db_utils import execute_async
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -98,12 +99,11 @@ class CreateSeasonModal(discord.ui.Modal, title="Create New Season"):
 
         # Check if season with this name already exists in division
         try:
-            response = (
+            response = await execute_async(
                 supabase.table("seasons")
                 .select("*")
                 .eq("division_id", division["id"])
                 .eq("name", self.season_name.value)
-                .execute()
             )
             if response.data and len(response.data) > 0:
                 await interaction.followup.send(
@@ -133,7 +133,7 @@ class CreateSeasonModal(discord.ui.Modal, title="Create New Season"):
             if self.end_date.value:
                 season_data["end_date"] = self.end_date.value
 
-            response = supabase.table("seasons").insert(season_data).execute()
+            response = await execute_async(supabase.table("seasons").insert(season_data))
 
             if response.data and len(response.data) > 0:
                 new_season = response.data[0]
@@ -193,11 +193,10 @@ class ActivateSeasonSelect(discord.ui.Select):
 
         try:
             # Get the season
-            season_response = (
+            season_response = await execute_async(
                 self.supabase.table("seasons")
                 .select("*")
                 .eq("id", season_id)
-                .execute()
             )
 
             if not season_response.data:
@@ -210,20 +209,18 @@ class ActivateSeasonSelect(discord.ui.Select):
             season = season_response.data[0]
 
             # Deactivate other seasons in the same division
-            deactivate_response = (
+            deactivate_response = await execute_async(
                 self.supabase.table("seasons")
                 .update({"active": False})
                 .eq("division_id", season["division_id"])
                 .neq("id", season_id)
-                .execute()
             )
 
             # Activate the selected season
-            activate_response = (
+            activate_response = await execute_async(
                 self.supabase.table("seasons")
                 .update({"active": True})
                 .eq("id", season_id)
-                .execute()
             )
 
             if activate_response.data:
@@ -275,12 +272,11 @@ class ActivateSeasonView(discord.ui.View):
 
         try:
             for division in self.divisions:
-                response = (
+                response = await execute_async(
                     self.supabase.table("seasons")
                     .select("*")
                     .eq("division_id", division["id"])
                     .order("name", desc=False)
-                    .execute()
                 )
 
                 seasons = response.data or []
@@ -332,11 +328,10 @@ class ViewSeasonsView(LazyInitView):
 
             seasons_data = []
             for division in divisions:
-                response = (
+                response = await execute_async(
                     self.supabase.table("seasons")
                     .select("*")
                     .eq("division_id", division["id"])
-                    .execute()
                 )
                 for season in response.data or []:
                     season["division_name"] = division.get("name", "Unknown")
