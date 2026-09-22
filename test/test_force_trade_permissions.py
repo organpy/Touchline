@@ -93,7 +93,7 @@ class TestForceTradeExecution:
         return view
 
     def _repo(self):
-        repo = Mock()
+        repo = AsyncMock()
         repo.create_trade_proposal.return_value = {'id': 'prop-1234567890'}
         repo.attach_trade_assets.return_value = [{'id': 'a1'}, {'id': 'a2'}]
         return repo

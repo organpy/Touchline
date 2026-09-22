@@ -42,7 +42,7 @@ def _interaction(user_id=COUNTERPARTY_OWNER):
 
 @pytest.fixture
 def repo():
-    repo = MagicMock()
+    repo = AsyncMock()
     with patch.object(trade_approval, "get_supabase", return_value=Mock()), patch.object(
         trade_approval, "TransactionsRepository", return_value=repo
     ), patch.object(trade_approval, "load_trade_context", AsyncMock(return_value=_context())), patch.object(

@@ -126,7 +126,7 @@ async def get_available_trade_assets(
             try:
                 from db.transactions_repository import TransactionsRepository
                 repo = TransactionsRepository(supabase)
-                picks = repo.list_draft_picks(season_id)
+                picks = await repo.list_draft_picks(season_id)
                 team_picks = [p for p in picks if p.get('current_owner_team_id') == team_id]
                 
                 result['picks'] = [

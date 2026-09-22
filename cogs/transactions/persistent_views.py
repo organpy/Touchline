@@ -37,7 +37,7 @@ class SigningAcceptButton(ui.DynamicItem[ui.Button], template=r'signing:accept:(
         repo = TransactionsRepository(supabase)
         
         # Fetch signing
-        signing = repo.get_pending_signing(self.signing_id)
+        signing = await repo.get_pending_signing(self.signing_id)
         if not signing:
             await interaction.followup.send("❌ Signing offer not found.", ephemeral=True)
             return
@@ -69,24 +69,24 @@ class SigningAcceptButton(ui.DynamicItem[ui.Button], template=r'signing:accept:(
                 pass
 
         # Check roster status
-        roster_entry = repo.get_active_roster_entry(signing['season_id'], signing['player_id'])
+        roster_entry = await repo.get_active_roster_entry(signing['season_id'], signing['player_id'])
         if roster_entry and roster_entry.get('team_id') == signing['team_id']:
             await interaction.followup.send("ℹ️ You are already on this team.", ephemeral=True)
-            repo.update_pending_signing_status(signing['id'], 'accepted')
+            await repo.update_pending_signing_status(signing['id'], 'accepted')
             return
         
         if roster_entry and roster_entry.get('team_id') != signing['team_id']:
             await interaction.followup.send("❌ You are currently rostered on another team.", ephemeral=True)
-            repo.update_pending_signing_status(signing['id'], 'declined')
+            await repo.update_pending_signing_status(signing['id'], 'declined')
             return
 
         # Claim the offer first so a double click cannot sign the player twice
-        if not repo.claim_pending_signing(signing['id'], 'accepted'):
+        if not await repo.claim_pending_signing(signing['id'], 'accepted'):
             await interaction.followup.send("⚠️ This offer has already been answered.", ephemeral=True)
             return
 
         # Execute signing
-        transaction = repo.insert_transaction({
+        transaction = await repo.insert_transaction({
             'season_id': signing['season_id'],
             'transaction_type': 'sign',
             'player_id': signing['player_id'],
@@ -99,11 +99,11 @@ class SigningAcceptButton(ui.DynamicItem[ui.Button], template=r'signing:accept:(
         })
 
         if not transaction:
-            repo.update_pending_signing_status(signing['id'], 'pending')
+            await repo.update_pending_signing_status(signing['id'], 'pending')
             await interaction.followup.send("❌ Failed to record transaction.", ephemeral=True)
             return
 
-        repo.cancel_other_pending_signings(signing['player_id'], keep_id=signing['id'])
+        await repo.cancel_other_pending_signings(signing['player_id'], keep_id=signing['id'])
 
         # Refresh caches
         RosterCache().invalidate()
@@ -215,7 +215,7 @@ class SigningDeclineButton(ui.DynamicItem[ui.Button], template=r'signing:decline
         supabase = get_supabase()
         repo = TransactionsRepository(supabase)
         
-        signing = repo.get_pending_signing(self.signing_id)
+        signing = await repo.get_pending_signing(self.signing_id)
         if not signing:
             await interaction.followup.send("❌ Offer not found.", ephemeral=True)
             return
@@ -229,7 +229,7 @@ class SigningDeclineButton(ui.DynamicItem[ui.Button], template=r'signing:decline
             await interaction.followup.send(f"⚠️ Offer is {signing['status']}.", ephemeral=True)
             return
 
-        if not repo.claim_pending_signing(signing['id'], 'declined'):
+        if not await repo.claim_pending_signing(signing['id'], 'declined'):
             await interaction.followup.send("⚠️ This offer has already been answered.", ephemeral=True)
             return
 

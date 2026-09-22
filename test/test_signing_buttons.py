@@ -24,7 +24,7 @@ def _interaction():
 
 @pytest.fixture
 def repo():
-    repo = MagicMock()
+    repo = AsyncMock()
     repo.get_pending_signing.return_value = {
         'id': 'sign-1',
         'status': 'pending',

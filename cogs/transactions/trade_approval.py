@@ -61,7 +61,7 @@ class TradeContext:
 
 async def load_trade_context(supabase, proposal_id: str) -> Optional[TradeContext]:
     """Load a proposal, its assets, both teams, and the league code from the database."""
-    proposal = TransactionsRepository(supabase).get_trade_with_assets(proposal_id)
+    proposal = await TransactionsRepository(supabase).get_trade_with_assets(proposal_id)
     if not proposal:
         return None
 
@@ -313,9 +313,9 @@ class TradeAcceptButton(ui.DynamicItem[ui.Button], template=r'trade:accept:(?P<i
 
         repo = TransactionsRepository(supabase)
         try:
-            repo.execute_trade_proposal(ctx.proposal_id, interaction.user.id)
+            await repo.execute_trade_proposal(ctx.proposal_id, interaction.user.id)
         except TradeExecutionError as exc:
-            if exc.code in UNRECOVERABLE_TRADE_ERRORS and repo.resolve_pending_trade(
+            if exc.code in UNRECOVERABLE_TRADE_ERRORS and await repo.resolve_pending_trade(
                 ctx.proposal_id, 'cancelled', reviewed_by=interaction.user.id
             ):
                 await _edit_trade_message(interaction, ctx, build_cancelled_embed(ctx, exc.user_message))
@@ -358,7 +358,7 @@ class TradeDeclineButton(ui.DynamicItem[ui.Button], template=r'trade:decline:(?P
         supabase, ctx = loaded
 
         repo = TransactionsRepository(supabase)
-        if not repo.resolve_pending_trade(ctx.proposal_id, 'declined', reviewed_by=interaction.user.id):
+        if not await repo.resolve_pending_trade(ctx.proposal_id, 'declined', reviewed_by=interaction.user.id):
             await interaction.followup.send("⚠️ This trade proposal has already been resolved.", ephemeral=True)
             return
 

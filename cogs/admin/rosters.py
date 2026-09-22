@@ -382,7 +382,7 @@ class ForceSignView(discord.ui.View):
                 return
 
             # Sign player
-            transaction_result = self.repo.insert_transaction({
+            transaction_result = await self.repo.insert_transaction({
                 'season_id': season['id'],
                 'transaction_type': 'admin_force_sign',
                 'player_id': player['id'],
@@ -546,7 +546,7 @@ class ForceReleaseView(LazyInitView):
                         try:
                             # Insert transaction log; the trg_transactions_apply_roster trigger closes
                             # the roster row for from_team_id.
-                            transaction = self.repo.insert_transaction({
+                            transaction = await self.repo.insert_transaction({
                                 'season_id': roster_entry['season_id'],
                                 'transaction_type': 'admin_force_release',
                                 'player_id': roster_entry['player_id'],
@@ -781,7 +781,7 @@ class ForceTransferView(LazyInitView):
                         try:
                             # Insert transaction log; the trg_transactions_apply_roster trigger moves the
                             # roster row, so the roster must not also be updated here.
-                            transaction = self.repo.insert_transaction({
+                            transaction = await self.repo.insert_transaction({
                                 'season_id': self._selected_roster['season_id'],
                                 'transaction_type': 'admin_force_transfer',
                                 'player_id': self._selected_roster['player_id'],

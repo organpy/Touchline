@@ -375,7 +375,7 @@ class CancelTradeModal(discord.ui.Modal, title="Cancel Trade"):
             if self.reason.value:
                 metadata["cancel_reason"] = self.reason.value
 
-            success = self.repo.update_trade_status(trade["id"], "cancelled", metadata)
+            success = await self.repo.update_trade_status(trade["id"], "cancelled", metadata)
 
             if success:
                 cache = TeamPlayerCache()

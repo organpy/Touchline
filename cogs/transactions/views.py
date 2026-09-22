@@ -203,7 +203,7 @@ class ReleaseConfirmationModal(discord.ui.Modal):
         self.add_item(self.reason)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        roster_entry = self.cog.repo.get_active_roster_entry(self.season['id'], self.player_record['id'])
+        roster_entry = await self.cog.repo.get_active_roster_entry(self.season['id'], self.player_record['id'])
         if not roster_entry or roster_entry.get('team_id') != self.team['id']:
             logger.warning(
                 "❌ Release attempt failed: player %s not on roster for %s",
@@ -223,7 +223,7 @@ class ReleaseConfirmationModal(discord.ui.Modal):
             self.team['code'],
             reason or "none"
         )
-        transaction = self.cog.repo.insert_transaction({
+        transaction = await self.cog.repo.insert_transaction({
             'season_id': self.season['id'],
             'type': 'release',
             'player_id': self.player_record['id'],
@@ -254,7 +254,7 @@ class ReleaseConfirmationModal(discord.ui.Modal):
 
         # Mark roster entry as left
         logger.info("📝 Marking roster entry as left for player %s", self.player_record['id'])
-        if not self.cog.repo.mark_player_released(
+        if not await self.cog.repo.mark_player_released(
             self.season['id'],
             self.player_record['id'],
             self.team['id']

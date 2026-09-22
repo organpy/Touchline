@@ -123,7 +123,7 @@ class ForceTradeSelectionView(discord.ui.View):
         try:
             repo = TransactionsRepository(self.supabase)
 
-            proposal = repo.create_trade_proposal({
+            proposal = await repo.create_trade_proposal({
                 'guild_id': self.guild_id,
                 'season_id': self.season['id'],
                 'initiating_team_id': self.team1['id'],
@@ -150,16 +150,16 @@ class ForceTradeSelectionView(discord.ui.View):
                         'metadata': {}
                     })
 
-            if not repo.attach_trade_assets(trade_assets):
-                repo.resolve_pending_trade(proposal['id'], 'cancelled', reviewed_by=interaction.user.id)
+            if not await repo.attach_trade_assets(trade_assets):
+                await repo.resolve_pending_trade(proposal['id'], 'cancelled', reviewed_by=interaction.user.id)
                 await interaction.followup.send("❌ Failed to save trade assets.", ephemeral=True)
                 return
 
             # Move players/picks, log transactions, and mark executed in one database transaction
             try:
-                repo.execute_trade_proposal(proposal['id'], interaction.user.id)
+                await repo.execute_trade_proposal(proposal['id'], interaction.user.id)
             except TradeExecutionError as exc:
-                repo.resolve_pending_trade(proposal['id'], 'cancelled', reviewed_by=interaction.user.id)
+                await repo.resolve_pending_trade(proposal['id'], 'cancelled', reviewed_by=interaction.user.id)
                 await interaction.followup.send(f"❌ {exc.user_message}", ephemeral=True)
                 return
 

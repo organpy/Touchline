@@ -252,7 +252,7 @@ class SeedPicksView(LazyInitView):
                 self._selected_season = season.data[0]
 
                 # Check if picks already exist
-                existing_picks = self.repo.list_draft_picks(season_id)
+                existing_picks = await self.repo.list_draft_picks(season_id)
                 if existing_picks:
                     await interaction.response.send_message(
                         f"⚠️ **{self._selected_season.get('name')}** already has {len(existing_picks)} draft picks.",
@@ -560,7 +560,7 @@ class ReassignPickView(LazyInitView):
             
             self._team_map = {team.get('id'): team for team in (teams or [])}
 
-            picks = self.repo.list_draft_picks(season_id)
+            picks = await self.repo.list_draft_picks(season_id)
             if not picks:
                 await interaction.followup.send("❌ No draft picks found for this season.", ephemeral=True)
                 return
@@ -686,7 +686,7 @@ class ReassignPickView(LazyInitView):
                     async def confirm(self, confirm_interaction: discord.Interaction, _: discord.ui.Button) -> None:
                         await confirm_interaction.response.defer(ephemeral=True)
                         try:
-                            result = self.repo.update_draft_pick_owner(self._selected_pick.get('id'), new_team_id)
+                            result = await self.repo.update_draft_pick_owner(self._selected_pick.get('id'), new_team_id)
                             if result:
                                 logger.info(
                                     "✅ Draft pick reassigned: R%d.%d (overall %d) from %s to %s by %s",
@@ -889,7 +889,7 @@ class ViewPicksView(LazyInitView):
             
             self._team_map = {team.get('id'): team for team in (teams or [])}
 
-            picks = self.repo.list_draft_picks(season_id)
+            picks = await self.repo.list_draft_picks(season_id)
             if not picks:
                 await interaction.followup.send("❌ No draft picks found.", ephemeral=True)
                 return

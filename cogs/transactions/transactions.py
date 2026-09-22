@@ -319,7 +319,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             await interaction.followup.send("❌ Failed to resolve player profile.", ephemeral=True)
             return
 
-        existing_roster = self.repo.get_active_roster_entry(season['id'], player_record['id'])
+        existing_roster = await self.repo.get_active_roster_entry(season['id'], player_record['id'])
         if existing_roster and existing_roster.get('team_id') == team['id']:
             await interaction.followup.send("ℹ️ That player is already on your roster.", ephemeral=True)
             return
@@ -346,7 +346,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             }
         }
 
-        pending = self.repo.create_pending_signing(payload)
+        pending = await self.repo.create_pending_signing(payload)
         if not pending:
             await interaction.followup.send("❌ Failed to create pending signing. Please try again later.", ephemeral=True)
             return
@@ -397,7 +397,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                 channel = configured_channel
 
         if channel is None:
-            self.repo.delete_pending_signing(pending['id'])
+            await self.repo.delete_pending_signing(pending['id'])
             await interaction.followup.send(
                 "❌ Unable to locate a channel to post the signing offer.",
                 ephemeral=True,
@@ -413,7 +413,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                 files=files,
             )
         except discord.Forbidden:
-            self.repo.delete_pending_signing(pending['id'])
+            await self.repo.delete_pending_signing(pending['id'])
             await interaction.followup.send(
                 "❌ I don't have permission to post the offer in the configured channel.",
                 ephemeral=True,
@@ -421,7 +421,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             return
         except discord.HTTPException as exc:
             logger.error("Failed to send signing offer message: %s", exc)
-            self.repo.delete_pending_signing(pending['id'])
+            await self.repo.delete_pending_signing(pending['id'])
             await interaction.followup.send(
                 "❌ Something went wrong delivering the offer message.",
                 ephemeral=True,
@@ -432,7 +432,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         pending['message_id'] = message.id
         pending['channel_id'] = message.channel.id
         view.refresh_pending(pending)
-        self.repo.update_pending_signing(pending['id'], {
+        await self.repo.update_pending_signing(pending['id'], {
             'message_id': message.id,
             'channel_id': message.channel.id
         })
@@ -487,7 +487,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             )
             return
 
-        roster_entry = self.repo.get_active_roster_entry(season['id'], player_record['id'])
+        roster_entry = await self.repo.get_active_roster_entry(season['id'], player_record['id'])
         if not roster_entry or roster_entry.get('team_id') != team['id']:
             await interaction.response.send_message(
                 "❌ That player is not currently on your active roster.",
@@ -563,7 +563,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             return
 
         # Check if player is already on roster (for this season)
-        existing_roster = self.repo.get_active_roster_entry(season['id'], player_record['id'])
+        existing_roster = await self.repo.get_active_roster_entry(season['id'], player_record['id'])
         if existing_roster and existing_roster.get('team_id') == team['id']:
             await interaction.followup.send(
                 "ℹ️ That player is already on this team's roster.",
@@ -693,7 +693,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             return
 
         # Check if player is on a roster
-        roster_entry = self.repo.get_active_roster_entry(season['id'], player_record['id'])
+        roster_entry = await self.repo.get_active_roster_entry(season['id'], player_record['id'])
         if not roster_entry:
             await interaction.followup.send(
                 "❌ That player is not currently on any active roster.",
@@ -784,7 +784,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         league_display, _ = self._get_league_display(season)
         league_season_display = f"{league_display} — {season.get('name', 'Unknown Season')}"
 
-        picks = self.repo.list_draft_picks(season['id'])
+        picks = await self.repo.list_draft_picks(season['id'])
         if not picks:
             await interaction.followup.send(
                 f"ℹ️ No draft picks found for {league_season_display}.",

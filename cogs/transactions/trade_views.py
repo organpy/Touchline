@@ -131,7 +131,7 @@ class TradeAssetModal(discord.ui.Modal):
         )
 
         # Get initiating team's picks (from their season)
-        initiating_picks = self.cog.repo.list_draft_picks(self.season['id'])
+        initiating_picks = await self.cog.repo.list_draft_picks(self.season['id'])
         initiating_picks = [
             p for p in initiating_picks
             if p.get('current_owner_team_id') == self.initiating_team['id']
@@ -142,7 +142,7 @@ class TradeAssetModal(discord.ui.Modal):
             initiating_picks = []
 
         # Get counterparty's picks (from THEIR season)
-        counterparty_picks = self.cog.repo.list_draft_picks(self.counterparty_season['id'])
+        counterparty_picks = await self.cog.repo.list_draft_picks(self.counterparty_season['id'])
         counterparty_picks = [
             p for p in counterparty_picks
             if p.get('current_owner_team_id') == self.counterparty_team['id']
@@ -372,7 +372,7 @@ class TradeAssetSelectionView(discord.ui.View):
             return
 
         # Create trade proposal
-        proposal = self.cog.repo.create_trade_proposal({
+        proposal = await self.cog.repo.create_trade_proposal({
             'guild_id': interaction.guild_id,
             'season_id': self.season['id'],
             'initiating_team_id': self.initiating_team['id'],
@@ -413,8 +413,8 @@ class TradeAssetSelectionView(discord.ui.View):
                 'metadata': {}
             })
 
-        if not self.cog.repo.attach_trade_assets(trade_assets):
-            self.cog.repo.resolve_pending_trade(proposal['id'], 'cancelled')
+        if not await self.cog.repo.attach_trade_assets(trade_assets):
+            await self.cog.repo.resolve_pending_trade(proposal['id'], 'cancelled')
             await interaction.followup.send(
                 "❌ Failed to save the trade assets. Please try again.",
                 ephemeral=True,
@@ -449,7 +449,7 @@ class TradeAssetSelectionView(discord.ui.View):
                 logger.warning(f"Invalid trading channel_id: {channel_id}")
 
         if channel is None:
-            self.cog.repo.update_trade_status(proposal['id'], 'cancelled')
+            await self.cog.repo.update_trade_status(proposal['id'], 'cancelled')
             await interaction.followup.send(
                 "❌ Unable to locate a channel to post the trade approval request.",
                 ephemeral=True,
@@ -469,7 +469,7 @@ class TradeAssetSelectionView(discord.ui.View):
                 files=files or None,
             )
         except discord.Forbidden:
-            self.cog.repo.update_trade_status(proposal['id'], 'cancelled')
+            await self.cog.repo.update_trade_status(proposal['id'], 'cancelled')
             await interaction.followup.send(
                 "❌ I don't have permission to post the trade approval in the configured channel.",
                 ephemeral=True,
@@ -477,7 +477,7 @@ class TradeAssetSelectionView(discord.ui.View):
             return
         except discord.HTTPException as exc:
             logger.error("Failed to send trade approval message: %s", exc)
-            self.cog.repo.update_trade_status(proposal['id'], 'cancelled')
+            await self.cog.repo.update_trade_status(proposal['id'], 'cancelled')
             await interaction.followup.send(
                 "❌ Something went wrong delivering the approval message.",
                 ephemeral=True,
