@@ -73,7 +73,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-    def _get_league_display(self, season: Dict[str, Any]) -> tuple[str, str]:
+    async def _get_league_display(self, season: Dict[str, Any]) -> tuple[str, str]:
         """Return human-friendly league string and uppercase code for a season."""
         league_code = (season.get('league_type') or '').upper()
         league_name = ''
@@ -81,13 +81,12 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         division_id = season.get('division_id')
         if division_id:
             try:
-                response = (
+                response = await execute_async(
                     self.supabase
                     .table('divisions')
                     .select('name, league_type')
                     .eq('id', division_id)
                     .limit(1)
-                    .execute()
                 )
                 division = (response.data or [None])[0]
                 if division:
@@ -351,7 +350,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             await interaction.followup.send("❌ Failed to create pending signing. Please try again later.", ephemeral=True)
             return
 
-        league_display, league_code = self._get_league_display(season)
+        league_display, league_code = await self._get_league_display(season)
         files, thumbnail = build_team_logo_payload(team['code'])
         expiry_text = utils.format_dt(expires_at, style='R')
         from utils.embed_builder import EmbedBuilder  # local import to avoid circulars at module load
@@ -495,7 +494,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             )
             return
 
-        league_display, league_code = self._get_league_display(season)
+        league_display, league_code = await self._get_league_display(season)
 
         modal = ReleaseConfirmationModal(
             cog=self,
@@ -610,7 +609,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             cache = TeamPlayerCache()
             await cache.invalidate_team(team['id'])
 
-            league_display, league_code = self._get_league_display(season)
+            league_display, league_code = await self._get_league_display(season)
 
             team_label = format_team_label_from_record(team)
 
@@ -717,7 +716,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             team = next((t for t in teams if t['id'] == roster_entry['team_id']), None)
             team_display = format_team_label_from_record(team)
 
-            league_display, league_code = self._get_league_display(season)
+            league_display, league_code = await self._get_league_display(season)
 
             # Log to audit trail
             logger.info(
@@ -781,7 +780,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
             return
 
-        league_display, _ = self._get_league_display(season)
+        league_display, _ = await self._get_league_display(season)
         league_season_display = f"{league_display} — {season.get('name', 'Unknown Season')}"
 
         picks = await self.repo.list_draft_picks(season['id'])
@@ -825,7 +824,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             )
             return
 
-        league_display, league_code = self._get_league_display(season)
+        league_display, league_code = await self._get_league_display(season)
         builder = EmbedBuilder(
             title="Draft Pick Ownership",
             description=f"Season {season['name']} picks",
@@ -986,7 +985,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
 
         team_label = format_team_label_from_record(team)
 
-        league_display, league_code = self._get_league_display(season)
+        league_display, league_code = await self._get_league_display(season)
         
         builder = EmbedBuilder(
             title=f"📋 {team_label} Roster",
@@ -1073,7 +1072,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         player_by_id = {p['id']: p for p in players}
 
         embed = build_history_embed(transactions, team_by_id, player_by_id)
-        _, league_code = self._get_league_display(season)
+        _, league_code = await self._get_league_display(season)
         apply_league_badge(embed, league_code)
 
         await interaction.followup.send(embed=embed, ephemeral=True)

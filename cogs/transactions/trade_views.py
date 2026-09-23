@@ -212,7 +212,7 @@ class TradeAssetModal(discord.ui.Modal):
             initiator_discord_id=interaction.user.id
         )
 
-        league_display, league_code = self.cog._get_league_display(self.season)
+        league_display, league_code = await self.cog._get_league_display(self.season)
         
         # Check if this is a cross-division trade
         is_cross_division = self.initiating_team['division_id'] != self.counterparty_team['division_id']
@@ -424,7 +424,7 @@ class TradeAssetSelectionView(discord.ui.View):
         # Now send approval message to counterparty
         from .trade_approval import TradeApprovalView
 
-        league_display, league_code = self.cog._get_league_display(self.season)
+        league_display, league_code = await self.cog._get_league_display(self.season)
 
         files, thumbnail = build_team_logo_payload(self.initiating_team.get('code'))
 
