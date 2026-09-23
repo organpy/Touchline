@@ -21,7 +21,7 @@ if TYPE_CHECKING:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
-def find_transaction_by_identifier(supabase, raw_identifier: str, fetch_limit: int = 200) -> Optional[Dict[str, Any]]:
+async def find_transaction_by_identifier(supabase, raw_identifier: str, fetch_limit: int = 200) -> Optional[Dict[str, Any]]:
     """Resolve a transaction_event by full UUID or the short 8-char identifier."""
     if not raw_identifier:
         return None
@@ -33,22 +33,20 @@ def find_transaction_by_identifier(supabase, raw_identifier: str, fetch_limit: i
     try:
         # Full UUID lookup (36 chars) – safe to query directly
         if len(identifier) == 36:
-            response = (
+            response = await execute_async(
                 supabase.table("transaction_events")
                 .select("*")
                 .eq("id", identifier)
                 .limit(1)
-                .execute()
             )
             return response.data[0] if response.data else None
 
         # Prefix lookup: fetch recent entries and filter client-side
-        response = (
+        response = await execute_async(
             supabase.table("transaction_events")
             .select("*")
             .order("created_at", desc=True)
             .limit(fetch_limit)
-            .execute()
         )
         for txn in response.data or []:
             txn_id = txn.get("id", "")
@@ -102,7 +100,7 @@ class VoidTransactionModal(discord.ui.Modal, title="Void Transaction"):
             return
 
         try:
-            transaction = find_transaction_by_identifier(supabase, self.transaction_id.value)
+            transaction = await find_transaction_by_identifier(supabase, self.transaction_id.value)
 
             if not transaction:
                 await interaction.followup.send(
@@ -198,7 +196,7 @@ class EditTransactionModal(discord.ui.Modal, title="Edit Transaction"):
             return
 
         try:
-            transaction = find_transaction_by_identifier(supabase, self.transaction_id.value)
+            transaction = await find_transaction_by_identifier(supabase, self.transaction_id.value)
 
             if not transaction:
                 await interaction.followup.send(
@@ -297,7 +295,7 @@ class ResendAnnouncementModal(discord.ui.Modal, title="Resend Announcement"):
             return
 
         try:
-            transaction = find_transaction_by_identifier(supabase, self.transaction_id.value)
+            transaction = await find_transaction_by_identifier(supabase, self.transaction_id.value)
 
             if not transaction:
                 await interaction.followup.send(
