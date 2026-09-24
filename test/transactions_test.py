@@ -16,7 +16,7 @@ from cogs.transactions.history import (
 class TestTransactionsRepository:
     """Tests for TransactionsRepository database operations."""
 
-    def test_create_pending_signing(self):
+    async def test_create_pending_signing(self):
         """Test creating a pending signing."""
         mock_supabase = Mock()
         mock_supabase.table().insert().execute.return_value = Mock(
@@ -33,35 +33,35 @@ class TestTransactionsRepository:
             'status': 'pending'
         }
 
-        result = repo.create_pending_signing(payload)
+        result = await repo.create_pending_signing(payload)
 
         assert result is not None
         assert result['id'] == 'sig_001'
         assert result['status'] == 'pending'
         mock_supabase.table().insert().execute.assert_called_once()
 
-    def test_create_pending_signing_failure(self):
+    async def test_create_pending_signing_failure(self):
         """Test pending signing creation failure."""
         mock_supabase = Mock()
         mock_supabase.table().insert().execute.return_value = Mock(data=None)
 
         repo = TransactionsRepository(mock_supabase)
-        result = repo.create_pending_signing({})
+        result = await repo.create_pending_signing({})
 
         assert result is None
 
-    def test_update_pending_signing_status(self):
+    async def test_update_pending_signing_status(self):
         """Test updating pending signing status."""
         mock_supabase = Mock()
         mock_supabase.table().update().eq().execute.return_value = Mock()
 
         repo = TransactionsRepository(mock_supabase)
-        success = repo.update_pending_signing_status('sig_001', 'accepted')
+        success = await repo.update_pending_signing_status('sig_001', 'accepted')
 
         assert success is True
         mock_supabase.table().update().eq().execute.assert_called_once()
 
-    def test_cancel_other_pending_signings(self):
+    async def test_cancel_other_pending_signings(self):
         """Test cancelling other pending signings for a player."""
         mock_supabase = Mock()
         
@@ -80,14 +80,14 @@ class TestTransactionsRepository:
         mock_neq.execute.return_value = Mock()
 
         repo = TransactionsRepository(mock_supabase)
-        repo.cancel_other_pending_signings('player_001', keep_id='sig_001')
+        await repo.cancel_other_pending_signings('player_001', keep_id='sig_001')
 
         # Verify the chain was called correctly
         mock_supabase.table.assert_called_with('pending_signings')
         mock_table.update.assert_called_with({'status': 'declined'})
         mock_neq.execute.assert_called_once()
 
-    def test_list_draft_picks(self):
+    async def test_list_draft_picks(self):
         """Test listing draft picks for a season."""
         mock_supabase = Mock()
         picks_data = [
@@ -99,12 +99,12 @@ class TestTransactionsRepository:
         )
 
         repo = TransactionsRepository(mock_supabase)
-        result = repo.list_draft_picks('season_001')
+        result = await repo.list_draft_picks('season_001')
 
         assert len(result) == 2
         assert result[0]['id'] == 'pick_001'
 
-    def test_insert_transaction(self):
+    async def test_insert_transaction(self):
         """Test inserting a transaction record."""
         mock_supabase = Mock()
         mock_supabase.table().insert().execute.return_value = Mock(
@@ -120,20 +120,20 @@ class TestTransactionsRepository:
             'executed_by': 999
         }
 
-        result = repo.insert_transaction(payload)
+        result = await repo.insert_transaction(payload)
 
         assert result is not None
         assert result['id'] == 'txn_001'
         assert result['type'] == 'sign'
 
-    def test_transfer_player_between_teams(self):
+    async def test_transfer_player_between_teams(self):
         """Test transferring a player between teams."""
         mock_supabase = Mock()
         mock_supabase.table().update().eq().eq().is_().execute.return_value = Mock()
         mock_supabase.table().insert().execute.return_value = Mock()
 
         repo = TransactionsRepository(mock_supabase)
-        success = repo.transfer_player_between_teams(
+        success = await repo.transfer_player_between_teams(
             'season_001',
             'player_001',
             'team_001',
@@ -142,7 +142,7 @@ class TestTransactionsRepository:
 
         assert success is True
 
-    def test_update_draft_pick_owner(self):
+    async def test_update_draft_pick_owner(self):
         """Test updating draft pick ownership."""
         mock_supabase = Mock()
         mock_supabase.table().update().eq().execute.return_value = Mock(
@@ -150,12 +150,12 @@ class TestTransactionsRepository:
         )
 
         repo = TransactionsRepository(mock_supabase)
-        result = repo.update_draft_pick_owner('pick_001', 'team_002')
+        result = await repo.update_draft_pick_owner('pick_001', 'team_002')
 
         assert result is not None
         assert result['current_owner_team_id'] == 'team_002'
 
-    def test_create_trade_proposal(self):
+    async def test_create_trade_proposal(self):
         """Test creating a trade proposal."""
         mock_supabase = Mock()
         mock_supabase.table().insert().execute.return_value = Mock(
@@ -172,7 +172,7 @@ class TestTransactionsRepository:
             'created_by': 999
         }
 
-        result = repo.create_trade_proposal(payload)
+        result = await repo.create_trade_proposal(payload)
 
         assert result is not None
         assert result['id'] == 'trade_001'
