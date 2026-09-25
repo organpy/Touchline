@@ -130,3 +130,29 @@ class TestCacheIntegration:
         # Should return None, not distinguish from missing key
         # This is intentional—None is a valid cached value
         assert cache.get("empty") is None
+
+
+def test_ttl_cache_is_safe_under_concurrent_access():
+    """Concurrent get/set/expiry from worker threads must never raise."""
+    import threading
+    from utils.caching import TTLCache
+
+    cache = TTLCache(ttl_seconds=0, max_size=8)  # every entry is already expired on read
+    errors = []
+
+    def hammer(worker: int):
+        try:
+            for i in range(2000):
+                key = f"k{(worker + i) % 12}"
+                cache.set(key, i)
+                cache.get(key)
+        except Exception as exc:  # pragma: no cover - only on failure
+            errors.append(exc)
+
+    threads = [threading.Thread(target=hammer, args=(n,)) for n in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
