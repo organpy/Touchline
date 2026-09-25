@@ -4,6 +4,7 @@ Standings cog: /standings and /standings-simple commands
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -100,8 +101,9 @@ class StandingsCog(StatsCogBase):
                 markers.append('N')
             recent_map[team_id] = markers
 
-        # Generate simple standings image
-        standings_image = generate_simple_standings_image(
+        # Generate simple standings image (CPU-bound rendering runs in a worker thread)
+        standings_image = await asyncio.to_thread(
+            generate_simple_standings_image,
             standings_data,
             season_row.get('name', 'Unknown'),
             season_league_display,
