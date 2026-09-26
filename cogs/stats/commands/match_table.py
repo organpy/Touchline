@@ -5,6 +5,7 @@ Shows all games (played and scheduled) in a grid image format.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -90,8 +91,9 @@ class MatchTableCog(StatsCogBase):
             except Exception as exc:
                 logger.warning(f"Failed to get games_per_matchup config: {exc}")
 
-        # Generate the match table image
-        match_table_image = generate_match_table_image(
+        # Generate the match table image (CPU-bound rendering runs in a worker thread)
+        match_table_image = await asyncio.to_thread(
+            generate_match_table_image,
             matches,
             teams,
             season_row.get('name', 'Unknown'),
