@@ -1,6 +1,6 @@
 """
 Cog Management
-Allows admins to load/unload/reload cogs.
+Allows the bot owner to load/unload/reload cogs.
 """
 
 import logging
@@ -21,7 +21,7 @@ class CogManagementCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="admin-cogs", description="[ADMIN] Manage bot extensions (cogs)")
+    @app_commands.command(name="admin-cogs", description="[ADMIN] Manage bot extensions (cogs) - bot owner only")
     @app_commands.describe(action="Action to perform", extension="Extension name (e.g., cogs.stats.commands.leaderboard)")
     @app_commands.choices(action=[
         app_commands.Choice(name="Load", value="load"),
@@ -31,8 +31,9 @@ class CogManagementCog(commands.Cog):
     ])
     async def manage_cogs(self, interaction: discord.Interaction, action: str, extension: Optional[str] = None):
         """Manage bot extensions."""
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ You need Administrator permissions.", ephemeral=True)
+        # Extensions are global to the bot, so a server admin must not control them for every server.
+        if not await self.bot.is_owner(interaction.user):
+            await interaction.response.send_message("❌ Only the bot owner can manage extensions.", ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
