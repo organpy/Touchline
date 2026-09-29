@@ -1,6 +1,7 @@
 import os
 import sys
 import discord
+from discord import app_commands
 from discord.ext import commands
 import asyncio
 from dotenv import load_dotenv
@@ -49,6 +50,9 @@ class NBLBot(commands.Bot):
         super().__init__(
             command_prefix="!",
             intents=intents,
+            # League commands only make sense inside a server; hide them from DMs and group DMs.
+            allowed_contexts=app_commands.AppCommandContext(guild=True, dm_channel=False, private_channel=False),
+            allowed_installs=app_commands.AppInstallationType(guild=True, user=False),
             application_id=int(os.getenv("APPLICATION_ID", "0")) if os.getenv("APPLICATION_ID") else None
         )
 
