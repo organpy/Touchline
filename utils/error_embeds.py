@@ -131,7 +131,7 @@ async def send_error(
         if log:
             logger.warning(f"Error in command {interaction.command.name}: {embed.title}")
 
-        if interaction.response.is_finished():
+        if interaction.response.is_done():
             # Already responded, use followup
             await interaction.followup.send(embed=embed, ephemeral=True)
         else:
