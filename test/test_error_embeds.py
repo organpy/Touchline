@@ -152,3 +152,39 @@ class TestEmbedHierarchy:
         for seconds in [1, 5, 30, 60, 300]:
             embed = rate_limit_embed(seconds)
             assert str(seconds) in embed.description
+
+
+class TestSendError:
+    """send_error must reach the user whether or not the interaction was already answered."""
+
+    @staticmethod
+    def _interaction(done: bool):
+        from unittest.mock import AsyncMock, Mock
+        interaction = Mock()
+        interaction.command = Mock(name="cmd")
+        interaction.response = Mock()
+        interaction.response.is_done = Mock(return_value=done)
+        interaction.response.send_message = AsyncMock()
+        interaction.followup = Mock()
+        interaction.followup.send = AsyncMock()
+        return interaction
+
+    @pytest.mark.asyncio
+    async def test_first_response_uses_send_message(self):
+        from utils.error_embeds import send_error
+        interaction = self._interaction(done=False)
+        embed = error_embed("❌ Test", "desc")
+
+        await send_error(interaction, embed)
+
+        interaction.response.send_message.assert_awaited_once_with(embed=embed, ephemeral=True)
+
+    @pytest.mark.asyncio
+    async def test_after_defer_uses_followup(self):
+        from utils.error_embeds import send_error
+        interaction = self._interaction(done=True)
+        embed = error_embed("❌ Test", "desc")
+
+        await send_error(interaction, embed)
+
+        interaction.followup.send.assert_awaited_once_with(embed=embed, ephemeral=True)
