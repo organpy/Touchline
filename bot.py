@@ -23,6 +23,7 @@ from utils.team_player_cache import TeamPlayerCache
 from utils.season_cache import SeasonCache
 from cogs.score.roster_cache import RosterCache
 from utils.health_check import HealthCheckServer
+from utils.error_embeds import error_embed, permission_error_embed, rate_limit_embed, send_error
 
 # ============================================================================
 # CONFIG
@@ -70,6 +71,8 @@ class NBLBot(commands.Bot):
         health_port = int(os.getenv("HEALTH_CHECK_PORT", "8080"))
         health_host = os.getenv("HEALTH_CHECK_HOST", "127.0.0.1")
         self.health_server = HealthCheckServer(self, port=health_port, host=health_host)
+
+        self.tree.error(self.on_app_command_error)
 
     def discover_cogs(self, cogs_directory: str = "cogs") -> list:
         """
@@ -187,6 +190,33 @@ class NBLBot(commands.Bot):
     async def on_error(self, event, *args, **kwargs):
         """Global error handler"""
         logger.error(f"Error in {event}:", exc_info=True)
+
+    async def on_app_command_error(
+        self,
+        interaction: discord.Interaction,
+        error: app_commands.AppCommandError,
+    ) -> None:
+        """Answer every failed slash command instead of leaving "The application did not respond"."""
+        if isinstance(error, app_commands.CommandOnCooldown):
+            embed = rate_limit_embed(int(error.retry_after) + 1)
+        elif isinstance(error, app_commands.CheckFailure):
+            embed = permission_error_embed()
+        else:
+            command_name = interaction.command.qualified_name if interaction.command else "unknown"
+            original = getattr(error, "original", error)
+            logger.error(
+                "Unhandled error in /%s (user=%s guild=%s)",
+                command_name,
+                interaction.user.id,
+                interaction.guild_id,
+                exc_info=(type(original), original, original.__traceback__),
+            )
+            embed = error_embed(
+                title="❌ Something went wrong",
+                description="An unexpected error occurred while running this command.",
+                hint="The error has been logged. Please try again or contact an admin.",
+            )
+        await send_error(interaction, embed, log=False)
 
 # ============================================================================
 # MAIN
