@@ -86,6 +86,8 @@ class HealthCheckServer:
         """Stop the health check server"""
         if self.site:
             await self.site.stop()
+            self.site = None
         if self.runner:
             await self.runner.cleanup()
+            self.runner = None
         logger.info("Health check server stopped")
