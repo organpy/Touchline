@@ -120,7 +120,7 @@ class PlayerStatEntryModal(discord.ui.Modal):
             # Send the second modal via edit_original_response workaround
             try:
                 await interaction.followup.send("📋 Now entering remaining stats...", ephemeral=True)
-            except:
+            except discord.HTTPException:
                 pass
             
             # Create a minimal view with a button to trigger the second modal
