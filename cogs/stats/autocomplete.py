@@ -42,11 +42,15 @@ def _memoize_autocomplete(ttl_seconds: int = 120):
                 cache.clear()
                 last_clear[0] = now
 
-            # Generate cache key from args (skip interaction object)
+            # Generate cache key from what the user typed; discord.py passes (interaction, current)
+            # positionally, and the team filter changes the suggestions too.
             try:
-                current = kwargs.get("current", "")
-                cache_key = (args[0].user.id if args else "unknown", current[:20])
-            except:
+                interaction = args[0]
+                current = args[1] if len(args) > 1 else kwargs.get("current", "")
+                namespace = getattr(interaction, 'namespace', None)
+                team_input = getattr(namespace, 'team', None) if namespace else None
+                cache_key = (interaction.user.id, (current or "")[:20], team_input)
+            except (AttributeError, IndexError, TypeError):
                 cache_key = ("unknown", str(args)[:50])
 
             if cache_key in cache:
