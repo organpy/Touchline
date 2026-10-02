@@ -68,3 +68,8 @@ async def test_permission_failure_gets_permission_embed(nbl_bot):
     await nbl_bot.on_app_command_error(interaction, app_commands.MissingPermissions(['administrator']))
 
     assert "Permission Denied" in interaction.followup.send.await_args.kwargs['embed'].title
+
+
+def test_only_needed_privileged_intents(nbl_bot):
+    assert nbl_bot.intents.members is True
+    assert nbl_bot.intents.message_content is False
