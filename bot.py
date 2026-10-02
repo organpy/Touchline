@@ -45,7 +45,8 @@ class NBLBot(commands.Bot):
 
     def __init__(self):
         intents = discord.Intents.default()
-        intents.message_content = True
+        # Admin roster tools list and look up guild members. Message content is not needed:
+        # every command is a slash command.
         intents.members = True
 
         super().__init__(
