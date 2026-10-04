@@ -4,6 +4,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import asyncio
+import signal
 from dotenv import load_dotenv
 import logging
 
@@ -223,11 +224,29 @@ class NBLBot(commands.Bot):
 # MAIN
 # ============================================================================
 
+def install_shutdown_handlers(bot: commands.Bot) -> None:
+    """Close the bot cleanly when the process manager stops it (systemd and Docker send SIGTERM)."""
+    loop = asyncio.get_running_loop()
+
+    def request_shutdown(sig: signal.Signals) -> None:
+        logger.info(f"🛑 Received {sig.name}, shutting down...")
+        # Keep a reference so the close task is not garbage collected mid-shutdown.
+        bot.shutdown_task = loop.create_task(bot.close())
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, request_shutdown, sig)
+        except NotImplementedError:
+            # Not supported on Windows; Ctrl+C still raises KeyboardInterrupt there.
+            pass
+
+
 async def main():
     """Main entry point"""
     bot = NBLBot()
 
     async with bot:
+        install_shutdown_handlers(bot)
         await bot.start(DISCORD_TOKEN)
 
 if __name__ == "__main__":
