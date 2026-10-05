@@ -4,6 +4,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import asyncio
+import hashlib
+import json
 import signal
 from dotenv import load_dotenv
 import logging
@@ -32,6 +34,8 @@ from utils.error_embeds import error_embed, permission_error_embed, rate_limit_e
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 BOT_OWNER_ID = os.getenv("BOT_OWNER_ID")
+# Fingerprint of the last command set synced to Discord. Delete it to force a sync on next boot.
+COMMAND_SYNC_STATE_FILE = "data/.command_sync_hash"
 
 if not DISCORD_TOKEN:
     logger.error("❌ DISCORD_TOKEN not found in .env")
@@ -168,15 +172,47 @@ class NBLBot(commands.Bot):
         except Exception as e:
             logger.error(f"❌ Failed to register persistent views: {e}", exc_info=True)
 
-        # Sync app commands
+        await self.sync_commands_if_changed()
+
+        # Start health check server
+        await self.health_server.start()
+
+    def command_tree_hash(self) -> str:
+        """Fingerprint of the command definitions that tree.sync() would send to Discord."""
+        commands = sorted(
+            (command.to_dict(self.tree) for command in self.tree.get_commands()),
+            key=lambda command: (command["type"], command["name"]),
+        )
+        blob = json.dumps({"application_id": self.application_id, "commands": commands}, sort_keys=True, default=str)
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+    async def sync_commands_if_changed(self, state_file: str = COMMAND_SYNC_STATE_FILE) -> None:
+        """Sync app commands only when they changed since the last successful sync.
+
+        Syncing on every boot spends Discord's rate-limited command endpoint, worst of all in a restart loop.
+        """
+        current = self.command_tree_hash()
+        try:
+            with open(state_file, encoding="utf-8") as f:
+                if f.read().strip() == current:
+                    logger.info("✅ App commands unchanged, skipping sync")
+                    return
+        except OSError:
+            pass
+
         try:
             synced = await self.tree.sync()
             logger.info(f"✅ Synced {len(synced)} app commands")
         except Exception as e:
             logger.error(f"❌ Failed to sync app commands: {e}", exc_info=True)
-        
-        # Start health check server
-        await self.health_server.start()
+            return
+
+        try:
+            os.makedirs(os.path.dirname(state_file) or ".", exist_ok=True)
+            with open(state_file, "w", encoding="utf-8") as f:
+                f.write(current)
+        except OSError as e:
+            logger.warning(f"⚠️  Could not save command sync state, commands will sync again next boot: {e}")
 
     async def on_ready(self):
         """Called when bot is ready"""

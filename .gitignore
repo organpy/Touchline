@@ -149,3 +149,4 @@ logs/
 tmp/
 temp/
 *.tmp
+data/.command_sync_hash
