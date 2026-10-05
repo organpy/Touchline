@@ -1,6 +1,7 @@
 """Tests for bot-level configuration in bot.py."""
 
 import os
+import sys
 from unittest.mock import Mock, patch
 
 import pytest
@@ -73,3 +74,26 @@ async def test_permission_failure_gets_permission_embed(nbl_bot):
 def test_only_needed_privileged_intents(nbl_bot):
     assert nbl_bot.intents.members is True
     assert nbl_bot.intents.message_content is False
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="asyncio signal handlers are Unix-only")
+@pytest.mark.asyncio
+async def test_sigterm_closes_the_bot():
+    import asyncio
+    import signal
+    from unittest.mock import AsyncMock
+
+    fake_bot = Mock(close=AsyncMock())
+    loop = asyncio.get_running_loop()
+    bot_module.install_shutdown_handlers(fake_bot)
+    try:
+        os.kill(os.getpid(), signal.SIGTERM)
+        for _ in range(10):
+            await asyncio.sleep(0.01)
+            if fake_bot.close.await_count:
+                break
+    finally:
+        loop.remove_signal_handler(signal.SIGTERM)
+        loop.remove_signal_handler(signal.SIGINT)
+
+    fake_bot.close.assert_awaited_once()
