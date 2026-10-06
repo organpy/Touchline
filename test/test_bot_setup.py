@@ -97,3 +97,53 @@ async def test_sigterm_closes_the_bot():
         loop.remove_signal_handler(signal.SIGINT)
 
     fake_bot.close.assert_awaited_once()
+
+
+def _add_command(bot, name):
+    async def callback(interaction):
+        pass
+
+    bot.tree.command(name=name, description=f"{name} command")(callback)
+
+
+@pytest.mark.asyncio
+async def test_commands_sync_only_when_they_change(nbl_bot, tmp_path):
+    from unittest.mock import AsyncMock
+
+    state_file = str(tmp_path / "sync_hash")
+    nbl_bot.tree.sync = AsyncMock(return_value=[])
+    _add_command(nbl_bot, "standings")
+
+    await nbl_bot.sync_commands_if_changed(state_file)
+    await nbl_bot.sync_commands_if_changed(state_file)
+    assert nbl_bot.tree.sync.await_count == 1
+
+    _add_command(nbl_bot, "schedule")
+    await nbl_bot.sync_commands_if_changed(state_file)
+    assert nbl_bot.tree.sync.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_commands_resync_for_a_different_application(nbl_bot, tmp_path):
+    from unittest.mock import AsyncMock
+
+    state_file = str(tmp_path / "sync_hash")
+    nbl_bot.tree.sync = AsyncMock(return_value=[])
+    await nbl_bot.sync_commands_if_changed(state_file)
+
+    nbl_bot._connection.application_id = 1234
+    await nbl_bot.sync_commands_if_changed(state_file)
+
+    assert nbl_bot.tree.sync.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_failed_command_sync_is_retried_next_boot(nbl_bot, tmp_path):
+    from unittest.mock import AsyncMock
+
+    state_file = tmp_path / "sync_hash"
+    nbl_bot.tree.sync = AsyncMock(side_effect=RuntimeError("discord down"))
+
+    await nbl_bot.sync_commands_if_changed(str(state_file))
+
+    assert not state_file.exists()
