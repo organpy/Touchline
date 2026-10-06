@@ -38,16 +38,20 @@ class HealthCheckServer:
     
     async def readiness_check(self, request):
         """Readiness probe - is the bot ready to serve traffic?"""
+        # is_ready() stays True through gateway outages, so also require an open websocket.
+        gateway_connected = self.bot.ws is not None and self.bot.ws.open
         ready = (
             self.bot.is_ready() and
+            gateway_connected and
             self.bot.user is not None and
             len(self.bot.guilds) > 0
         )
-        
+
         status_code = 200 if ready else 503
-        
+
         return web.json_response({
             'status': 'ready' if ready else 'not_ready',
+            'gateway_connected': gateway_connected,
             'bot_user': str(self.bot.user) if self.bot.user else None,
             'guilds_count': len(self.bot.guilds),
             'latency_ms': round(self.bot.latency * 1000, 2),
