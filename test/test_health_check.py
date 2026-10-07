@@ -17,3 +17,32 @@ async def test_stop_can_be_called_twice():
 
     assert server.site is None
     assert server.runner is None
+
+
+def _connected_bot():
+    bot = Mock()
+    bot.is_ready.return_value = True
+    bot.ws.open = True
+    bot.guilds = [Mock()]
+    bot.latency = 0.05
+    return bot
+
+
+@pytest.mark.asyncio
+async def test_ready_when_gateway_is_connected():
+    response = await HealthCheckServer(_connected_bot()).readiness_check(None)
+
+    assert response.status == 200
+
+
+@pytest.mark.asyncio
+async def test_not_ready_while_gateway_is_disconnected():
+    import json
+
+    bot = _connected_bot()
+    bot.ws.open = False
+
+    response = await HealthCheckServer(bot).readiness_check(None)
+
+    assert response.status == 503
+    assert json.loads(response.body)['gateway_connected'] is False
