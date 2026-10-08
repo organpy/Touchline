@@ -4,6 +4,7 @@ Runs a simple HTTP server on a separate thread to respond to health checks.
 """
 import asyncio
 import logging
+import math
 from aiohttp import web
 import os
 from datetime import datetime
@@ -27,6 +28,11 @@ class HealthCheckServer:
         self.app.router.add_get('/health', self.health_check)
         self.app.router.add_get('/ready', self.readiness_check)
         self.app.router.add_get('/metrics', self.metrics)
+
+    def _latency_ms(self):
+        """Gateway latency in ms, or None before the first heartbeat (NaN/inf would not be valid JSON)."""
+        latency = self.bot.latency
+        return round(latency * 1000, 2) if math.isfinite(latency) else None
     
     async def health_check(self, request):
         """Liveness probe - is the bot process alive?"""
@@ -54,7 +60,7 @@ class HealthCheckServer:
             'gateway_connected': gateway_connected,
             'bot_user': str(self.bot.user) if self.bot.user else None,
             'guilds_count': len(self.bot.guilds),
-            'latency_ms': round(self.bot.latency * 1000, 2),
+            'latency_ms': self._latency_ms(),
             'timestamp': datetime.utcnow().isoformat()
         }, status=status_code)
     
@@ -66,7 +72,7 @@ class HealthCheckServer:
         
         return web.json_response({
             'uptime_seconds': (datetime.utcnow() - self.start_time).total_seconds(),
-            'bot_latency_ms': round(self.bot.latency * 1000, 2),
+            'bot_latency_ms': self._latency_ms(),
             'guilds_count': len(self.bot.guilds),
             'users_count': len(self.bot.users),
             'commands_synced': len(self.bot.tree.get_commands()),
