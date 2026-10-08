@@ -46,3 +46,15 @@ async def test_not_ready_while_gateway_is_disconnected():
 
     assert response.status == 503
     assert json.loads(response.body)['gateway_connected'] is False
+
+
+@pytest.mark.asyncio
+async def test_unknown_latency_is_reported_as_null():
+    import json
+
+    bot = _connected_bot()
+    bot.latency = float('inf')
+
+    response = await HealthCheckServer(bot).readiness_check(None)
+
+    assert json.loads(response.body)['latency_ms'] is None
