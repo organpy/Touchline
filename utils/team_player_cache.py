@@ -411,7 +411,7 @@ class TeamPlayerCache:
         """Check if cache was recently loaded."""
         if not cls._last_refresh:
             return False
-        age = datetime.utcnow() - cls._last_refresh
+        age = datetime.now(timezone.utc) - cls._last_refresh
         return age < timedelta(minutes=5)
 
     @classmethod
