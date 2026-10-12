@@ -102,3 +102,16 @@ def test_cache_refresh_enriches_team_and_player_metadata():
     assert memberships[0]["league_type"] == "NBL"
 
     TeamPlayerCache.invalidate()
+
+
+def test_is_fresh_after_refresh():
+    from datetime import datetime, timedelta, timezone
+
+    try:
+        TeamPlayerCache._last_refresh = datetime.now(timezone.utc)
+        assert TeamPlayerCache.is_fresh() is True
+
+        TeamPlayerCache._last_refresh = datetime.now(timezone.utc) - timedelta(minutes=10)
+        assert TeamPlayerCache.is_fresh() is False
+    finally:
+        TeamPlayerCache.invalidate()
