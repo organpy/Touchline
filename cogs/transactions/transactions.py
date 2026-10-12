@@ -6,7 +6,7 @@ import json
 import logging
 import asyncio
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Set
 
@@ -329,7 +329,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             )
             return
 
-        expires_at = datetime.utcnow() + timedelta(minutes=expiry_minutes)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=expiry_minutes)
 
         payload = {
             'guild_id': interaction.guild_id,
@@ -338,7 +338,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             'player_id': player_record['id'],
             'created_by': interaction.user.id,
             'status': 'pending',
-            'expires_at': expires_at.isoformat() + 'Z',
+            'expires_at': expires_at.isoformat(),
             'metadata': {
                 'requested_expiry_minutes': expiry_minutes,
                 'coach_discord_id': interaction.user.id,
