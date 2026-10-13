@@ -7,7 +7,7 @@ import logging
 import math
 from aiohttp import web
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class HealthCheckServer:
         self.app = web.Application()
         self.runner = None
         self.site = None
-        self.start_time = datetime.utcnow()
+        self.start_time = datetime.now(timezone.utc)
         
         # Setup routes
         self.app.router.add_get('/health', self.health_check)
@@ -38,8 +38,8 @@ class HealthCheckServer:
         """Liveness probe - is the bot process alive?"""
         return web.json_response({
             'status': 'healthy',
-            'timestamp': datetime.utcnow().isoformat(),
-            'uptime_seconds': (datetime.utcnow() - self.start_time).total_seconds()
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'uptime_seconds': (datetime.now(timezone.utc) - self.start_time).total_seconds()
         })
     
     async def readiness_check(self, request):
@@ -61,7 +61,7 @@ class HealthCheckServer:
             'bot_user': str(self.bot.user) if self.bot.user else None,
             'guilds_count': len(self.bot.guilds),
             'latency_ms': self._latency_ms(),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }, status=status_code)
     
     async def metrics(self, request):
@@ -71,14 +71,14 @@ class HealthCheckServer:
         summary = MetricsCollector.get_summary()
         
         return web.json_response({
-            'uptime_seconds': (datetime.utcnow() - self.start_time).total_seconds(),
+            'uptime_seconds': (datetime.now(timezone.utc) - self.start_time).total_seconds(),
             'bot_latency_ms': self._latency_ms(),
             'guilds_count': len(self.bot.guilds),
             'users_count': len(self.bot.users),
             'commands_synced': len(self.bot.tree.get_commands()),
             'cache_stats': summary.get('cache_stats', {}),
             'query_stats': summary.get('query_stats', {}),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         })
     
     async def start(self):
