@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import discord
@@ -231,7 +231,7 @@ class ReleaseConfirmationModal(discord.ui.Modal):
             'to_team_id': None,
             'executed_by': interaction.user.id,
             'details': {
-                'released_at': datetime.utcnow().isoformat() + 'Z',
+                'released_at': datetime.now(timezone.utc).isoformat(),
                 'initiated_by': interaction.user.id,
                 'guild_id': interaction.guild_id,
                 **({'reason': reason} if reason else {})

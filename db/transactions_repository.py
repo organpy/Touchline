@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from postgrest.exceptions import APIError
@@ -183,7 +183,7 @@ class TransactionsRepository:
     ) -> bool:
         """Mark player as left from one team and join another in same season."""
         try:
-            now = datetime.utcnow().isoformat() + 'Z'
+            now = datetime.now(timezone.utc).isoformat()
 
             # Mark old roster entry as left
             await execute_async(self.supabase.table('rosters').update(
@@ -214,7 +214,7 @@ class TransactionsRepository:
     async def mark_player_released(self, season_id: str, player_id: str, from_team_id: str) -> bool:
         """Mark player as released (left from team without joining another)."""
         try:
-            now = datetime.utcnow().isoformat() + 'Z'
+            now = datetime.now(timezone.utc).isoformat()
 
             # Mark roster entry as left
             await execute_async(self.supabase.table('rosters').update(
@@ -353,7 +353,7 @@ class TransactionsRepository:
         """Move a still-pending proposal to a final status. Returns False if it was no longer pending."""
         update_payload: Dict[str, Any] = {
             'status': status,
-            'updated_at': datetime.utcnow().isoformat() + 'Z',
+            'updated_at': datetime.now(timezone.utc).isoformat(),
         }
         if reviewed_by is not None:
             update_payload['reviewed_by'] = reviewed_by

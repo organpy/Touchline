@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import discord
@@ -183,7 +183,7 @@ async def fetch_filtered_transactions(
     """
     try:
         # Build base query
-        since = (datetime.utcnow() - timedelta(days=days)).isoformat() + 'Z'
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
         query = supabase.table('transactions').select(
             '*, players(id, display_name), '

@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import discord
@@ -92,7 +92,7 @@ class SigningAcceptButton(ui.DynamicItem[ui.Button], template=r'signing:accept:(
             'player_id': signing['player_id'],
             'team_id': signing['team_id'],
             'metadata': {
-                'accepted_at': datetime.utcnow().isoformat() + 'Z',
+                'accepted_at': datetime.now(timezone.utc).isoformat(),
                 'initiated_by': signing.get('created_by'),
                 'guild_id': signing.get('guild_id')
             }
