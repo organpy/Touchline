@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import discord
@@ -235,7 +235,7 @@ class TransactionBlockerPaginatedView(discord.ui.View):
 
                 upserts: List[Dict[str, Any]] = []
                 removals: List[str] = []
-                timestamp = datetime.utcnow().isoformat()
+                timestamp = datetime.now(timezone.utc).isoformat()
 
                 for team_id, is_enabled in self.pending_changes.items():
                     logger.info(

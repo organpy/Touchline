@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 import discord
 from discord import app_commands
@@ -116,7 +116,7 @@ class VoidTransactionModal(discord.ui.Modal, title="Void Transaction"):
                     "payload": {
                         **(transaction.get("payload") or {}),
                         "voided_by": interaction.user.id,
-                        "voided_at": datetime.utcnow().isoformat(),
+                        "voided_at": datetime.now(timezone.utc).isoformat(),
                         "void_reason": self.reason.value,
                         "reversed_roster": reverse,
                         "status": "voided",
@@ -211,7 +211,7 @@ class EditTransactionModal(discord.ui.Modal, title="Edit Transaction"):
                     **(transaction.get("payload") or {}),
                     "admin_notes": self.notes.value,
                     "last_edited_by": interaction.user.id,
-                    "last_edited_at": datetime.utcnow().isoformat(),
+                    "last_edited_at": datetime.now(timezone.utc).isoformat(),
                 }
             }
 

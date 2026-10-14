@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import io
 import json
 import csv
@@ -154,7 +154,7 @@ class ExportDataModal(discord.ui.Modal, title="Export Transaction Data"):
         try:
             # Fetch transaction events
             if days > 0:
-                since_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+                since_date = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
                 response = await execute_async(
                     supabase.table("transaction_events")
                     .select("*")
@@ -180,7 +180,7 @@ class ExportDataModal(discord.ui.Modal, title="Export Transaction Data"):
             # Format data
             if format_str == "json":
                 data = json.dumps(events, indent=2, default=str).encode("utf-8")
-                filename = f"transactions_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+                filename = f"transactions_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
             else:  # csv
                 if not events:
                     await interaction.followup.send("No data to export.", ephemeral=True)
@@ -191,7 +191,7 @@ class ExportDataModal(discord.ui.Modal, title="Export Transaction Data"):
                 writer.writeheader()
                 writer.writerows(events)
                 data = output.getvalue().encode("utf-8")
-                filename = f"transactions_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+                filename = f"transactions_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
 
             # Send file
             file = discord.File(io.BytesIO(data), filename=filename)

@@ -270,7 +270,7 @@ class ExpireOfferModal(discord.ui.Modal, title="Expire Signing Offer"):
                     "status": "expired",
                     "metadata": {
                         "expired_by": interaction.user.id,
-                        "expired_at": datetime.utcnow().isoformat(),
+                        "expired_at": datetime.now(timezone.utc).isoformat(),
                         "expiration_reason": self.reason.value,
                     }
                 })
