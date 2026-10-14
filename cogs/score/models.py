@@ -5,7 +5,7 @@ Dataclasses for type safety and serialization
 
 from dataclasses import dataclass, field
 from typing import Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 @dataclass
@@ -103,7 +103,7 @@ class MatchEntry:
             'team1_score': self.team1.score,
             'team2_score': self.team2.score,
             'status': 'final',
-            'played_at': datetime.utcnow().isoformat(),
+            'played_at': datetime.now(timezone.utc).isoformat(),
             'metadata': {
                 'team1_result': team1_result,
                 'team2_result': team2_result
