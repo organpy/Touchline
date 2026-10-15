@@ -37,6 +37,27 @@ NBLBot is a Discord bot for managing National Bobble League divisions (NBL, MBL,
    curl http://localhost:8080/health
    ```
 
+## 🗄️ Database
+
+The schema lives in `db/migrations/` and is applied by hand with `psql` (`DATABASE_URL` is the Supabase Postgres connection string). On a new database, run `init.sql` first, then every dated migration in filename order:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/init.sql
+for f in db/migrations/2*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done
+```
+
+On an existing database, apply only the migrations it does not have yet, oldest first. Nothing records which migrations have run, so note each one in your deploy log.
+
+### Upgrading to the 2026-10-27 release
+
+Follow this order, or the bot (or the live database) breaks partway through:
+
+1. Apply `20261027_atomic_trade_execution.sql`. It only adds a function, so the running bot is unaffected.
+2. Set `SUPABASE_KEY` to the **service_role** (or `sb_secret_...`) key, then deploy and restart the bot. The new bot refuses to start with the public anon key.
+3. Apply `20261027_lock_down_public_access.sql`. It revokes all anon access, so any client still using the anon key stops working.
+
+To check the trade function, run `db/tests/execute_trade_proposal_test.sql` against a Supabase branch with all migrations applied. It runs in one transaction, rolls back, and prints `ALL TRADE TESTS PASSED`.
+
 ## 📚 Documentation
 
 ### In-Discord Help
