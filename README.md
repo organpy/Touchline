@@ -8,22 +8,23 @@ NBLBot is a Discord bot for managing National Bobble League divisions (NBL, MBL,
 
 1. **Clone and setup environment**
    ```bash
-   git clone https://github.com/yourusername/nbl-bot.git
-   cd nbl-bot
+   git clone https://github.com/organpy/NBLBot.git
+   cd NBLBot
    python -m venv .venv
    source .venv/bin/activate  # Linux/Mac
    .\.venv\Scripts\Activate.ps1  # Windows
    ```
 
-2. **Install dependencies**
+2. **Install dependencies** (tested on Python 3.12)
    ```bash
-   pip install -r requirements.txt
+   pip install -r requirements.txt       # running the bot
+   pip install -r requirements-dev.txt   # running the bot and the tests
    ```
 
 3. **Configure environment**
    ```bash
-   cp .env.sample .env
-   # Edit .env with your Discord token and Supabase credentials
+   cp .env.example .env
+   # Edit .env with your Discord token and Supabase service_role key
    ```
 
 4. **Run the bot**
@@ -36,26 +37,14 @@ NBLBot is a Discord bot for managing National Bobble League divisions (NBL, MBL,
    curl http://localhost:8080/health
    ```
 
-### Production Deployment
-
-For deploying to Oracle Cloud (free tier), see:
-- **[Oracle Cloud Deployment Guide](docs/ORACLE_CLOUD_DEPLOYMENT.md)** - Complete setup instructions
-- **[Production Checklist](docs/PRODUCTION_CHECKLIST.md)** - Pre/post deployment verification
-- **[Production Readiness Summary](docs/PRODUCTION_READINESS.md)** - Overview of all production features
-
 ## 📚 Documentation
-
-### Core Documentation
-- **[Production Readiness](docs/PRODUCTION_READINESS.md)** - Production features overview
-- **[Admin Commands Guide](docs/02_ADMIN_COMMANDS_GUIDE.md)** - Admin command documentation
-- **[Complete Status Report](docs/11_COMPLETE_STATUS_REPORT.md)** - Project completion summary
 
 ### In-Discord Help
 Use `/help` inside Discord to list available commands and `/help <command>` to view detailed usage for a specific command.
 
 ## 🧪 Testing
 
-Run all tests:
+Run all tests (needs `requirements-dev.txt`):
 ```bash
 pytest test/ -v
 ```
@@ -116,26 +105,24 @@ async def my_command(interaction: discord.Interaction):
 ```
 nbl-bot/
 ├── bot.py                    # Main bot entry point
-├── .env.sample              # Environment variable template
-├── requirements.txt         # Python dependencies
+├── .env.example             # Environment variable template
+├── requirements.txt         # Runtime dependencies (pinned)
+├── requirements-dev.txt     # Runtime + test dependencies
 ├── cogs/                    # Command modules (auto-discovered)
 │   ├── stats/              # Stats commands
 │   ├── transactions/       # Transaction commands
 │   ├── admin/              # Admin commands
 │   └── ...
 ├── db/                      # Database utilities
+│   ├── migrations/         # SQL schema migrations
 │   ├── queries.py          # Database query functions
 │   └── supabase_client.py  # Supabase singleton
 ├── utils/                   # Utility modules
 │   ├── health_check.py     # Health check server
 │   ├── rate_limiter.py     # Rate limiting
 │   └── ...
-├── test/                    # Test suite
-│   ├── test_integration.py # Integration tests
-│   └── ...
-└── docs/                    # Documentation
-    ├── ORACLE_CLOUD_DEPLOYMENT.md
-    ├── PRODUCTION_CHECKLIST.md
+└── test/                    # Test suite
+    ├── test_integration.py # Integration tests
     └── ...
 ```
 
@@ -147,8 +134,7 @@ nbl-bot/
 - ✅ **Error Handling**: Comprehensive error logging and user-friendly messages
 - ✅ **Cache Management**: In-memory caching for fast lookups
 - ✅ **Audit Logging**: All admin actions logged to database
-- ✅ **Test Coverage**: 31+ unit tests, integration test suite
-- ✅ **Deployment Guide**: Complete Oracle Cloud deployment instructions
+- ✅ **Test Coverage**: 330+ unit tests, integration test suite
 
 ## 📊 Commands
 
@@ -158,12 +144,6 @@ nbl-bot/
 - **[ADMIN]** - Force operations, configuration, audit reports
 
 See `/help` in Discord for complete command list.
-
-## 🆘 Support
-
-- **Issues**: Check [Production Checklist](docs/PRODUCTION_CHECKLIST.md) troubleshooting section
-- **Deployment**: See [Oracle Cloud Deployment Guide](docs/ORACLE_CLOUD_DEPLOYMENT.md)
-- **Commands**: Use `/help` in Discord or see [Admin Commands Guide](docs/02_ADMIN_COMMANDS_GUIDE.md)
 
 ## 📄 License
 
