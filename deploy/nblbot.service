@@ -1,0 +1,35 @@
+# systemd unit for NBLBot. Install steps are in README.md ("Production Deployment").
+[Unit]
+Description=NBL Discord bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nblbot
+Group=nblbot
+WorkingDirectory=/opt/nblbot
+# bot.py reads .env from the working directory.
+ExecStart=/opt/nblbot/.venv/bin/python bot.py
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Restart=on-failure
+RestartSec=10
+# bot.py closes the Discord connection and health server on SIGTERM; allow time before SIGKILL.
+TimeoutStopSec=30
+
+# Hardening: the only file the bot writes is data/.command_sync_hash.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/nblbot/data
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
