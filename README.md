@@ -100,10 +100,14 @@ Omit `--apply` on either script to preview the actions without writing to the da
 The bot includes HTTP endpoints for monitoring:
 
 - **Health Check**: `http://localhost:8080/health` - Liveness probe
-- **Readiness Check**: `http://localhost:8080/ready` - Readiness probe
+- **Readiness Check**: `http://localhost:8080/ready` - Readiness probe (503 while the Discord gateway is disconnected)
 - **Metrics**: `http://localhost:8080/metrics` - Performance metrics
 
-Configure port via `HEALTH_CHECK_PORT` environment variable (default: 8080).
+Configure the port with `HEALTH_CHECK_PORT` (default: 8080) and the bind address with `HEALTH_CHECK_HOST` (default: `127.0.0.1`; use `0.0.0.0` when probed from outside the host or container).
+
+### Slash Command Sync
+
+On startup the bot syncs slash commands to Discord only when their definitions changed since the last successful sync, tracked in `data/.command_sync_hash`. Delete that file to force a sync on the next boot.
 
 ### Rate Limiting
 
