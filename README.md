@@ -37,6 +37,32 @@ NBLBot is a Discord bot for managing National Bobble League divisions (NBL, MBL,
    curl http://localhost:8080/health
    ```
 
+### Production Deployment
+
+`deploy/nblbot.service` runs the bot under systemd from `/opt/nblbot` as an unprivileged `nblbot` user, restarts it on failure, and stops it cleanly on `systemctl stop`.
+
+```bash
+sudo useradd --system --home-dir /opt/nblbot --shell /usr/sbin/nologin nblbot
+sudo git clone https://github.com/organpy/NBLBot.git /opt/nblbot
+cd /opt/nblbot
+sudo python3.12 -m venv .venv
+sudo .venv/bin/pip install -r requirements.txt
+sudo cp .env.example .env && sudo nano .env   # fill in the real values
+sudo chown -R nblbot:nblbot /opt/nblbot && sudo chmod 600 .env
+sudo cp deploy/nblbot.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now nblbot
+journalctl -u nblbot -f                        # follow the logs
+```
+
+To update:
+
+```bash
+sudo -u nblbot git -C /opt/nblbot pull
+sudo -u nblbot /opt/nblbot/.venv/bin/pip install -r /opt/nblbot/requirements.txt   # if it changed
+sudo systemctl restart nblbot
+```
+
 ## 🗄️ Database
 
 The schema lives in `db/migrations/` and is applied by hand with `psql` (`DATABASE_URL` is the Supabase Postgres connection string). On a new database, run `init.sql` first, then every dated migration in filename order:
