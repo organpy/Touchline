@@ -84,6 +84,23 @@ class TestResolvePendingTrade:
 
         assert not await TransactionsRepository(supabase).resolve_pending_trade("prop-1", 'declined')
 
+    async def test_records_metadata_when_given(self):
+        supabase = self._supabase([{'id': 'prop-1', 'status': 'cancelled'}])
+
+        await TransactionsRepository(supabase).resolve_pending_trade(
+            "prop-1", 'cancelled', metadata={'notes': 'hi', 'cancelled_by': 9}
+        )
+
+        payload = supabase.table.return_value.update.call_args.args[0]
+        assert payload['metadata'] == {'notes': 'hi', 'cancelled_by': 9}
+
+    async def test_leaves_metadata_alone_by_default(self):
+        supabase = self._supabase([{'id': 'prop-1', 'status': 'declined'}])
+
+        await TransactionsRepository(supabase).resolve_pending_trade("prop-1", 'declined')
+
+        assert 'metadata' not in supabase.table.return_value.update.call_args.args[0]
+
 
 class TestInsertTransaction:
     async def _insert(self, payload):
