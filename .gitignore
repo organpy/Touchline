@@ -139,7 +139,6 @@ prod/
 docs/
 *.backup
 *.bak
-.github/
 
 # Logs
 *.log
