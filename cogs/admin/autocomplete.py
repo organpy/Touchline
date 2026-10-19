@@ -1,16 +1,14 @@
-"""Admin autocomplete functions with proper league/division scoping."""
+"""Admin autocomplete functions for the single-server, multi-division setup."""
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import discord
 from discord import app_commands
 
 from db import get_supabase, queries
 from utils.team_player_cache import TeamPlayerCache
-from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
@@ -19,28 +17,11 @@ async def _admin_team_autocomplete(
     interaction: discord.Interaction,
     current: str,
 ) -> list[app_commands.Choice[str]]:
-    """Autocomplete team codes, scoped to guild's divisions."""
+    """Autocomplete team codes across every division (single-server setup)."""
     try:
         supabase = get_supabase()
-        
-        # Get divisions for guild
-        response = await execute_async(supabase.table('guild_divisions').select(
-            'divisions ( id )'
-        ).eq('guild_id', interaction.guild_id))
-        
-        if not response.data:
-            return []
-        
-        division_ids = [item['divisions']['id'] for item in response.data if item.get('divisions')]
-        if not division_ids:
-            return []
-        
-        # Get teams from those divisions
-        all_teams = []
-        for div_id in division_ids:
-            teams = await queries.get_all_teams(supabase, div_id)
-            all_teams.extend(teams or [])
-        
+        all_teams = await queries.get_all_teams(supabase)
+
         # Filter to matching codes
         current_upper = current.upper()
         filtered = [
@@ -97,30 +78,11 @@ async def _admin_season_autocomplete(
     interaction: discord.Interaction,
     current: str,
 ) -> list[app_commands.Choice[str]]:
-    """Autocomplete season names, scoped to guild's divisions."""
+    """Autocomplete season names across every division (single-server setup)."""
     try:
         supabase = get_supabase()
-        
-        # Get divisions for guild
-        response = await execute_async(supabase.table('guild_divisions').select(
-            'divisions ( id )'
-        ).eq('guild_id', interaction.guild_id))
-        
-        if not response.data:
-            return []
-        
-        division_ids = [item['divisions']['id'] for item in response.data if item.get('divisions')]
-        if not division_ids:
-            return []
-        
-        # Get seasons from those divisions
-        all_seasons = []
-        for div_id in division_ids:
-            response = await execute_async(supabase.table('seasons').select(
-                '*'
-            ).eq('division_id', div_id))
-            all_seasons.extend(response.data or [])
-        
+        all_seasons = await queries.get_all_seasons(supabase)
+
         # Filter to matching names
         current_lower = current.lower()
         filtered = [
@@ -145,20 +107,11 @@ async def _admin_division_autocomplete(
     interaction: discord.Interaction,
     current: str,
 ) -> list[app_commands.Choice[str]]:
-    """Autocomplete division names, scoped to guild."""
+    """Autocomplete division names across every league (single-server setup)."""
     try:
         supabase = get_supabase()
-        
-        # Get divisions for guild
-        response = await execute_async(supabase.table('guild_divisions').select(
-            'divisions ( id, name, league_type )'
-        ).eq('guild_id', interaction.guild_id))
-        
-        if not response.data:
-            return []
-        
-        divisions = [item['divisions'] for item in response.data if item.get('divisions')]
-        
+        divisions = await queries.get_all_divisions(supabase)
+
         # Filter to matching names
         current_lower = current.lower()
         filtered = [

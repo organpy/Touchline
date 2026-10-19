@@ -36,12 +36,7 @@ class AdminBaseManager:
 
     async def get_guild_divisions(self, guild_id: int) -> list[Dict[str, Any]]:
         """Get all divisions from Supabase (ignores guild_id - single server setup)."""
-        try:
-            response = await execute_async(self.supabase.table('divisions').select('*'))
-            return response.data or []
-        except Exception as exc:
-            logger.error(f"Failed to get divisions: {exc}")
-            return []
+        return await queries.get_all_divisions(self.supabase)
 
     async def get_active_league_for_guild(self, guild_id: int) -> Optional[Dict[str, Any]]:
         """Get the active league/division for a guild.
