@@ -36,6 +36,7 @@ from utils.team_display import (
 from .views import PendingSigningView, ReleaseConfirmationModal
 from .trade_views import TradeAssetModal
 from .history import fetch_filtered_transactions, build_history_embed
+from .pick_trading import get_nbl_division
 from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,14 @@ async def autocomplete_team_player(
 ) -> list[app_commands.Choice[str]]:
     """Autocomplete player names on user's team (delegates to AutocompleteHelper)."""
     return await AutocompleteHelper.player_on_team_choices(interaction, current)
+
+
+async def autocomplete_league(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[app_commands.Choice[str]]:
+    """Autocomplete league codes (delegates to AutocompleteHelper)."""
+    return await AutocompleteHelper.league_choices(current)
 
 
 class TransactionsCog(commands.GroupCog, name="transactions"):
@@ -295,7 +304,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             return
 
         # Ensure there is an active season and that the team participates in it.
-        season = await queries.get_active_season(self.supabase)
+        season = await queries.get_active_season(self.supabase, division_id=team['division_id'])
         if not season:
             await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
             return
@@ -465,7 +474,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         if not await self._check_transaction_rules(interaction, "releases", team['id']):
             return
 
-        season = await queries.get_active_season(self.supabase)
+        season = await queries.get_active_season(self.supabase, division_id=team['division_id'])
         if not season:
             await interaction.response.send_message("⚠️ No active season configured.", ephemeral=True)
             return
@@ -528,17 +537,20 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         """Admin can force sign a player without waiting for confirmation."""
         await interaction.response.defer(ephemeral=True)
 
-        # Get active season
-        season = await queries.get_active_season(self.supabase)
-        if not season:
-            await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
-            return
-
         # Resolve team by code
         team = await queries.get_team_by_code(self.supabase, team_code)
         if not team:
             await interaction.followup.send(
                 f"❌ Unknown team code `{team_code}`.",
+                ephemeral=True,
+            )
+            return
+
+        # Get the active season for this team's division
+        season = await queries.get_active_season(self.supabase, division_id=team['division_id'])
+        if not season:
+            await interaction.followup.send(
+                "⚠️ No active season configured for this team's division.",
                 ephemeral=True,
             )
             return
@@ -674,12 +686,6 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         """Admin can force release a player without confirmation."""
         await interaction.response.defer(ephemeral=True)
 
-        # Get active season
-        season = await queries.get_active_season(self.supabase)
-        if not season:
-            await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
-            return
-
         # Get or resolve player
         player_record = await queries.get_player_by_discord_id(self.supabase, player.id)
         if not player_record:
@@ -691,14 +697,47 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             )
             return
 
-        # Check if player is on a roster
-        roster_entry = await self.repo.get_active_roster_entry(season['id'], player_record['id'])
-        if not roster_entry:
+        # Find the player's roster entry in an active season. The team determines the division.
+        try:
+            roster_response = await execute_async(
+                self.supabase.table('rosters')
+                .select('*, teams(id, code, name, division_id)')
+                .eq('player_id', player_record['id'])
+                .is_('left_at', 'null')
+            )
+        except Exception as exc:
+            logger.error("Failed to fetch active roster entries for %s: %s", player_record['id'], exc)
+            await interaction.followup.send(
+                "❌ Failed to check the player's roster.",
+                ephemeral=True,
+            )
+            return
+
+        active_entries = []
+        for entry in roster_response.data or []:
+            team_row = entry.get('teams') or {}
+            division_id = team_row.get('division_id')
+            if not division_id:
+                continue
+            candidate = await queries.get_active_season(self.supabase, division_id=division_id)
+            if candidate and candidate.get('id') == entry.get('season_id'):
+                active_entries.append((entry, candidate))
+
+        if not active_entries:
             await interaction.followup.send(
                 "❌ That player is not currently on any active roster.",
                 ephemeral=True,
             )
             return
+        if len(active_entries) > 1:
+            await interaction.followup.send(
+                "❌ That player has multiple active rosters. "
+                "Use the roster admin panel to choose the team to release from.",
+                ephemeral=True,
+            )
+            return
+
+        roster_entry, season = active_entries[0]
 
         # Release the player
         try:
@@ -769,15 +808,21 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     # ------------------------------------------------------------------
     # Draft picks
     # ------------------------------------------------------------------
-    @app_commands.command(name="picks", description="[MEMBERS] Show draft pick ownership for the active season")
+    @app_commands.command(name="picks", description="[MEMBERS] Show draft pick ownership for the active NBL season")
     @app_commands.describe(team_code="Optional team code to filter by current owner")
     @app_commands.autocomplete(team_code=autocomplete_team_code)
     async def picks(self, interaction: discord.Interaction, team_code: Optional[str] = None):
         await interaction.response.defer(ephemeral=True)
 
-        season = await queries.get_active_season(self.supabase)
+        # Draft picks are NBL-only by design.
+        nbl_division = await get_nbl_division(self.supabase)
+        if not nbl_division:
+            await interaction.followup.send("⚠️ NBL division is not configured.", ephemeral=True)
+            return
+
+        season = await queries.get_active_season(self.supabase, division_id=nbl_division['id'])
         if not season:
-            await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
+            await interaction.followup.send("⚠️ No active NBL season configured.", ephemeral=True)
             return
 
         league_display, _ = await self._get_league_display(season)
@@ -881,7 +926,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         season = cache.get_active_season_for_division(team.get('division_id'))
         if not season:
             # Fallback to DB query if not in cache
-            season = await queries.get_active_season(self.supabase)
+            season = await queries.get_active_season(self.supabase, division_id=team.get('division_id'))
         if not season:
             await interaction.response.send_message("⚠️ No active season configured.", ephemeral=True)
             return
@@ -912,13 +957,10 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         if counterparty['division_id'] != team['division_id']:
             counterparty_season = cache.get_active_season_for_division(counterparty['division_id'])
             if not counterparty_season:
-                # Try DB fallback
-                try:
-                    resp = await execute_async(self.supabase.table('seasons').select('*').eq('division_id', counterparty['division_id']).eq('active', True).limit(1))
-                    if resp.data:
-                        counterparty_season = resp.data[0]
-                except Exception:
-                    pass
+                counterparty_season = await queries.get_active_season(
+                    self.supabase,
+                    division_id=counterparty['division_id'],
+                )
             if not counterparty_season:
                 await interaction.response.send_message(
                     f"❌ No active season found for {counterparty.get('name', counterparty_team)}'s division.",
@@ -947,16 +989,19 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         """Display a team's current roster including owner and all active players."""
         await interaction.response.defer(ephemeral=True)
 
-        season = await queries.get_active_season(self.supabase)
-        if not season:
-            await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
-            return
-
         # Resolve team by code
         team = await queries.get_team_by_code(self.supabase, team_code)
         if not team:
             await interaction.followup.send(
                 f"❌ Unknown team code `{team_code}`.",
+                ephemeral=True,
+            )
+            return
+
+        season = await queries.get_active_season(self.supabase, division_id=team['division_id'])
+        if not season:
+            await interaction.followup.send(
+                "⚠️ No active season configured for that team's division.",
                 ephemeral=True,
             )
             return
@@ -1018,14 +1063,17 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     # ------------------------------------------------------------------
     @app_commands.command(name="history", description="[MEMBERS] View transaction history with optional filters")
     @app_commands.describe(
+        league="Optional league code to filter by (e.g., 'NBL')",
         team_code="Optional team code to filter by (e.g., 'pandas')",
         player_name="Optional player name to filter by",
         txn_type="Optional transaction type: sign, release, trade",
         days="Look back this many days (default 30)"
     )
+    @app_commands.autocomplete(team_code=autocomplete_team_code, league=autocomplete_league)
     async def history(
         self,
         interaction: discord.Interaction,
+        league: Optional[str] = None,
         team_code: Optional[str] = None,
         player_name: Optional[str] = None,
         txn_type: Optional[str] = None,
@@ -1045,9 +1093,42 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             )
             return
 
-        season = await queries.get_active_season(self.supabase)
+        division = None
+        if league:
+            division = await queries.get_division_by_type(self.supabase, league.upper())
+            if not division:
+                await interaction.followup.send(
+                    f"❌ Unknown league `{league}`.",
+                    ephemeral=True,
+                )
+                return
+
+        team = None
+        if team_code:
+            team = await queries.get_team_by_code(self.supabase, team_code)
+            if not team:
+                await interaction.followup.send(
+                    f"❌ Unknown team code `{team_code}`.",
+                    ephemeral=True,
+                )
+                return
+            if division and team['division_id'] != division['id']:
+                await interaction.followup.send(
+                    "❌ That team is not in the selected league.",
+                    ephemeral=True,
+                )
+                return
+
+        division_id = division['id'] if division else (team['division_id'] if team else None)
+        season = await queries.get_active_season(self.supabase, division_id=division_id)
         if not season:
-            await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
+            if division_id:
+                await interaction.followup.send(
+                    "⚠️ No active season configured for that division.",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
             return
 
         transactions = await fetch_filtered_transactions(
