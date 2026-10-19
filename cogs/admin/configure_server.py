@@ -5,6 +5,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from utils import branding
 from utils.config_utility import ConfigUtility
 
 logger = logging.getLogger(__name__)
@@ -268,6 +269,18 @@ class ConfigurationView(discord.ui.View):
             self.set_buttons_state(False)
             await self.update_display()
 
+    @discord.ui.button(label="League Name", emoji="🏷️", style=discord.ButtonStyle.primary, row=2)
+    async def league_name(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        """Set the league name shown in embed footers."""
+        if self.is_busy:
+            await interaction.response.send_message(
+                "⏳ Please wait for the current operation to complete.",
+                ephemeral=True,
+            )
+            return
+        modal = LeagueNameModal(self, self.config_data.get(branding.LEAGUE_NAME_KEY) or "")
+        await interaction.response.send_modal(modal)
+
     @discord.ui.button(label="Save Configuration", emoji="💾", style=discord.ButtonStyle.success, row=1)
     async def save_config(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         if self.is_busy:
@@ -384,6 +397,33 @@ class ConfigurationView(discord.ui.View):
         )
         await interaction.response.edit_message(embed=embed, view=self)
         self.stop()
+
+
+class LeagueNameModal(discord.ui.Modal, title="League Name"):
+    """Collect the league name used in embed footers."""
+
+    name_input = discord.ui.TextInput(
+        label="League name (blank = Touchline)",
+        placeholder="e.g. National Bobble League",
+        required=False,
+        max_length=branding.LEAGUE_NAME_MAX_LENGTH,
+    )
+
+    def __init__(self, parent: "ConfigurationView", current: str) -> None:
+        super().__init__()
+        self.parent = parent
+        self.name_input.default = current
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        value = (self.name_input.value or "").strip()
+        self.parent.config_data[branding.LEAGUE_NAME_KEY] = value
+        self.parent.mark_changes()
+        shown = value or branding.DEFAULT_LEAGUE_NAME
+        await interaction.response.send_message(
+            f"🏷️ League name set to **{discord.utils.escape_markdown(shown)}**. Save the configuration to apply it.",
+            ephemeral=True,
+        )
+        await self.parent.update_display()
 
 
 class RoleSelectView(discord.ui.View):

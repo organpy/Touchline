@@ -1,15 +1,33 @@
 import pytest
 import discord
 
+from utils import branding
 from utils.embed_builder import EmbedBuilder
 from utils.team_colors import clear_cache, resolve_color
 
 
 def test_footer_injection():
     clear_cache()
+    branding.set_league_name(None)
     builder = EmbedBuilder.generic(title="Test", description="Desc")
     embed = builder.build()
-    assert embed.footer.text.startswith("National Bobble League")
+    assert embed.footer.text.startswith("Touchline")
+
+
+def test_footer_uses_configured_league_name():
+    branding.apply_config({"league_name": "  National Bobble League  "})
+    try:
+        embed = EmbedBuilder.generic(title="Test", description="Desc").build()
+        assert embed.footer.text.startswith("National Bobble League")
+    finally:
+        branding.set_league_name(None)
+
+
+def test_blank_league_name_falls_back_to_default():
+    branding.apply_config({"league_name": "   "})
+    assert branding.get_league_name() == "Touchline"
+    branding.apply_config(None)
+    assert branding.get_league_name() == "Touchline"
 
 
 def test_force_color_overrides_team_division(monkeypatch):

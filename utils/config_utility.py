@@ -9,6 +9,7 @@ from copy import deepcopy
 import discord
 
 from utils.config_manager import get_config_manager
+from utils import branding
 from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
@@ -161,6 +162,7 @@ class ConfigUtility:
         # Update Supabase record.
         guild_config._cache = deepcopy(config_data)
         await guild_config.save()
+        branding.apply_config(config_data)
 
         # Refresh bot cache to reflect latest state.
         if not hasattr(bot, "config"):
@@ -217,6 +219,9 @@ class ConfigUtility:
 
         final_guild_name = guild_name or config_data.get("guild_name") or "Not Set"
         embed.add_field(name="🏰 Guild Name", value=final_guild_name, inline=True)
+
+        league_name = config_data.get(branding.LEAGUE_NAME_KEY) or f"{branding.DEFAULT_LEAGUE_NAME} (default)"
+        embed.add_field(name="🏷️ League Name", value=league_name, inline=True)
 
         admin_role_id = config_data.get("admin_role_id")
         admin_role_text = f"<@&{admin_role_id}>" if admin_role_id else "Not Set"

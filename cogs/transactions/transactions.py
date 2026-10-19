@@ -20,6 +20,7 @@ from utils.config_manager import get_config_manager
 from utils.team_player_cache import TeamPlayerCache
 from utils.autocomplete_helper import AutocompleteHelper
 from utils.embed_builder import EmbedBuilder
+from utils.branding import get_league_name
 from utils.embed_assets import (
     apply_league_badge,
     apply_team_badge,
@@ -377,7 +378,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         builder.add_field("Coach", interaction.user.mention, inline=True)
         builder.add_field("Expires", expiry_text, inline=False)
         # Provide instructional footer augmentation (text only, no icon)
-        footer_text = builder.embed.footer.text or "National Bobble League"
+        footer_text = builder.embed.footer.text or get_league_name()
         builder.set_footer_text(f"{footer_text} • Respond below to confirm or decline.")
         if thumbnail:
             builder.set_thumbnail_url(thumbnail)
