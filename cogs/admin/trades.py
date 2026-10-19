@@ -370,12 +370,15 @@ class CancelTradeModal(discord.ui.Modal, title="Cancel Trade"):
                 )
                 return
 
-            # Cancel the trade
-            metadata = {"cancelled_by": interaction.user.id}
+            # Cancel the trade, keeping its notes. The update only applies while the trade is still pending,
+            # so a trade accepted in the meantime is never marked cancelled after its assets moved.
+            metadata = {**(trade.get("metadata") or {}), "cancelled_by": interaction.user.id}
             if self.reason.value:
                 metadata["cancel_reason"] = self.reason.value
 
-            success = await self.repo.update_trade_status(trade["id"], "cancelled", metadata)
+            success = await self.repo.resolve_pending_trade(
+                trade["id"], "cancelled", reviewed_by=interaction.user.id, metadata=metadata
+            )
 
             if success:
                 cache = TeamPlayerCache()
@@ -404,7 +407,7 @@ class CancelTradeModal(discord.ui.Modal, title="Cancel Trade"):
                 )
             else:
                 await interaction.followup.send(
-                    "Failed to cancel trade. Check server logs.",
+                    "Trade could not be cancelled: it was resolved in the meantime, or the update failed (check server logs).",
                     ephemeral=True,
                 )
 
