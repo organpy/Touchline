@@ -153,6 +153,16 @@ async def get_all_seasons(supabase) -> List[Dict[str, Any]]:
         return []
 
 
+async def get_all_divisions(supabase) -> List[Dict[str, Any]]:
+    """Get all divisions across all leagues (single-server setup)."""
+    try:
+        response = await execute_async(supabase.table('divisions').select('*'))
+        return response.data or []
+    except Exception as e:
+        logger.error(f"Error fetching divisions: {e}")
+        return []
+
+
 async def get_division_by_type(supabase, league_type: str = 'NBL') -> Optional[Dict[str, Any]]:
     """Get division by league type (NBL, MBL, NCBA, etc.)"""
     try:

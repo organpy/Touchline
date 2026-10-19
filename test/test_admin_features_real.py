@@ -64,6 +64,28 @@ class TestTeamQueries:
         mock_supabase.table.assert_called_with('teams')
 
 
+class TestDivisionQueries:
+    """Test division-related queries."""
+
+    @pytest.mark.asyncio
+    async def test_get_all_divisions(self, mock_supabase):
+        """Test get_all_divisions query."""
+        from db import queries
+
+        mock_execute = Mock()
+        mock_execute.data = [
+            {'id': 'div-1', 'name': 'National Bobble League', 'league_type': 'NBL'},
+            {'id': 'div-2', 'name': 'Minor Bobble League', 'league_type': 'MBL'},
+        ]
+
+        mock_supabase.table.return_value.select.return_value.execute.return_value = mock_execute
+
+        result = await queries.get_all_divisions(mock_supabase)
+
+        assert len(result) == 2
+        mock_supabase.table.assert_called_with('divisions')
+
+
 class TestSeasonQueries:
     """Test season and standings queries."""
     
