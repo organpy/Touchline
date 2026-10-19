@@ -11,6 +11,7 @@ from uuid import UUID
 
 from db import get_supabase, queries
 from db.db_utils import execute_async
+from .pick_trading import get_nbl_division
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class AdminSeedPicksCog(commands.GroupCog, name="admin_seed_picks"):
 
     @app_commands.command(
         name="populate_picks",
-        description="Populate draft picks for the active season (admin only)"
+        description="Populate draft picks for the active NBL season (admin only)"
     )
     @app_commands.describe(
         num_rounds="Number of rounds (e.g., 5)",
@@ -38,9 +39,9 @@ class AdminSeedPicksCog(commands.GroupCog, name="admin_seed_picks"):
         picks_per_round: int
     ):
         """
-        Seed draft picks table for the active season.
-        
-        Each team gets one pick per round, starting with their division's team ordering.
+        Seed draft picks for the active NBL season.
+
+        Draft picks are NBL-only by design. Each team gets one pick per round.
         """
         await interaction.response.defer(ephemeral=True)
 
@@ -51,15 +52,20 @@ class AdminSeedPicksCog(commands.GroupCog, name="admin_seed_picks"):
             )
             return
 
-        season = await queries.get_active_season(self.supabase)
+        nbl_division = await get_nbl_division(self.supabase)
+        if not nbl_division:
+            await interaction.followup.send("⚠️ NBL division is not configured.", ephemeral=True)
+            return
+
+        season = await queries.get_active_season(self.supabase, division_id=nbl_division['id'])
         if not season:
-            await interaction.followup.send("⚠️ No active season configured.", ephemeral=True)
+            await interaction.followup.send("⚠️ No active NBL season configured.", ephemeral=True)
             return
 
         teams = await queries.get_all_teams(self.supabase, season['division_id'])
         if not teams:
             await interaction.followup.send(
-                "⚠️ No teams found for the active season's division.",
+                "⚠️ No teams found for the active NBL season.",
                 ephemeral=True,
             )
             return
