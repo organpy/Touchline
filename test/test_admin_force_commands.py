@@ -32,7 +32,7 @@ from discord.ext import commands
 def mock_bot():
     """Create a mock bot instance."""
     bot = Mock(spec=commands.Bot)
-    bot.user = Mock(name="NBLBot")
+    bot.user = Mock(name="Touchline")
     bot.tree = Mock()
     bot.tree.sync = AsyncMock()
     return bot

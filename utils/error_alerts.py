@@ -58,7 +58,7 @@ class DiscordWebhookHandler(logging.Handler):
             self.url,
             data=payload,
             # Discord's edge rejects the default urllib user agent.
-            headers={"Content-Type": "application/json", "User-Agent": "NBLBot error alerts"},
+            headers={"Content-Type": "application/json", "User-Agent": "Touchline error alerts"},
             method="POST",
         )
         with urllib.request.urlopen(request, timeout=10):

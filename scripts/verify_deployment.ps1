@@ -1,7 +1,7 @@
-# NBLBot Pre-Deployment Verification Script for Windows
+# Touchline Pre-Deployment Verification Script for Windows
 # Run: .\scripts\verify_deployment.ps1
 
-Write-Host "NBLBot Pre-Deployment Verification" -ForegroundColor Cyan
+Write-Host "Touchline Pre-Deployment Verification" -ForegroundColor Cyan
 Write-Host "===================================" -ForegroundColor Cyan
 Write-Host ""
 

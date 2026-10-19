@@ -1,16 +1,16 @@
-# systemd unit for NBLBot. Install steps are in README.md ("Production Deployment").
+# systemd unit for Touchline. Install steps are in README.md ("Production Deployment").
 [Unit]
-Description=NBL Discord bot
+Description=Touchline Discord league bot
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=nblbot
-Group=nblbot
-WorkingDirectory=/opt/nblbot
+User=touchline
+Group=touchline
+WorkingDirectory=/opt/touchline
 # bot.py reads .env from the working directory.
-ExecStart=/opt/nblbot/.venv/bin/python bot.py
+ExecStart=/opt/touchline/.venv/bin/python bot.py
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 Restart=on-failure
@@ -21,7 +21,7 @@ TimeoutStopSec=30
 # Hardening: the only file the bot writes is data/.command_sync_hash.
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/opt/nblbot/data
+ReadWritePaths=/opt/touchline/data
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
