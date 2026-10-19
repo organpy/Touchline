@@ -349,14 +349,20 @@ class TransactionsRepository:
         proposal_id: str,
         status: str,
         reviewed_by: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> bool:
-        """Move a still-pending proposal to a final status. Returns False if it was no longer pending."""
+        """Move a still-pending proposal to a final status. Returns False if it was no longer pending.
+
+        metadata replaces the proposal's whole metadata column, so pass the merged dict.
+        """
         update_payload: Dict[str, Any] = {
             'status': status,
             'updated_at': datetime.now(timezone.utc).isoformat(),
         }
         if reviewed_by is not None:
             update_payload['reviewed_by'] = reviewed_by
+        if metadata is not None:
+            update_payload['metadata'] = metadata
         try:
             response = await execute_async(
                 self.supabase
