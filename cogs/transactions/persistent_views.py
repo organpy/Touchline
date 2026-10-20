@@ -12,6 +12,7 @@ from utils.team_player_cache import TeamPlayerCache
 from utils.embed_builder import EmbedBuilder
 from cogs.score.roster_cache import RosterCache
 from db.db_utils import execute_async
+from utils.league_cache import LeagueCache
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,11 @@ class SigningAcceptButton(ui.DynamicItem[ui.Button], template=r'signing:accept:(
         })
 
         if not transaction:
+            if repo.last_error:
+                # A league rule refused it (e.g. already on a team this season); the offer is done.
+                await repo.update_pending_signing_status(signing['id'], 'declined')
+                await interaction.followup.send(f"❌ {repo.last_error}", ephemeral=True)
+                return
             await repo.update_pending_signing_status(signing['id'], 'pending')
             await interaction.followup.send("❌ Failed to record transaction.", ephemeral=True)
             return
@@ -115,15 +121,8 @@ class SigningAcceptButton(ui.DynamicItem[ui.Button], template=r'signing:accept:(
             team = (await execute_async(supabase.table('teams').select('*').eq('id', signing['team_id']).single())).data
             
             # Get league info for styling
-            league_code = ''
-            division_id = team.get('division_id')
-            if division_id:
-                try:
-                    div_resp = await execute_async(supabase.table('divisions').select('league_type').eq('id', division_id).limit(1))
-                    if div_resp.data:
-                        league_code = div_resp.data[0].get('league_type', '').upper()
-                except Exception:
-                    pass
+            division = LeagueCache.team_division(signing['team_id'], signing.get('season_id')) or {}
+            league_code = (division.get('code') or '').upper()
             
             # Get season name
             season_name = 'Unknown Season'

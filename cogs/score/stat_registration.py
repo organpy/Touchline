@@ -22,6 +22,8 @@ from .views import (
 from .roster_cache import RosterCache
 from .access import NOT_ALLOWED_MESSAGE, NOT_YOUR_MATCH_MESSAGE, resolve_reporter_access
 from db.db_utils import execute_async
+from services.reporting import STAGE_LABELS, record_match, resolve_match_context
+from db.league_repository import LeagueRuleError
 
 logger = logging.getLogger(__name__)
 
@@ -83,13 +85,12 @@ class StatRegistrationCog(commands.Cog):
                 await team_select_interaction.response.send_message(NOT_YOUR_MATCH_MESSAGE, ephemeral=True)
                 return
 
-            # Validate both teams are in the same league
-            if not self.roster_cache.teams_in_same_league(team1_code, team2_code):
-                await team_select_interaction.response.send_message(
-                    f"❌ **{team1_data.name}** and **{team2_data.name}** are in different leagues. "
-                    "Both teams must be from the same league.",
-                    ephemeral=True
-                )
+            # Regular season: same division and under the games limit. Postseason: an open series.
+            try:
+                context = await resolve_match_context(self.supabase, team1_data.team_id, team2_data.team_id)
+                context.ensure_open()
+            except LeagueRuleError as exc:
+                await team_select_interaction.response.send_message(f"❌ {exc.message}", ephemeral=True)
                 return
 
             # Step 2: Show score entry modal
@@ -110,7 +111,7 @@ class StatRegistrationCog(commands.Cog):
                         emoji=team2_data.emoji,
                         score=team2_score
                     ),
-                    division_id=team1_data.division_id,
+                    division_id=context.division_id,
                 )
 
                 self.active_matches[interaction.user.id] = match_entry
@@ -202,35 +203,17 @@ class StatRegistrationCog(commands.Cog):
         """Save match + all player_stats to Supabase"""
 
         try:
-            # Get the active season for this match's division
-            season = await queries.get_active_season(
-                self.supabase,
-                division_id=match_entry.division_id,
-            )
-            if not season:
-                await interaction.followup.send(
-                    "❌ No active season found for this match's division",
-                    ephemeral=True,
-                )
-                return
-
-            season_id = season['id']
-            division_id = season['division_id']
-
-            # Prepare match data
-            match_data = match_entry.to_supabase_match(season_id, division_id)
-
-            # Insert match
+            # Checks the phase, games limit or playoff series again (things may have changed while
+            # stats were typed in), inserts the game and refreshes standings.
             logger.info(f"🔄 Inserting match: {match_entry.team1.team_code} vs {match_entry.team2.team_code}")
-            match_response = await execute_async(self.supabase.table('matches').insert(match_data))
-
-            if not match_response.data:
-                await interaction.followup.send("❌ Failed to insert match", ephemeral=True)
-                logger.error("Match insert returned no data")
+            try:
+                match_row, context = await record_match(self.supabase, match_entry)
+            except LeagueRuleError as exc:
+                await interaction.followup.send(f"❌ {exc.message}", ephemeral=True)
                 return
 
-            match_id = match_response.data[0]['id']
-            logger.info(f"✅ Match inserted: {match_id}")
+            match_id = match_row['id']
+            logger.info(f"✅ Match inserted: {match_id} ({context.stage})")
 
             # Prepare & insert player_stats
             player_stats_list = match_entry.to_supabase_player_stats(match_id)
@@ -249,7 +232,7 @@ class StatRegistrationCog(commands.Cog):
             # Success message
             embed = discord.Embed(
                 title="✅ Match Saved Successfully!",
-                description=f"Match ID: `{match_id}`",
+                description=f"Match ID: `{match_id}` · {STAGE_LABELS.get(context.stage, context.stage)}",
                 color=discord.Color.green()
             )
             embed.add_field(

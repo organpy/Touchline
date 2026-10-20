@@ -13,6 +13,7 @@ from discord import ui
 from utils.config_manager import get_config_manager
 from utils.team_player_cache import TeamPlayerCache
 from cogs.admin.common import LazyInitView
+from utils.league_cache import LeagueCache
 
 logger = logging.getLogger(__name__)
 
@@ -132,13 +133,13 @@ class TransactionSettingsView(LazyInitView):
     
     @discord.ui.button(label="Picks: ON", style=discord.ButtonStyle.success, row=0)
     async def toggle_picks(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Toggle NBL draft picks on/off."""
+        """Toggle draft picks on/off."""
         await interaction.response.defer()
         
         try:
             config_mgr = get_config_manager()
             
-            # Toggle picks state (simple toggle, NBL-only is handled in the /pick command)
+            # Toggle picks state (which divisions run a draft is a per-division setting)
             config = await config_mgr.get_config(self.guild_id)
             picks_paused = config.get('picks_paused', False)
             new_state = not picks_paused
@@ -162,8 +163,10 @@ class TransactionSettingsView(LazyInitView):
 
 
 class TeamBanSelectView(LazyInitView):
-    """View to select teams to ban."""
-    
+    """Multi-select of teams to ban, paged 25 at a time (sorted by division tier, then name)."""
+
+    PAGE_SIZE = 25
+
     def __init__(self, bot: Any, guild_id: int, parent_view: TransactionSettingsView):
         super().__init__(timeout=180)
         self.bot = bot
@@ -171,62 +174,89 @@ class TeamBanSelectView(LazyInitView):
         self.parent_view = parent_view
         self.config_mgr = get_config_manager()
         self.visible_team_ids: List[str] = []
+        self.page = 0
+
+    @staticmethod
+    def _sorted_teams() -> List[dict]:
+        def key(team: dict):
+            division = LeagueCache.team_division(team.get('id')) or {}
+            return (division.get('tier') or 999, (team.get('name') or '').lower())
+        return sorted(TeamPlayerCache.get_all_teams(), key=key)
 
     async def populate(self) -> None:
-        cache = TeamPlayerCache()
-        teams = cache.get_all_teams()
-        
-        # Get current bans
-        config = await self.config_mgr.get_config(self.guild_id)
-        tx_config = config.get('transaction_rules', {})
-        banned_ids = set(tx_config.get('banned_teams', []))
-        
-        # Create select menu
-        options = []
-        sorted_teams = sorted(teams, key=lambda t: t['name'])[:25]  # Limit to 25 for select menu
-        self.visible_team_ids = [team['id'] for team in sorted_teams]
+        self.clear_items()
+        teams = self._sorted_teams()
+        pages = max(1, -(-len(teams) // self.PAGE_SIZE))
+        self.page = max(0, min(self.page, pages - 1))
+        chunk = teams[self.page * self.PAGE_SIZE:(self.page + 1) * self.PAGE_SIZE]
+        self.visible_team_ids = [team['id'] for team in chunk]
 
-        for team in sorted_teams:
+        config = await self.config_mgr.get_config(self.guild_id)
+        banned_ids = set(config.get('transaction_rules', {}).get('banned_teams', []))
+
+        options = []
+        for team in chunk:
             is_banned = team['id'] in banned_ids
-            label = f"{'🚫 ' if is_banned else ''}{team['name']}"
+            division = LeagueCache.team_division(team.get('id')) or {}
+            code = (division.get('code') or '').upper()
             options.append(discord.SelectOption(
-                label=label[:100],
+                label=f"{'🚫 ' if is_banned else ''}{team['name']}"[:100],
                 value=team['id'],
-                description=f"Code: {team['code']}",
-                default=is_banned
+                description=f"{code + ' · ' if code else ''}Code: {team['code']}"[:100],
+                default=is_banned,
             ))
-            
         if not options:
             options.append(discord.SelectOption(label="No teams found", value="none"))
 
+        placeholder = "Select teams to toggle ban status..."
+        if pages > 1:
+            placeholder = f"Teams page {self.page + 1}/{pages}: select to ban"
         select = discord.ui.Select(
-            placeholder="Select teams to toggle ban status...",
+            placeholder=placeholder,
             min_values=0,
             max_values=len(options),
-            options=options
+            options=options,
+            disabled=not chunk,
+            row=0,
         )
         select.callback = self.on_select
         self.add_item(select)
+
+        if pages > 1:
+            previous_page = discord.ui.Button(label="◀", style=discord.ButtonStyle.secondary, row=1, disabled=self.page == 0)
+            next_page = discord.ui.Button(label="▶", style=discord.ButtonStyle.secondary, row=1, disabled=self.page >= pages - 1)
+            previous_page.callback = self._go(-1)
+            next_page.callback = self._go(1)
+            self.add_item(previous_page)
+            self.add_item(next_page)
+        self._is_prepared = True
+
+    def _go(self, step: int):
+        async def callback(interaction: discord.Interaction) -> None:
+            self.page += step
+            await self.populate()
+            await interaction.response.edit_message(view=self)
+        return callback
 
     async def on_select(self, interaction: discord.Interaction):
         await interaction.response.defer()
         selected_ids = interaction.data.get('values', [])
         visible_ids = set(self.visible_team_ids)
         selected_visible_ids = {team_id for team_id in selected_ids if team_id in visible_ids}
-        
+
         config = await self.config_mgr.get_config(self.guild_id)
         tx_config = config.get('transaction_rules', {})
         current_bans = set(tx_config.get('banned_teams', []))
+        # Bans on other pages are kept as they are
         hidden_bans = current_bans - visible_ids
-        new_bans = hidden_bans | selected_visible_ids
-        tx_config['banned_teams'] = list(new_bans)
-        
+        tx_config['banned_teams'] = list(hidden_bans | selected_visible_ids)
+
         await self.config_mgr.set_config(self.guild_id, 'transaction_rules', tx_config)
-        
+
         # Update parent
         await self.parent_view.populate()
         await self.parent_view.update_display(interaction)
-        
+
         await interaction.followup.send("✅ Team bans updated.", ephemeral=True)
 
 

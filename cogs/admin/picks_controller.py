@@ -1,4 +1,4 @@
-"""Admin picks controller - simple ON/OFF toggle for NBL draft picks."""
+"""Admin picks controller - ON/OFF toggle for draft pick trading in every division that runs a draft."""
 
 import logging
 from typing import Any, Optional
@@ -6,15 +6,15 @@ from typing import Any, Optional
 import discord
 from discord.ext import commands
 
-from db import get_supabase, queries
+from db import get_supabase
+from utils.league_cache import LeagueCache
 from utils.config_manager import get_config_manager
-from db.db_utils import execute_async
 
 logger = logging.getLogger(__name__)
 
 
 class PicksStatusButton(discord.ui.View):
-    """Simple button view for NBL picks status."""
+    """Button view for the draft picks pause state."""
 
     def __init__(self, bot: Any, guild_id: int) -> None:
         super().__init__(timeout=300)
@@ -32,7 +32,7 @@ class PicksStatusButton(discord.ui.View):
 
     @discord.ui.button(label="Picks: ON", style=discord.ButtonStyle.success, row=0)
     async def picks_toggle(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        """Toggle NBL draft picks on/off for active season."""
+        """Toggle draft pick trading on/off for the active season."""
         await interaction.response.defer(ephemeral=True)
 
         try:
@@ -42,21 +42,17 @@ class PicksStatusButton(discord.ui.View):
                 await interaction.followup.send("❌ Database unavailable.", ephemeral=True)
                 return
 
-            # Get NBL division and active season
-            nbl_div_response = await execute_async(supabase.table('divisions').select('*').eq('name', 'NBL'))
-            if not nbl_div_response.data:
-                await interaction.followup.send("❌ NBL division not found.", ephemeral=True)
+            await LeagueCache.ensure_ready()
+            active_season = LeagueCache.active_season()
+            if not active_season:
+                await interaction.followup.send("❌ No active season.", ephemeral=True)
                 return
-
-            nbl_div_id = nbl_div_response.data[0]['id']
-
-            # Get active season for NBL
-            seasons_response = await execute_async(supabase.table('seasons').select('*').eq('division_id', nbl_div_id).eq('active', True))
-            if not seasons_response.data:
-                await interaction.followup.send("❌ No active NBL season found.", ephemeral=True)
+            draft_divisions = LeagueCache.picks_divisions()
+            if not draft_divisions:
+                await interaction.followup.send(
+                    "❌ No division runs a draft. Enable picks in Dashboard → Divisions → Rules.", ephemeral=True,
+                )
                 return
-
-            active_season = seasons_response.data[0]
 
             # Toggle picks state
             config = await config_mgr.get_config(self.guild_id)
@@ -71,12 +67,17 @@ class PicksStatusButton(discord.ui.View):
             status_color = discord.Color.red() if new_state else discord.Color.green()
 
             embed = discord.Embed(
-                title="🎯 NBL Draft Picks",
+                title="🎯 Draft Picks",
                 description=f"Status: {status_text}",
                 color=status_color,
             )
             embed.add_field(name="Season", value=active_season['name'], inline=True)
             embed.add_field(name="State", value="Paused" if new_state else "Active", inline=True)
+            embed.add_field(
+                name="Divisions",
+                value=", ".join(d.get('code') or d.get('name') for d in draft_divisions),
+                inline=False,
+            )
 
             await interaction.followup.send(embed=embed, ephemeral=True)
             logger.info(f"{'🔴 Picks paused' if new_state else '🟢 Picks resumed'} by {interaction.user.id} for {active_season['name']}")
@@ -87,7 +88,7 @@ class PicksStatusButton(discord.ui.View):
 
 
 class PicksControllerCog(commands.Cog):
-    """Admin cog for controlling NBL draft picks."""
+    """Admin cog for controlling draft picks."""
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot

@@ -11,11 +11,30 @@ def reset_autocomplete_cache():
     loader.clear_autocomplete_cache()
 
 
-def test_get_team_codes_contains_known_values():
-    codes = loader.get_team_codes()
-    assert 'titans' in codes
-    assert 'the-warriors' in codes
-    assert 'south-point-sharks' in codes
+def test_get_team_codes_comes_from_team_cache(monkeypatch):
+    from utils.team_player_cache import TeamPlayerCache
+
+    monkeypatch.setattr(TeamPlayerCache, "get_team_codes", classmethod(lambda cls: ["the-pack", "alpha"]))
+    assert loader.get_team_codes() == ["alpha", "the-pack"]
+
+
+def test_league_entries_come_from_league_cache():
+    from utils.league_cache import LeagueCache
+
+    LeagueCache.load_snapshot(
+        seasons=[],
+        divisions=[
+            {"id": "d2", "code": "D2", "name": "Championship", "tier": 2},
+            {"id": "d1", "code": "D1", "name": "Premier", "tier": 1},
+        ],
+    )
+    try:
+        assert loader.get_league_entries() == [
+            {"code": "D1", "name": "Premier"},
+            {"code": "D2", "name": "Championship"},
+        ]
+    finally:
+        LeagueCache.invalidate()
 
 
 def test_load_autocomplete_data_is_cached(monkeypatch):

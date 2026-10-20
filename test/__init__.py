@@ -1,1 +1,1 @@
-"""Test module for NBLBot."""
+"""Test module for Touchline."""

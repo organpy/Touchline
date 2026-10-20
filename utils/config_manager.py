@@ -7,6 +7,7 @@ import discord
 from typing import Optional, Dict, Any
 import logging
 from db.db_utils import execute_async
+from utils import branding
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ class GuildConfig:
                 }))
                 self._cache = {}
             self._loaded = True
+            branding.apply_config(self._cache)
             logger.debug(f"✅ Loaded config for guild {self.guild_id}")
         except Exception as e:
             logger.error(f"❌ Failed to load config for guild {self.guild_id}: {e}")
@@ -61,6 +63,8 @@ class GuildConfig:
     def set(self, key: str, value: Any):
         """Set config value (call save() to persist)"""
         self._cache[key] = value
+        if key == branding.LEAGUE_NAME_KEY:
+            branding.set_league_name(value)
 
     def get_nested(self, path: str, default: Any = None) -> Any:
         """Get nested config value using dot notation (e.g., 'transactions.channel_id')"""
@@ -216,24 +220,12 @@ class ConfigManager:
         return merged
 
     async def get_division_games_limit(self, guild_id: int, division_code: str) -> Optional[int]:
-        """Get the configured games limit for a division (e.g., NBL: 4, MBL: 2)."""
-        config = await self.get_guild_config(guild_id)
-        games_config = config.get('games_limits', {}) or {}
-        return games_config.get(division_code.upper())
+        """Games per pairing for a division (its ``games_per_matchup`` rule; guild_id is ignored)."""
+        from utils.league_cache import LeagueCache
 
-    async def set_division_games_limit(self, guild_id: int, division_code: str, limit: int) -> None:
-        """Set the games limit for a division."""
-        config = await self.get_guild_config(guild_id)
-        games_config = config.get('games_limits', {}) or {}
-        games_config[division_code.upper()] = limit
-        config.set('games_limits', games_config)
-        await config.save()
-        logger.info(f"🎮 Set games limit for {division_code.upper()} in guild {guild_id}: {limit}")
+        division = LeagueCache.find_division(division_code)
+        return LeagueCache.settings(division['id']).games_per_matchup if division else None
 
-    async def get_all_games_limits(self, guild_id: int) -> Dict[str, int]:
-        """Get all configured games limits per division."""
-        config = await self.get_guild_config(guild_id)
-        return config.get('games_limits', {}) or {}
 
     async def set_role_requirement(
         self,

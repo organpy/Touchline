@@ -149,3 +149,4 @@ tmp/
 temp/
 *.tmp
 data/.command_sync_hash
+data/logo_cache/

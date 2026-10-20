@@ -73,29 +73,11 @@
   },
   "descriptions": {
     "metric": "Stat to rank by (points, assists, goals, saves, blocks, own_goals, pp_plays)",
-    "league": "League code or name (leave blank for all active leagues)",
-    "season": "Season name (e.g., S10). Defaults to active season",
+    "league": "Division code or name (leave blank for every division)",
+    "season": "Season name or number. Defaults to the active season",
     "team": "Team name or code (optional filter)",
     "player": "Player display name",
     "limit": "Number of results to show (default 10, max 25)",
-    "league_filter": "League code or name (defaults to active season league)"
-  },
-  "team_codes": {
-    "nbl_east": ["titans", "the-herd", "opo", "ice-breakers"],
-    "nbl_west": ["beef-negative", "wind-chargers", "frost-falcons", "phantom-hornets"],
-    "mbl_east": ["the-warriors", "the-pack", "opo-dragons", "icebergs"],
-    "mbl_west": ["venison-x", "the-breeze", "blue-ballers", "ghosts"],
-    "ncba_east": ["south-point-sharks", "eastside-tigers", "east-bay-seagulls"],
-    "ncba_west": ["west-bay-devils", "north-central-hawks", "northside-bobcats"]
-  },
-  "leagues_codes": {
-    "NBL": "NBL",
-    "MBL": "MBL",
-    "NCBA": "NCBA"
-  },
-  "leagues_full_names": {
-    "NBL": "National Bobble League",
-    "MBL": "Minor Bobble League",
-    "NCBA": "National College Bobble Association"
+    "league_filter": "Division code or name"
   }
 }
