@@ -359,36 +359,33 @@ class ForceSignView(discord.ui.View):
                 )
                 return
 
-            # Check if already on roster
-            existing_roster = await execute_async(
-                self.supabase
-                .table('rosters')
-                .select('*')
-                .eq('season_id', season['id'])
-                .eq('team_id', self._selected_team['id'])
-                .eq('player_id', player['id'])
-                .is_('left_at', 'null')
-            )
-            if existing_roster.data:
+            # A player is on one team per season: same team is a no-op, another team is a transfer
+            existing_roster = await self.repo.get_active_roster_entry(season['id'], player['id'])
+            if existing_roster and existing_roster.get('team_id') == self._selected_team['id']:
                 await interaction.followup.send(
                     f"⚠️ **{player['display_name']}** is already on the roster.",
                     ephemeral=True,
                 )
                 return
+            from_team_id = existing_roster.get('team_id') if existing_roster else None
 
-            # Sign player
             transaction_result = await self.repo.insert_transaction({
                 'season_id': season['id'],
-                'transaction_type': 'admin_force_sign',
+                'transaction_type': 'admin_force_transfer' if from_team_id else 'admin_force_sign',
                 'player_id': player['id'],
                 'team_id': self._selected_team['id'],
                 'metadata': {
-                    'from_team_id': None,
+                    'from_team_id': from_team_id,
                     'admin_user_id': interaction.user.id,
                     'signed_by': interaction.user.display_name,
                 },
             })
             transaction_id = transaction_result.get('id') if transaction_result else None
+            if not transaction_id and self.repo.last_error:
+                await interaction.followup.send(f"❌ {self.repo.last_error}", ephemeral=True)
+                return
+            if from_team_id:
+                await TeamPlayerCache.invalidate_team(from_team_id)
 
             if transaction_id:
                 # Import unified embed utilities

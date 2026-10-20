@@ -38,6 +38,7 @@ RULE_MESSAGES: Dict[str, str] = {
     "GROUP_DIVISION_MISMATCH": "That group belongs to a different division.",
     "DIVISION_ARCHIVED": "That division is archived.",
     "ROSTER_TEAM_NOT_IN_SEASON": "That team has no division this season yet. Assign it in the dashboard first.",
+    "ROSTER_PLAYER_ON_TEAM": "That player is already on another team this season. Release or transfer them first.",
     "BRACKET_STARTED": "That bracket already has results, so seeds can no longer change.",
     "BRACKET_TEAM_MISSING": "Both teams must be in that bracket.",
     "BRACKETS_IN_PROGRESS": "Some playoff brackets are still being played.",
@@ -81,6 +82,17 @@ def rule_error_from_api_error(exc: APIError) -> Optional[LeagueRuleError]:
     if getattr(exc, "code", None) == "23514":  # check violation
         return LeagueRuleError("INVALID", "One of the values is not allowed (check codes, names and colours).", detail=message)
     return None
+
+
+def friendly_error(exc: BaseException, fallback: str) -> str:
+    """A message safe to show users: the rule message for known violations, else ``fallback``."""
+    if isinstance(exc, LeagueRuleError):
+        return exc.message
+    if isinstance(exc, APIError):
+        rule_error = rule_error_from_api_error(exc)
+        if rule_error:
+            return rule_error.message
+    return fallback
 
 
 async def run(query: Any) -> Any:

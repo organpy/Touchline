@@ -96,10 +96,13 @@ BEGIN
     INSERT INTO rosters (season_id, team_id, player_id) VALUES (s1, t[5], p2);
     PERFORM pg_temp.expect_hint(format(
         $q$INSERT INTO rosters (season_id, team_id, player_id) VALUES (%L, %L, %L)$q$, s1, t[2], p1), NULL);
-    -- A signing transaction moves the player instead of duplicating them.
-    INSERT INTO transactions (season_id, type, player_id, from_team_id, to_team_id) VALUES (s1, 'sign', p1, t[1], t[2]);
+    -- A signing cannot take a player off another team; a transfer moves them.
+    PERFORM pg_temp.expect_hint(format(
+        $q$INSERT INTO transactions (season_id, type, player_id, to_team_id) VALUES (%L, 'sign', %L, %L)$q$, s1, p1, t[2]),
+        'ROSTER_PLAYER_ON_TEAM');
+    INSERT INTO transactions (season_id, type, player_id, from_team_id, to_team_id) VALUES (s1, 'transfer', p1, t[1], t[2]);
     SELECT count(*) INTO v_count FROM rosters WHERE season_id = s1 AND player_id = p1 AND left_at IS NULL;
-    ASSERT v_count = 1, 'signing should leave exactly one active roster row';
+    ASSERT v_count = 1, 'a transfer should leave exactly one active roster row';
     ASSERT (SELECT team_id FROM rosters WHERE season_id = s1 AND player_id = p1 AND left_at IS NULL) = t[2], 'p1 now on t2';
 
     -- ------------------------------------------------------------ regular-season games

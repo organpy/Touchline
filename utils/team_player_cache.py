@@ -68,8 +68,7 @@ class TeamPlayerCache:
 
     @classmethod
     def _clear_membership(cls, player: dict) -> None:
-        player["active_memberships"] = []
-        player["memberships_by_season"] = {}
+        player["membership"] = None
         for key in ("current_team_id", "current_team_code", "current_team_name", "current_league_type",
                     "current_league_name", "current_season_id", "current_season_name"):
             player.pop(key, None)
@@ -77,8 +76,7 @@ class TeamPlayerCache:
     @classmethod
     def _attach_membership(cls, player: dict, team: dict, season: dict) -> None:
         membership = cls._membership(team, season)
-        player["active_memberships"] = [membership]
-        player["memberships_by_season"] = {season.get("id"): membership} if season.get("id") else {}
+        player["membership"] = membership  # a player is on at most one team per season
         player["current_team_id"] = membership["team_id"]
         player["current_team_code"] = membership["team_code"]
         player["current_team_name"] = membership["team_name"]

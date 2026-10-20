@@ -103,9 +103,9 @@ def test_cache_refresh_enriches_team_and_player_metadata():
     player = TeamPlayerCache.get_player_by_name("Ace")
     assert player is not None
     assert player.get("current_team_code") == "pandas"
-    memberships = player.get("active_memberships")
-    assert memberships and memberships[0]["season_id"] == "season-1"
-    assert memberships[0]["league_type"] == "D1"
+    membership = player.get("membership")
+    assert membership and membership["season_id"] == "season-1"
+    assert membership["league_type"] == "D1"
 
     TeamPlayerCache.invalidate()
     from utils.league_cache import LeagueCache
