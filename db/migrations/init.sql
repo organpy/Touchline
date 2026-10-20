@@ -1323,4 +1323,82 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, aut
 ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO service_role;
 
+
+-- ============================================================================
+-- Website data: read-only views in the `api` schema
+-- ============================================================================
+-- Readable with the publishable (anon) key once `api` is added under Supabase → Settings → API →
+-- Exposed schemas. Requests pick the schema with the header `Accept-Profile: api`.
+-- The views run with their owner's rights, so they read the locked base tables. Each view lists
+-- exactly what may be public: no Discord ids, trades, signings, server config or division
+-- settings beyond the scoring rules. Voided games and their stats are left out.
+
+DROP SCHEMA IF EXISTS api CASCADE;
+CREATE SCHEMA api;
+COMMENT ON SCHEMA api IS 'Touchline read-only league data for websites';
+
+CREATE VIEW api.divisions AS
+SELECT id, code, name, tier, color, emoji, logo_url,
+       COALESCE(settings ->> 'scoring_mode', 'points_scored') AS scoring_mode,
+       COALESCE((settings ->> 'points_per_win')::integer, 3) AS points_per_win,
+       archived_at IS NOT NULL AS archived
+FROM public.divisions;
+
+CREATE VIEW api.division_groups AS
+SELECT id, division_id, name, sort_order FROM public.division_groups;
+
+CREATE VIEW api.seasons AS
+SELECT id, number, name, phase, active, champion_team_id, started_at, regular_ended_at, ended_at
+FROM public.seasons;
+
+CREATE VIEW api.teams AS
+SELECT id, code, name, emoji, color, logo_url, archived_at IS NOT NULL AS archived
+FROM public.teams;
+
+CREATE VIEW api.season_teams AS
+SELECT season_id, team_id, division_id, group_id FROM public.season_teams;
+
+CREATE VIEW api.players AS
+SELECT id, display_name FROM public.players;
+
+CREATE VIEW api.rosters AS
+SELECT id, season_id, team_id, player_id, role, joined_at, left_at FROM public.rosters;
+
+CREATE VIEW api.matches AS
+SELECT id, season_id, division_id, stage, series_id, team1_id, team2_id, team1_score, team2_score, played_at
+FROM public.matches
+WHERE status = 'final';
+
+CREATE VIEW api.player_stats AS
+SELECT ps.id, ps.match_id, m.season_id, ps.player_id, ps.team_id, ps.goals, ps.points, ps.own_goals,
+       ps.assists, ps.saves, ps.blocks, ps.powerup_plays, ps.powerups_used, ps.powerup_percentage
+FROM public.player_stats ps
+JOIN public.matches m ON m.id = ps.match_id
+WHERE m.status = 'final';
+
+CREATE VIEW api.standings AS
+SELECT season_id, division_id, group_id, team_id, rank, group_rank, games_played, wins, losses,
+       points_for, points_against, point_diff, competition_points, zone, final, updated_at
+FROM public.standings;
+
+CREATE VIEW api.brackets AS
+SELECT id, season_id, kind, division_id, lower_division_id, spots, status, created_at, completed_at
+FROM public.brackets;
+
+CREATE VIEW api.bracket_entries AS
+SELECT bracket_id, team_id, seed, source_division_id FROM public.bracket_entries;
+
+CREATE VIEW api.series AS
+SELECT id, bracket_id, round, position, team1_id, team2_id, team1_seed, team2_seed, best_of,
+       team1_wins, team2_wins, winner_id, loser_id, forced_winner_id IS NOT NULL AS forfeit, status,
+       winner_to, winner_slot, loser_to, loser_slot
+FROM public.series;
+
+CREATE VIEW api.season_movements AS
+SELECT season_id, team_id, from_division_id, to_division_id, reason, applied FROM public.season_movements;
+
+REVOKE ALL ON SCHEMA api FROM PUBLIC;
+GRANT USAGE ON SCHEMA api TO anon, authenticated, service_role;
+GRANT SELECT ON ALL TABLES IN SCHEMA api TO anon, authenticated, service_role;
+
 COMMIT;
