@@ -2,13 +2,19 @@
 
 NBLBot is a Discord bot for managing National Bobble League divisions (NBL, MBL, NCBA). It includes commands for stats, transactions, and admin operations.
 
+### Divisions and draft picks
+
+- This is a single-server bot: one Discord server can run NBL, MBL, and NCBA at the same time.
+- Each division has its own active season, teams, and rosters. Team creation asks for the division.
+- **Draft picks are NBL-only by design.** `/picks`, pick trading, and `/admin_seed_picks populate_picks` use the active NBL season.
+
 ## 🚀 Quick Start
 
 ### Development Setup
 
 1. **Clone and setup environment**
    ```bash
-   git clone https://github.com/organpy/NBLBot.git
+   git clone https://github.com/organpy/repo.git NBLBot
    cd NBLBot
    python -m venv .venv
    source .venv/bin/activate  # Linux/Mac
@@ -43,7 +49,7 @@ NBLBot is a Discord bot for managing National Bobble League divisions (NBL, MBL,
 
 ```bash
 sudo useradd --system --home-dir /opt/nblbot --shell /usr/sbin/nologin nblbot
-sudo git clone https://github.com/organpy/NBLBot.git /opt/nblbot
+sudo git clone https://github.com/organpy/repo.git /opt/nblbot
 cd /opt/nblbot
 sudo python3.12 -m venv .venv
 sudo .venv/bin/pip install -r requirements.txt
@@ -189,7 +195,7 @@ nbl-bot/
 - ✅ **Error Handling**: Comprehensive error logging and user-friendly messages
 - ✅ **Cache Management**: In-memory caching for fast lookups
 - ✅ **Audit Logging**: All admin actions logged to database
-- ✅ **Test Coverage**: 330+ unit tests, integration test suite
+- ✅ **Test Coverage**: 340+ unit tests, integration test suite
 
 ## 📊 Commands
 
