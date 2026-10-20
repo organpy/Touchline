@@ -26,6 +26,7 @@ from utils.embed_assets import (
 from utils.team_colors import get_team_color
 from db.db_utils import execute_async
 from utils.league_cache import LeagueCache
+from utils.team_picker import team_select_for
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -177,21 +178,7 @@ class ForceSignView(discord.ui.View):
             )
             return
 
-        team_select = discord.ui.Select(
-            placeholder="Select team...",
-            min_values=1,
-            max_values=1,
-            options=[
-                discord.SelectOption(
-                    label=f"{t.get('name', 'Unknown')} ({t.get('code', '?')})",
-                    value=t.get('id', ''),
-                )
-                for t in sorted(self._teams, key=lambda x: x.get('code', ''))
-            ],
-            row=0,
-        )
-        team_select.callback = self.select_team
-        self.add_item(team_select)
+        self.add_item(team_select_for(self._teams, on_pick=self.select_team, placeholder="Select team...", row=0))
 
     async def select_team(self, interaction: discord.Interaction) -> None:
         """Handle team selection."""
@@ -711,21 +698,12 @@ class ForceTransferView(LazyInitView):
                     await interaction.followup.send("❌ No other teams available.", ephemeral=True)
                     return
 
-                team_select = discord.ui.Select(
+                team_select = team_select_for(
+                    available_teams,
+                    on_pick=self.select_destination_team,
                     placeholder="Select destination team...",
-                    min_values=1,
-                    max_values=1,
-                    options=[
-                        discord.SelectOption(
-                            label=t.get('name', 'Unknown')[:100],
-                            value=t.get('id', ''),
-                            description=t.get('code', '?'),
-                        )
-                        for t in sorted(available_teams, key=lambda x: x.get('code', ''))[:25]
-                    ],
                     row=0,
                 )
-                team_select.callback = self.select_destination_team
                 view = discord.ui.View()
                 view.add_item(team_select)
 
@@ -916,21 +894,7 @@ class BlacklistView(discord.ui.View):
             )
             return
 
-        team_select = discord.ui.Select(
-            placeholder="Select team...",
-            min_values=1,
-            max_values=1,
-            options=[
-                discord.SelectOption(
-                    label=f"{t.get('name', 'Unknown')} ({t.get('code', '?')})",
-                    value=t.get('id', ''),
-                )
-                for t in sorted(self._teams, key=lambda x: x.get('code', ''))
-            ],
-            row=0,
-        )
-        team_select.callback = self.select_team
-        self.add_item(team_select)
+        self.add_item(team_select_for(self._teams, on_pick=self.select_team, placeholder="Select team...", row=0))
 
     async def select_team(self, interaction: discord.Interaction) -> None:
         """Handle team selection and show blacklist actions."""
@@ -1159,22 +1123,9 @@ class ViewRosterView(LazyInitView):
             self.add_item(empty_select)
             return
 
-        team_select = discord.ui.Select(
-            placeholder="Select team to view roster...",
-            min_values=1,
-            max_values=1,
-            options=[
-                discord.SelectOption(
-                    label=t.get('name', 'Unknown')[:100],
-                    value=t.get('id', ''),
-                    description=t.get('code', '?'),
-                )
-                for t in sorted(teams, key=lambda x: x.get('code', ''))[:25]
-            ],
-            row=0,
-        )
-        team_select.callback = self.view_team_roster
-        self.add_item(team_select)
+        self.add_item(team_select_for(
+            teams, on_pick=self.view_team_roster, placeholder="Select team to view roster...", row=0,
+        ))
 
     async def view_team_roster(self, interaction: discord.Interaction) -> None:
         """Show roster for team."""

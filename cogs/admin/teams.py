@@ -16,6 +16,7 @@ from utils.team_player_cache import TeamPlayerCache
 from db.db_utils import execute_async
 from db.league_repository import LeagueRepository, LeagueRuleError, friendly_error
 from utils.league_cache import LeagueCache
+from utils.team_picker import team_select_for
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -241,22 +242,14 @@ class SetTeamOwnerView(LazyInitView):
             self.add_item(team_select)
             return
 
-        team_select = discord.ui.Select(
+        self.add_item(team_select_for(
+            teams,
+            on_pick=self.select_team_callback,
+            value_key='code',
             placeholder="Select a team...",
-            min_values=1,
-            max_values=1,
-            options=[
-                discord.SelectOption(
-                    label=t.get('name', 'Unknown')[:100],
-                    value=t.get('code', '?'),
-                    description=f"Owner: {t.get('owner_discord_id', 'Unassigned')}",
-                )
-                for t in sorted(teams, key=lambda x: x.get('code', ''))[:25]
-            ],
             row=0,
-        )
-        team_select.callback = self.select_team_callback
-        self.add_item(team_select)
+            describe=lambda t: f"Owner: {t.get('owner_discord_id') or 'Unassigned'}",
+        ))
 
     async def select_team_callback(self, interaction: discord.Interaction) -> None:
         """Handle team selection."""
@@ -412,21 +405,13 @@ class EditTeamDetailsView(LazyInitView):
             self.add_item(empty_select)
             return
 
-        team_select = discord.ui.Select(
+        self.add_item(team_select_for(
+            teams,
+            on_pick=self.select_team_callback,
+            value_key='code',
             placeholder="Select a team to edit...",
-            min_values=1,
-            max_values=1,
-            options=[
-                discord.SelectOption(
-                    label=t.get('name', 'Unknown')[:100],
-                    value=t.get('code', '?'),
-                )
-                for t in sorted(teams, key=lambda x: x.get('code', ''))[:25]
-            ],
             row=0,
-        )
-        team_select.callback = self.select_team_callback
-        self.add_item(team_select)
+        ))
 
     async def select_team_callback(self, interaction: discord.Interaction) -> None:
         """Handle team selection for editing."""
@@ -524,22 +509,14 @@ class DeleteTeamView(LazyInitView):
             self.add_item(empty_select)
             return
 
-        team_select = discord.ui.Select(
+        self.add_item(team_select_for(
+            teams,
+            on_pick=self.select_team_callback,
+            value_key='code',
             placeholder="Select a team to DELETE...",
-            min_values=1,
-            max_values=1,
-            options=[
-                discord.SelectOption(
-                    label=t.get('name', 'Unknown')[:100],
-                    value=t.get('code', '?'),
-                    description="⚠️ DELETION IS PERMANENT",
-                )
-                for t in sorted(teams, key=lambda x: x.get('code', ''))[:25]
-            ],
             row=0,
-        )
-        team_select.callback = self.select_team_callback
-        self.add_item(team_select)
+            describe=lambda t: "⚠️ DELETION IS PERMANENT",
+        ))
 
     async def select_team_callback(self, interaction: discord.Interaction) -> None:
         """Handle team selection for deletion."""
