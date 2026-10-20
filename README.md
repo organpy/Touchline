@@ -131,6 +131,10 @@ The bot includes HTTP endpoints for monitoring:
 
 Configure the port with `HEALTH_CHECK_PORT` (default: 8080) and the bind address with `HEALTH_CHECK_HOST` (default: `127.0.0.1`; use `0.0.0.0` when probed from outside the host or container).
 
+### Error Alerts
+
+Set `ERROR_WEBHOOK_URL` to a Discord webhook (channel settings → Integrations → Webhooks) and every ERROR log, plus any crash that stops the bot, is posted to that channel. Posts never ping anyone and are limited to 10 per minute; the next post says how many were suppressed.
+
 ### Slash Command Sync
 
 On startup the bot syncs slash commands to Discord only when their definitions changed since the last successful sync, tracked in `data/.command_sync_hash`. Delete that file to force a sync on the next boot.
