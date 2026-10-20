@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 from db import queries
 from db.league_repository import LeagueRepository, LeagueRuleError, run
 from services.standings import refresh_after_match
+from utils import board_events
 from utils.league_cache import LeagueCache
 
 STAGE_LABELS = {
@@ -129,6 +130,7 @@ async def record_match(supabase: Any, match_entry: Any) -> tuple:
     match = response.data[0]
     if context.stage == "regular":
         await refresh_after_match(supabase, context.season["id"], match.get("division_id") or context.division_id)
+    board_events.league_changed()
     return match, context
 
 
@@ -138,3 +140,4 @@ async def void_match(supabase: Any, match: Dict[str, Any], voided_by: int) -> No
     await repo.void_match(match["id"], voided_by)
     if match.get("stage", "regular") == "regular":
         await refresh_after_match(supabase, match.get("season_id"), match.get("division_id"))
+    board_events.league_changed()
