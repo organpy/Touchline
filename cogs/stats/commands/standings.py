@@ -18,10 +18,17 @@ from cogs.stats.autocomplete import (
     _league_autocomplete,
     _season_autocomplete,
 )
+from services.standings import ZONE_EMOJI, ZONE_LABELS
 from utils.league_cache import LeagueCache
 from utils.standings_image_generator import generate_simple_standings_image
 
 logger = logging.getLogger(__name__)
+
+
+def zone_legend(rows: List[Dict[str, Any]]) -> str:
+    """One line explaining the zone colours that appear in these standings."""
+    present = [zone for zone in ZONE_LABELS if any(row.get('zone') == zone for row in rows)]
+    return " · ".join(f"{ZONE_EMOJI[zone]} {ZONE_LABELS[zone]}" for zone in present)
 
 
 class StandingsCog(StatsCogBase):
@@ -89,9 +96,10 @@ class StandingsCog(StatsCogBase):
             else:
                 text_blocks.append(self._text_table(rows, division_display, season_row))
 
+        legend = zone_legend(standings_data)
         # Discord allows 10 attachments per message.
         for start in range(0, len(files), 10):
-            await interaction.followup.send(files=files[start:start + 10])
+            await interaction.followup.send(content=legend if start == 0 and legend else None, files=files[start:start + 10])
         for block in text_blocks:
             await interaction.followup.send(block)
 
@@ -123,10 +131,11 @@ class StandingsCog(StatsCogBase):
         lines.append("-" * 40)
         for row in rows:
             name = (row.get('team_name') or '?')[:10].ljust(10)
+            zone = ZONE_EMOJI.get(row.get('zone'), '')
             diff = row.get('point_diff', 0)
             lines.append(
                 f"{row.get('rank', '?'):<2} {name} {row.get('wins', 0):>2} {row.get('losses', 0):>2} "
-                f"{row.get('points_for', 0):>4} {row.get('points_against', 0):>4} {diff:>+5d}"
+                f"{row.get('points_for', 0):>4} {row.get('points_against', 0):>4} {diff:>+5d} {zone}"
             )
         lines.append("```")
         return "\n".join(lines)
