@@ -224,3 +224,48 @@ def test_logo_normalised_to_square_png():
     assert image.size == (512, 512)
     with pytest.raises(LogoError):
         normalize_logo(b"not an image")
+
+
+@pytest.mark.asyncio
+async def test_section_shortcut_opens_on_top_of_home():
+    from cogs.dashboard.transactions import TransactionsPage
+
+    interaction = make_interaction()
+    interaction.guild = Mock(id=99)
+    with patch.object(dashboard, "check_dashboard_access", AsyncMock(return_value=True)), patch.object(
+        dashboard, "get_supabase", return_value=Mock()
+    ):
+        session = await dashboard.open_dashboard(Mock(), interaction, TransactionsPage)
+    assert [type(p).__name__ for p in session.stack] == ["HomePage", "TransactionsPage"]
+    view = interaction.response.send_message.await_args.kwargs["view"]
+    assert "Back" in labels(view) and "Rosters" in labels(view)
+
+
+@pytest.mark.asyncio
+async def test_season_page_offers_create_only_without_a_season():
+    from cogs.dashboard.season import SeasonPage
+
+    session = make_session()
+    page = SeasonPage(session)
+    session.stack.extend([HomePage(session), page])
+    with patch.object(LeagueCache, "load_season_teams", AsyncMock()):
+        embed = await page.render()
+    assert "Season 1" in embed.description
+    assert "Create season" not in labels(page)
+
+    LeagueCache.load_snapshot(seasons=[], divisions=[])
+    await page.render()
+    assert "Create season" in labels(page)
+
+
+def test_settings_channels_read_and_write_nested_keys():
+    from cogs.dashboard.settings import read_channel, write_channel
+
+    config = {"trading": "broken"}
+    write_channel(config, "trading", "123")
+    write_channel(config, "announcements", "456")
+    assert config["trading"] == {"channel_id": "123"}
+    assert read_channel(config, "trading") == "123"
+    assert read_channel(config, "announcements") == "456"
+    write_channel(config, "announcements", None)
+    assert read_channel(config, "announcements") is None

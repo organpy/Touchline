@@ -64,10 +64,16 @@ class HomePage(DashboardPage):
 
     def build(self) -> None:
         from .divisions import DivisionsPage
+        from .season import SeasonPage
+        from .settings import SettingsPage
         from .teams import TeamsPage
+        from .transactions import TransactionsPage
 
+        self.button("Season", self._nav(SeasonPage), emoji="📅", style=discord.ButtonStyle.primary, row=0)
         self.button("Divisions", self._nav(DivisionsPage), emoji="🏟️", style=discord.ButtonStyle.primary, row=0)
         self.button("Teams", self._nav(TeamsPage), emoji="🛡️", style=discord.ButtonStyle.primary, row=0)
+        self.button("Transactions", self._nav(TransactionsPage), emoji="💼", row=1)
+        self.button("Settings", self._nav(SettingsPage), emoji="⚙️", row=1)
         self.button("Refresh", self._refresh, emoji="🔄", row=3)
 
     def _nav(self, page_class: Any):
