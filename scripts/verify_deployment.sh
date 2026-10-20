@@ -1,10 +1,10 @@
 #!/bin/bash
-# NBLBot Pre-Deployment Verification Script
+# Touchline Pre-Deployment Verification Script
 # Run this before deploying to production
 
 set -e  # Exit on any error
 
-echo "🚀 NBLBot Pre-Deployment Verification"
+echo "🚀 Touchline Pre-Deployment Verification"
 echo "======================================"
 echo ""
 

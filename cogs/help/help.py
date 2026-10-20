@@ -83,7 +83,7 @@ class HelpView(discord.ui.View):
         if self.current_category is None:
             # Show category selection
             embed = discord.Embed(
-                title="📚 NBLBot Command Categories",
+                title="📚 Touchline Command Categories",
                 description="Select a category to view commands. Use `/help search:<keyword>` to find specific commands.",
                 color=discord.Color.blurple()
             )
@@ -446,7 +446,7 @@ class HelpCog(commands.Cog):
         categories = self.categorize_commands()
         view = HelpView(self.bot, categories)
         embed = discord.Embed(
-            title="📚 NBLBot Command Help",
+            title="📚 Touchline Command Help",
             description="Select a category to browse commands using the buttons below.",
             color=discord.Color.blurple()
         )

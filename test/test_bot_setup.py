@@ -14,7 +14,7 @@ import bot as bot_module  # noqa: E402
 @pytest.fixture
 def nbl_bot():
     with patch.object(bot_module, 'get_supabase', return_value=Mock()):
-        yield bot_module.NBLBot()
+        yield bot_module.TouchlineBot()
 
 
 def test_commands_are_server_only(nbl_bot):

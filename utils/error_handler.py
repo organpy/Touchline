@@ -1,5 +1,5 @@
 """
-Centralized error handling for NBLBot commands.
+Centralized error handling for Touchline commands.
 Provides standard error messages with contextual suggestions.
 """
 

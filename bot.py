@@ -48,8 +48,8 @@ if not DISCORD_TOKEN:
 # BOT CLASS
 # ============================================================================
 
-class NBLBot(commands.Bot):
-    """Main NBL Bot class with auto-cog discovery"""
+class TouchlineBot(commands.Bot):
+    """Main Touchline bot class with auto-cog discovery"""
 
     def __init__(self):
         intents = discord.Intents.default()
@@ -282,7 +282,7 @@ def install_shutdown_handlers(bot: commands.Bot) -> None:
 
 async def main():
     """Main entry point"""
-    bot = NBLBot()
+    bot = TouchlineBot()
 
     async with bot:
         install_shutdown_handlers(bot)
