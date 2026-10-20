@@ -21,7 +21,8 @@ from utils.team_player_cache import TeamPlayerCache
 from db.db_utils import execute_async
 from utils.league_cache import LeagueCache
 from utils.team_picker import TeamSelect, entries_from_cached_teams
-from services.standings import refresh_after_match
+from services.reporting import STAGE_LABELS, record_match, resolve_match_context
+from db.league_repository import LeagueRuleError
 
 logger = logging.getLogger(__name__)
 
@@ -399,42 +400,26 @@ class BulkStatsCog(commands.Cog):
                 'team2_score': 0,
             }
             
-            # Show match history before entering scores
-            # Resolve active season for division
-            season = await queries.get_active_season(self.supabase, division_id=team1.division_id)
-            if not season:
-                await teams_interaction.response.send_message("❌ There is no active season.", ephemeral=True)
+            # Where would this game count? (regular season limit, or the open playoff series)
+            try:
+                context = await resolve_match_context(self.supabase, team1.team_id, team2.team_id)
+            except LeagueRuleError as exc:
+                self.active_entries.pop(interaction.user.id, None)
+                await teams_interaction.response.send_message(f"❌ {exc.message}", ephemeral=True)
                 return
-
-            matches = await queries.get_matches_between_teams(self.supabase, season['id'], team1.team_id, team2.team_id)
-            played = len(matches)
-            # Games per pairing is a division rule (Dashboard → Divisions → Rules)
-            max_games = LeagueCache.settings(team1.division_id).games_per_matchup if team1.division_id else None
-
-            desc_lines = [
-                f"**{team1.name}** vs **{team2.name}**",
-            ]
-            desc_lines.append(f"Limit: **{max_games or '—'}** • Played: **{played}**")
-            if matches:
-                for m in matches[:10]:
-                    t1 = m.get('team1_score', 0)
-                    t2 = m.get('team2_score', 0)
-                    desc_lines.append(f"• {t1} - {t2} ({m.get('status','final')})")
 
             embed = discord.Embed(
                 title="📜 Head-to-Head",
-                description="\n".join(desc_lines),
+                description="\n".join(context.summary_lines(team1.team_id, team1.name, team2.name)),
                 color=discord.Color.blurple()
             )
 
             view = discord.ui.View(timeout=180)
 
             async def proceed(btn_interaction: discord.Interaction):
-                # Block if at or over the games limit
-                effective_limit = max_games
-                if effective_limit and played >= effective_limit:
+                if context.at_limit:
                     await btn_interaction.response.send_message(
-                        f"⚠️ All {effective_limit} games between these teams are already recorded.",
+                        f"⚠️ All {context.games_limit} games between these teams are already recorded.",
                         ephemeral=True
                     )
                     return
@@ -579,17 +564,6 @@ class BulkStatsCog(commands.Cog):
             team1 = entry['team1']
             team2 = entry['team2']
             
-            # Verify teams are in same division
-            if not team1.division_id or not team2.division_id or team1.division_id != team2.division_id:
-                await interaction.followup.send("❌ Teams must be in the same division.", ephemeral=True)
-                return
-            
-            # Get active season for this division
-            season = await queries.get_active_season(self.supabase, division_id=team1.division_id)
-            if not season:
-                await interaction.followup.send("❌ No active season found for this division.", ephemeral=True)
-                return
-            
             # Build match entry
             match_entry = MatchEntry(
                 team1=TeamMatchEntry(
@@ -614,16 +588,13 @@ class BulkStatsCog(commands.Cog):
             for stat in entry['team2_stats']:
                 match_entry.team2.add_player_stats(stat)
             
-            # Insert match - use the team's division_id
-            match_data = match_entry.to_supabase_match(season['id'], team1.division_id)
-            match_response = await execute_async(self.supabase.table('matches').insert(match_data))
-            
-            if not match_response.data:
-                await interaction.followup.send("❌ Failed to insert match.", ephemeral=True)
+            # Checks the phase/limit/series, inserts the game and refreshes standings
+            try:
+                match_row, context = await record_match(self.supabase, match_entry)
+            except LeagueRuleError as exc:
+                await interaction.followup.send(f"❌ {exc.message}", ephemeral=True)
                 return
-            
-            match_id = match_response.data[0]['id']
-            await refresh_after_match(self.supabase, season['id'], match_response.data[0].get('division_id') or team1.division_id)
+            match_id = match_row['id']
             
             # Insert player stats
             player_stats = match_entry.to_supabase_player_stats(match_id)
@@ -636,7 +607,7 @@ class BulkStatsCog(commands.Cog):
             # Success
             embed = discord.Embed(
                 title="✅ Match Saved!",
-                description=f"Match ID: `{match_id}`",
+                description=f"Match ID: `{match_id}` · {STAGE_LABELS.get(context.stage, context.stage)}",
                 color=discord.Color.green()
             )
             embed.add_field(
@@ -770,35 +741,22 @@ class BulkStatsCog(commands.Cog):
                 'score_only': True,
             }
             
-            # Show head-to-head preview and block if all scheduled played
-            season = await queries.get_active_season(self.supabase, division_id=team1.division_id)
-            if not season:
-                await teams_interaction.response.send_message("❌ There is no active season.", ephemeral=True)
+            # Where would this game count? (regular season limit, or the open playoff series)
+            try:
+                context = await resolve_match_context(self.supabase, team1.team_id, team2.team_id)
+            except LeagueRuleError as exc:
+                self.active_entries.pop(interaction.user.id, None)
+                await teams_interaction.response.send_message(f"❌ {exc.message}", ephemeral=True)
                 return
 
-            matches = await queries.get_matches_between_teams(self.supabase, season['id'], team1.team_id, team2.team_id)
-            played = len(matches)
-            # Games per pairing is a division rule (Dashboard → Divisions → Rules)
-            max_games = LeagueCache.settings(team1.division_id).games_per_matchup if team1.division_id else None
-
-            lines = [
-                f"**{team1.name}** vs **{team2.name}**",
-            ]
-            lines.append(f"Limit: **{max_games or '—'}** • Played: **{played}**")
-            for m in matches[:10]:
-                t1 = m.get('team1_score', 0)
-                t2 = m.get('team2_score', 0)
-                lines.append(f"• {t1} - {t2} ({m.get('status','final')})")
-
+            lines = context.summary_lines(team1.team_id, team1.name, team2.name)
             embed = discord.Embed(title="📜 Head-to-Head", description="\n".join(lines), color=discord.Color.blurple())
             view = discord.ui.View(timeout=180)
 
             async def proceed(btn_interaction: discord.Interaction):
-                # Block if at or over the games limit
-                effective_limit = max_games
-                if effective_limit and played >= effective_limit:
+                if context.at_limit:
                     await btn_interaction.response.send_message(
-                        f"⚠️ All {effective_limit} games between these teams are already recorded.",
+                        f"⚠️ All {context.games_limit} games between these teams are already recorded.",
                         ephemeral=True
                     )
                     return
@@ -833,17 +791,6 @@ class BulkStatsCog(commands.Cog):
             team1 = entry['team1']
             team2 = entry['team2']
             
-            # Verify teams are in same division
-            if not team1.division_id or not team2.division_id or team1.division_id != team2.division_id:
-                await interaction.followup.send("❌ Teams must be in the same division.", ephemeral=True)
-                return
-            
-            # Get active season for this division
-            season = await queries.get_active_season(self.supabase, division_id=team1.division_id)
-            if not season:
-                await interaction.followup.send("❌ No active season found for this division.", ephemeral=True)
-                return
-            
             # Build match entry (no player stats)
             match_entry = MatchEntry(
                 team1=TeamMatchEntry(
@@ -862,22 +809,19 @@ class BulkStatsCog(commands.Cog):
                 )
             )
             
-            # Insert match - use the team's division_id
-            match_data = match_entry.to_supabase_match(season['id'], team1.division_id)
-            match_response = await execute_async(self.supabase.table('matches').insert(match_data))
-            
-            if not match_response.data:
-                await interaction.followup.send("❌ Failed to insert match.", ephemeral=True)
+            # Checks the phase/limit/series, inserts the game and refreshes standings
+            try:
+                match_row, context = await record_match(self.supabase, match_entry)
+            except LeagueRuleError as exc:
+                await interaction.followup.send(f"❌ {exc.message}", ephemeral=True)
                 return
-            
-            match_id = match_response.data[0]['id']
-            await refresh_after_match(self.supabase, season['id'], match_response.data[0].get('division_id') or team1.division_id)
+            match_id = match_row['id']
             
             # Success
             winner = team1.name if score1 > score2 else team2.name
             embed = discord.Embed(
                 title="✅ Score Recorded!",
-                description=f"Match ID: `{match_id}`",
+                description=f"Match ID: `{match_id}` · {STAGE_LABELS.get(context.stage, context.stage)}",
                 color=discord.Color.green()
             )
             embed.add_field(

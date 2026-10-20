@@ -65,6 +65,7 @@ class HomePage(DashboardPage):
 
     def build(self) -> None:
         from .divisions import DivisionsPage
+        from .matches import MatchesPage
         from .playoffs import PlayoffsPage
         from .season import SeasonPage
         from .settings import SettingsPage
@@ -74,6 +75,7 @@ class HomePage(DashboardPage):
         self.button("Season", self._nav(SeasonPage), emoji="📅", style=discord.ButtonStyle.primary, row=0)
         self.button("Divisions", self._nav(DivisionsPage), emoji="🏟️", style=discord.ButtonStyle.primary, row=0)
         self.button("Teams", self._nav(TeamsPage), emoji="🛡️", style=discord.ButtonStyle.primary, row=0)
+        self.button("Matches", self._nav(MatchesPage), emoji="🏀", row=1)
         self.button("Playoffs", self._nav(PlayoffsPage), emoji="🏆", row=1)
         self.button("Transactions", self._nav(TransactionsPage), emoji="💼", row=1)
         self.button("Settings", self._nav(SettingsPage), emoji="⚙️", row=1)
