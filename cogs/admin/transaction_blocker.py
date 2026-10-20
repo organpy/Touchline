@@ -15,6 +15,7 @@ from utils.team_player_cache import TeamPlayerCache
 from utils.config_manager import get_config_manager
 from utils.config_utility import ConfigUtility
 from db.db_utils import execute_async
+from utils.league_cache import LeagueCache
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -53,20 +54,15 @@ class TransactionBlockerPaginatedView(discord.ui.View):
                 divisions_dict[div_id] = []
             divisions_dict[div_id].append(team)
 
-        # Convert to list of divisions
-        for div_id, teams in divisions_dict.items():
-            div_name = "Unknown Division"
-            if teams:
-                div_name = teams[0].get("league_name", "Unknown Division")
+        # Convert to list of divisions, in tier order (unassigned teams last)
+        def tier(div_id: Optional[str]) -> int:
+            return (LeagueCache.division(div_id) or {}).get("tier") or 10_000
 
+        for div_id in sorted(divisions_dict, key=tier):
+            teams = divisions_dict[div_id]
+            div_name = (LeagueCache.division(div_id) or {}).get("name") or "Unassigned"
             sorted_teams = sorted(teams, key=lambda t: t.get("code", ""))
-            self.divisions.append(
-                {
-                    "id": div_id,
-                    "name": div_name,
-                    "teams": sorted_teams,
-                }
-            )
+            self.divisions.append({"id": div_id, "name": div_name, "teams": sorted_teams})
 
         self.total_pages = max(1, len(self.divisions))
         self.setup_buttons()

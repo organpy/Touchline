@@ -1,6 +1,6 @@
 """
-Unit tests for draft pick system - NBL-only, safe trading
-Tests admin operations: seed, reassign, view
+Unit tests for draft pick trading: picks exist only in divisions with ``picks_enabled`` and only
+change hands inside that division.
 """
 
 import pytest
@@ -8,16 +8,17 @@ from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime
 
 from cogs.transactions.pick_trading import (
-    get_nbl_division,
-    validate_nbl_season,
+    picks_enabled_for_division,
+    picks_division_for_team,
     get_available_picks_for_team,
     transfer_pick_ownership,
     get_pick_details,
     validate_picks_for_trade,
     format_pick,
     create_pick_label,
-    NBL_LEAGUE_TYPE
 )
+from cogs.transactions.trade_utils import can_trade_picks
+from utils.league_cache import LeagueCache
 
 
 # ============================================================================
@@ -30,48 +31,23 @@ def mock_supabase():
     return Mock()
 
 
-@pytest.fixture
-def nbl_division():
-    """NBL division data"""
-    return {
-        'id': 'div-nbl',
-        'league_type': 'NBL',
-        'name': 'NBL Prime',
-        'metadata': {}
-    }
-
-
-@pytest.fixture
-def mbl_division():
-    """MBL division data"""
-    return {
-        'id': 'div-mbl',
-        'league_type': 'MBL',
-        'name': 'MBL Prime',
-        'metadata': {}
-    }
-
-
-@pytest.fixture
-def nbl_season():
-    """NBL season data"""
-    return {
-        'id': 'season-nbl-s10',
-        'division_id': 'div-nbl',
-        'name': 'S10',
-        'active': True
-    }
-
-
-@pytest.fixture
-def mbl_season():
-    """MBL season data"""
-    return {
-        'id': 'season-mbl-s1',
-        'division_id': 'div-mbl',
-        'name': 'S1',
-        'active': True
-    }
+@pytest.fixture(autouse=True)
+def league():
+    """D1 runs a draft, D2 doesn't; teams a/b play in D1 and c in D2 this season."""
+    LeagueCache.load_snapshot(
+        seasons=[{'id': 'season-1', 'number': 1, 'name': 'Season 1', 'active': True, 'phase': 'regular'}],
+        divisions=[
+            {'id': 'div-1', 'code': 'D1', 'name': 'Premier', 'tier': 1, 'settings': {'picks_enabled': True}},
+            {'id': 'div-2', 'code': 'D2', 'name': 'Championship', 'tier': 2, 'settings': {}},
+        ],
+        assignments={'season-1': [
+            {'team_id': 'team-a', 'division_id': 'div-1', 'group_id': None},
+            {'team_id': 'team-b', 'division_id': 'div-1', 'group_id': None},
+            {'team_id': 'team-c', 'division_id': 'div-2', 'group_id': None},
+        ]},
+    )
+    yield
+    LeagueCache.invalidate()
 
 
 @pytest.fixture
@@ -81,7 +57,7 @@ def team_a():
         'id': 'team-a',
         'code': 'PANDAS',
         'name': 'Pandas',
-        'division_id': 'div-nbl'
+        'division_id': 'div-1'
     }
 
 
@@ -92,7 +68,7 @@ def team_b():
         'id': 'team-b',
         'code': 'LIONS',
         'name': 'Lions',
-        'division_id': 'div-nbl'
+        'division_id': 'div-1'
     }
 
 
@@ -101,7 +77,7 @@ def draft_pick_r1p1():
     """Draft pick R1P1"""
     return {
         'id': 'pick-r1p1',
-        'season_id': 'season-nbl-s10',
+        'season_id': 'season-1',
         'round': 1,
         'overall': 1,
         'original_team_id': 'team-a',
@@ -116,7 +92,7 @@ def draft_pick_r1p2():
     """Draft pick R1P2"""
     return {
         'id': 'pick-r1p2',
-        'season_id': 'season-nbl-s10',
+        'season_id': 'season-1',
         'round': 1,
         'overall': 2,
         'original_team_id': 'team-b',
@@ -127,83 +103,31 @@ def draft_pick_r1p2():
 
 
 # ============================================================================
-# Tests: NBL Division Validation
+# Tests: which divisions run a draft
 # ============================================================================
 
-class TestGetNBLDivision:
-    """Test getting NBL division"""
+class TestPicksEnabled:
+    def test_division_setting_decides(self):
+        assert picks_enabled_for_division('div-1') is True
+        assert picks_enabled_for_division('div-2') is False
+        assert picks_enabled_for_division('missing') is False
+        assert picks_enabled_for_division(None) is False
+
+    def test_team_division_with_draft(self):
+        assert picks_division_for_team('team-a')['code'] == 'D1'
+        assert picks_division_for_team('team-c') is None
+        assert picks_division_for_team('team-unassigned') is None
 
     @pytest.mark.asyncio
-    async def test_get_nbl_division_success(self, mock_supabase, nbl_division):
-        """Test successfully getting NBL division"""
-        mock_supabase.table().select().eq().limit().execute.return_value = Mock(
-            data=[nbl_division]
-        )
-
-        result = await get_nbl_division(mock_supabase)
-
-        assert result is not None
-        assert result['league_type'] == 'NBL'
-        assert result['id'] == 'div-nbl'
-
-    @pytest.mark.asyncio
-    async def test_get_nbl_division_not_found(self, mock_supabase):
-        """Test NBL division not found"""
-        mock_supabase.table().select().eq().limit().execute.return_value = Mock(data=[])
-
-        result = await get_nbl_division(mock_supabase)
-
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_get_nbl_division_error(self, mock_supabase):
-        """Test error getting NBL division"""
-        mock_supabase.table().select().eq().limit().execute.side_effect = Exception("DB error")
-
-        result = await get_nbl_division(mock_supabase)
-
-        assert result is None
-
-
-class TestValidateNBLSeason:
-    """Test NBL season validation"""
-
-    @pytest.mark.asyncio
-    async def test_validate_nbl_season_success(self, mock_supabase, nbl_season, nbl_division):
-        """Test season is valid NBL"""
-        # First call returns season
-        mock_supabase.table().select().eq().limit().execute.return_value = Mock(
-            data=[nbl_season]
-        )
-        
-        result = await validate_nbl_season(mock_supabase, 'season-nbl-s10')
-        
-        # Season should be found and division should match
-        assert result is True or result is False  # Result depends on second call
-
-    @pytest.mark.asyncio
-    async def test_validate_nbl_season_not_found(self, mock_supabase):
-        """Test season not found"""
-        mock_supabase.table().select().eq().limit().execute.return_value = Mock(data=[])
-
-        result = await validate_nbl_season(mock_supabase, 'invalid-season')
-
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_validate_nbl_season_error(self, mock_supabase):
-        """Test error validating season"""
-        mock_supabase.table().select().eq().limit().execute.side_effect = Exception("DB error")
-
-        result = await validate_nbl_season(mock_supabase, 'season-id')
-
-        assert result is False
+    async def test_can_trade_picks_only_inside_a_draft_division(self):
+        assert await can_trade_picks('div-1', 'div-1') is True
+        assert await can_trade_picks('div-2', 'div-2') is False
+        assert await can_trade_picks('div-1', 'div-2') is False
+        assert await can_trade_picks(None, None) is False
 
 
 # ============================================================================
-# Tests: Pick Operations
-# ============================================================================
-
+# Tests: Pick queries
 class TestGetAvailablePicksForTeam:
     """Test fetching team's available picks"""
 
@@ -217,7 +141,7 @@ class TestGetAvailablePicksForTeam:
         picks = await get_available_picks_for_team(
             mock_supabase,
             'team-a',
-            'season-nbl-s10'
+            'season-1'
         )
 
         assert len(picks) == 1
@@ -231,7 +155,7 @@ class TestGetAvailablePicksForTeam:
         picks = await get_available_picks_for_team(
             mock_supabase,
             'team-unknown',
-            'season-nbl-s10'
+            'season-1'
         )
 
         assert picks == []
@@ -244,7 +168,7 @@ class TestGetAvailablePicksForTeam:
         picks = await get_available_picks_for_team(
             mock_supabase,
             'team-a',
-            'season-nbl-s10'
+            'season-1'
         )
 
         assert picks == []
@@ -323,41 +247,52 @@ class TestGetPickDetails:
 # ============================================================================
 
 class TestValidatePicksForTrade:
-    """Test pre-trade validation"""
+    """Pre-trade validation"""
+
+    @staticmethod
+    def _pick(**overrides):
+        pick = {'id': 'pick-1', 'season_id': 'season-1', 'division_id': 'div-1',
+                'current_owner_team_id': 'team-a', 'overall': 1}
+        pick.update(overrides)
+        return pick
 
     @pytest.mark.asyncio
-    async def test_validate_picks_all_valid(self, mock_supabase):
-        """Test validation with all valid picks"""
-        # Mock: season is NBL
-        mock_supabase.table().select().eq().limit().execute.side_effect = [
-            Mock(data=[{'division_id': 'div-nbl'}]),  # validate_nbl_season
-            Mock(data=[{'id': 'pick-r1p1', 'current_owner_team_id': 'team-a'}]),  # get_pick_details
-        ]
-
-        valid, message = await validate_picks_for_trade(
-            mock_supabase,
-            ['pick-r1p1'],
-            'team-a',
-            'season-nbl-s10'
-        )
-
-        # Result depends on mock setup, but should call validation
-        assert isinstance(valid, bool)
-        assert isinstance(message, str)
+    async def test_valid_pick(self, mock_supabase):
+        with patch('cogs.transactions.pick_trading.get_pick_details', AsyncMock(return_value=self._pick())):
+            mock_supabase.table().select().eq().execute.return_value = Mock(data=[])
+            valid, message = await validate_picks_for_trade(mock_supabase, ['pick-1'], 'team-a', 'season-1')
+        assert valid is True, message
 
     @pytest.mark.asyncio
-    async def test_validate_picks_wrong_owner(self, mock_supabase):
-        """Test validation fails if team doesn't own pick"""
-        valid, message = await validate_picks_for_trade(
-            mock_supabase,
-            ['pick-r1p1'],
-            'team-b',  # Doesn't own it
-            'season-nbl-s10'
-        )
+    async def test_wrong_owner(self, mock_supabase):
+        with patch('cogs.transactions.pick_trading.get_pick_details', AsyncMock(return_value=self._pick())):
+            valid, message = await validate_picks_for_trade(mock_supabase, ['pick-1'], 'team-b', 'season-1')
+        assert valid is False
+        assert "doesn't own" in message
 
-        # Should fail validation
-        assert isinstance(valid, bool)
-        assert isinstance(message, str)
+    @pytest.mark.asyncio
+    async def test_division_without_draft(self, mock_supabase):
+        pick = self._pick(division_id='div-2', current_owner_team_id='team-c')
+        with patch('cogs.transactions.pick_trading.get_pick_details', AsyncMock(return_value=pick)):
+            valid, message = await validate_picks_for_trade(mock_supabase, ['pick-1'], 'team-c', 'season-1')
+        assert valid is False
+        assert "turned off" in message
+
+    @pytest.mark.asyncio
+    async def test_other_season(self, mock_supabase):
+        pick = self._pick(season_id='season-0')
+        with patch('cogs.transactions.pick_trading.get_pick_details', AsyncMock(return_value=pick)):
+            valid, message = await validate_picks_for_trade(mock_supabase, ['pick-1'], 'team-a', 'season-1')
+        assert valid is False
+
+    @pytest.mark.asyncio
+    async def test_pick_in_pending_trade(self, mock_supabase):
+        with patch('cogs.transactions.pick_trading.get_pick_details', AsyncMock(return_value=self._pick())):
+            mock_supabase.table().select().eq().execute.return_value = Mock(data=[{'id': 'proposal-1'}])
+            mock_supabase.table().select().eq().in_().limit().execute.return_value = Mock(data=[{'id': 'asset-1'}])
+            valid, message = await validate_picks_for_trade(mock_supabase, ['pick-1'], 'team-a', 'season-1')
+        assert valid is False
+        assert "pending trade" in message
 
 
 # ============================================================================

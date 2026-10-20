@@ -102,7 +102,7 @@ class TeamActionsView(discord.ui.View):
                 owner_mention = f"<@{team['owner_discord_id']}>" if team.get('owner_discord_id') else "Unassigned"
                 embed.add_field(
                     name=f"{team.get('emoji', '🏀')} {team.get('name', 'Unknown')} (`{team.get('code', '?')}`)",
-                    value=f"Owner: {owner_mention} | Division: {team.get('division_id', '?')}",
+                    value=f"Owner: {owner_mention} | Division: {team.get('league_type') or 'Unassigned'}",
                     inline=False,
                 )
 
@@ -166,7 +166,6 @@ class AddTeamModal(discord.ui.Modal, title="Add New Team"):
             result = await execute_async(self.supabase.table('teams').insert({
                 'name': team_name,
                 'code': team_code,
-                'division_id': None,  # Can be set later
                 'owner_discord_id': None,  # Can be set later
             }))
 

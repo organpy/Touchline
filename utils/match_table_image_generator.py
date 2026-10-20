@@ -15,6 +15,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 from utils.caching import TTLCache
 
+from utils.image_theme import division_color, tinted_theme
+
 logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -35,45 +37,6 @@ BASE_THEME = {
     "cell_border": (40, 50, 70, 255),
 }
 
-LEAGUE_THEME_OVERRIDES = {
-    "NBL": {
-        "canvas_gradient": ((45, 30, 18), (95, 60, 28)),
-        "card_bg": (52, 35, 20, 255),
-        "card_border": (111, 74, 38, 255),
-        "header_gradient": ((192, 142, 86), (126, 74, 33)),
-        "text_primary": (255, 250, 240, 255),
-        "text_muted": (236, 210, 160, 255),
-        "cell_win": (46, 125, 50, 255),
-        "cell_loss": (183, 28, 28, 255),
-        "cell_pending": (75, 55, 35, 255),
-        "cell_border": (100, 70, 40, 255),
-    },
-    "MBL": {
-        # Orange-based scheme anchored on #FF9602
-        "canvas_gradient": ((24, 12, 2), (68, 38, 6)),
-        # Header uses #FF9602 → deeper orange
-        "header_gradient": ((255, 150, 2), (191, 105, 2)),
-        # Card and borders lean into dark-orange rather than red-brown
-        "card_bg": (48, 30, 8, 255),
-        "card_border": (128, 78, 12, 255),
-        "cell_win": (56, 142, 60, 255),
-        "cell_loss": (211, 47, 47, 255),
-        # Pending and borders shifted to muted orange shades
-        "cell_pending": (82, 52, 14, 255),
-        "cell_border": (110, 72, 16, 255),
-    },
-    "NCBA": {
-        "canvas_gradient": ((5, 24, 24), (9, 58, 70)),
-        "header_gradient": ((0, 173, 181), (0, 119, 182)),
-        "card_bg": (14, 34, 44, 255),
-        "card_border": (22, 64, 78, 255),
-        "cell_win": (0, 150, 136, 255),
-        "cell_loss": (244, 67, 54, 255),
-        "cell_pending": (25, 50, 60, 255),
-        "cell_border": (35, 70, 85, 255),
-    },
-}
-
 MATCH_TABLE_CACHE_TTL_SECONDS = 600  # Increased from 120 to 600 for low-resource optimization
 
 
@@ -85,13 +48,9 @@ def _to_rgba(color: Tuple[int, ...]) -> Tuple[int, int, int, int]:
     raise ValueError("Color tuples must be length 3 or 4")
 
 
-def _get_theme(league_code: Optional[str]) -> Dict[str, Any]:
-    theme = {**BASE_THEME}
-    if league_code:
-        overrides = LEAGUE_THEME_OVERRIDES.get(league_code.upper())
-        if overrides:
-            theme.update(overrides)
-    return theme
+def _get_theme(league_code: Optional[str], accent_color: Optional[str] = None) -> Dict[str, Any]:
+    """Base theme tinted with the division's colour."""
+    return tinted_theme(BASE_THEME, accent_color or division_color(league_code))
 
 
 # Layout constants
@@ -113,6 +72,18 @@ GAMES_PER_MATCHUP_CONFIGS = {
     4: {"subcells": 4, "cell_height": 96, "layout": "vertical"},   # 4 games: 2 home, 2 away
     6: {"subcells": 6, "cell_height": 108, "layout": "grid"},     # 6 games: 3x2 grid (3 rows of 2)
 }
+
+
+def matchup_layout(games_per_matchup: int) -> Dict[str, Any]:
+    """Cell layout for any number of games per pairing (1-10): a vertical stack up to four games,
+    then a two-column grid."""
+    games = max(1, min(int(games_per_matchup or 2), 10))
+    if games in GAMES_PER_MATCHUP_CONFIGS:
+        return GAMES_PER_MATCHUP_CONFIGS[games]
+    if games == 1:
+        return {"subcells": 1, "cell_height": 70, "layout": "vertical"}
+    rows = (games + 1) // 2
+    return {"subcells": games, "cell_height": 36 * rows, "layout": "grid"}
 
 
 def _normalize_key(value: str) -> str:
@@ -149,6 +120,7 @@ def _make_cache_key(
 ) -> str:
     payload = {
         "league_code": (league_code or "").upper(),
+        "accent_color": division_color(league_code),
         "league_name": league_name,
         "season_name": season_name,
         "matches": matches,
@@ -263,8 +235,8 @@ def generate_match_table_image(
         teams: List of team dicts in the division
         season_name: Season name for title
         league_name: League name for title
-        league_code: League code for theming (NBL, MBL, NCBA)
-        games_per_matchup: Number of games per team pair (2, 3, 4, or 6)
+        league_code: Division code; the image is tinted with that division's colour
+        games_per_matchup: Number of games per team pair (1-10)
     
     Returns:
         BytesIO buffer with PNG image, or None on error
@@ -274,9 +246,8 @@ def generate_match_table_image(
             return None
         
         # Validate games_per_matchup
-        if games_per_matchup not in GAMES_PER_MATCHUP_CONFIGS:
-            games_per_matchup = 2
-        config = GAMES_PER_MATCHUP_CONFIGS[games_per_matchup]
+        config = matchup_layout(games_per_matchup)
+        games_per_matchup = config["subcells"]
         cell_height = config["cell_height"]
         num_subcells = config["subcells"]
         subcell_height = cell_height // num_subcells
@@ -478,10 +449,10 @@ def generate_match_table_image(
                 # For others: use vertical stack (N rows, 1 column)
                 layout = config.get("layout", "vertical")
                 
-                if layout == "grid" and num_subcells == 6:
-                    # 3x2 grid: 3 rows, 2 columns
-                    grid_rows = 3
+                if layout == "grid":
+                    # Two columns (home, away), one row per pair of games
                     grid_cols = 2
+                    grid_rows = (num_subcells + 1) // 2
                     subcell_width = CELL_SIZE // grid_cols
                     subcell_height_grid = cell_height // grid_rows
                     

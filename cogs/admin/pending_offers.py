@@ -15,6 +15,7 @@ from cogs.admin.base import AdminBaseManager, AdminUIView
 from cogs.admin.common import LazyInitView
 from utils.team_player_cache import TeamPlayerCache
 from db.db_utils import execute_async
+from utils.league_cache import LeagueCache
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -134,18 +135,7 @@ class ResendOfferModal(discord.ui.Modal, title="Resend Signing Offer"):
 
             files, thumbnail = build_team_logo_payload(team.get("code"))
 
-            league_code = None
-            if season_id:
-                try:
-                    div_resp = await execute_async(supabase.table("seasons").select("division_id").eq("id", season_id).limit(1))
-                    if div_resp.data:
-                        division_id = div_resp.data[0].get("division_id")
-                        if division_id:
-                            div_resp2 = await execute_async(supabase.table("divisions").select("league_type").eq("id", division_id).limit(1))
-                            if div_resp2.data:
-                                league_code = div_resp2.data[0].get("league_type")
-                except Exception:
-                    pass
+            league_code = (LeagueCache.team_division(team.get("id"), season_id) or {}).get("code")
 
             builder = EmbedBuilder(
                 title="Signing Offer (Resent)",

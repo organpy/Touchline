@@ -16,6 +16,7 @@ from discord.ext import commands
 from db import get_supabase, queries
 from utils.player_card_image_generator import generate_player_card
 from utils.team_player_cache import TeamPlayerCache
+from utils.league_cache import LeagueCache
 
 logger = logging.getLogger(__name__)
 
@@ -92,30 +93,17 @@ class PlayerCardCog(commands.Cog):
             team_code = team_info.get('code') if team_info else None
             league_code = team_info.get('league_type') if team_info else None
             
-            # Get season (default to active)
-            division_id = team_info.get('division_id') if team_info else None
-            season_row = None
-            
-            if season:
-                # Try to find specific season
-                seasons = await queries.get_all_seasons(self.supabase)
-                for s in seasons:
-                    if s.get('name', '').lower() == season.lower():
-                        season_row = s
-                        break
-            
+            # Season by name/number, else the active one
+            await LeagueCache.ensure_ready()
+            season_row = LeagueCache.find_season(season) if season else None
             if not season_row:
-                # Get active season for division
-                season_row = await queries.get_active_season(self.supabase, division_id=division_id)
-            
-            if not season_row and not division_id:
-                # Fallback to any active season only when the player has no team/division
-                season_row = await queries.get_active_season(self.supabase)
+                season_row = LeagueCache.active_season()
 
-            # If player isn't currently on a team, fall back to season league_type for card styling
-            if not league_code and season_row:
-                league_code = season_row.get('league_type')
-            
+            # Style the card with the division the player's team played in that season
+            if season_row and team_info:
+                await LeagueCache.load_season_teams(season_row['id'])
+                league_code = (LeagueCache.team_division(team_info['id'], season_row['id']) or {}).get('code') or league_code
+
             # Fetch player stats for the season
             stats = {}
             seasons_played = []

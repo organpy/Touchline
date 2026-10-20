@@ -59,16 +59,18 @@ class SeasonSummaryCog(StatsCogBase):
 
         # Fetch basic season stats
         try:
-            standings_data = await queries.get_standings(self.supabase, season_row['id'])
+            division_id = (league_meta or {}).get('id')
+            standings_data = await queries.get_standings(self.supabase, season_row['id'], division_id=division_id)
             supabase = get_supabase()
-            # Fetch all matches to get count
-            response = await execute_async(supabase.table('matches').select(
-                'id',
-            ).eq('season_id', season_row['id']).eq('status', 'final'))
+            # Count final matches (all stages, or the division's)
+            matches_query = supabase.table('matches').select('id').eq('season_id', season_row['id']).eq('status', 'final')
+            if division_id:
+                matches_query = matches_query.eq('division_id', division_id)
+            response = await execute_async(matches_query)
             total_matches = len(response.data) if response.data else 0
 
             # Get top scorer
-            leaderboard = await queries.get_leaderboard(self.supabase, 'points', season_row['id'], 1)
+            leaderboard = await queries.get_leaderboard(self.supabase, 'points', season_row['id'], 1, division_id=division_id)
             top_scorer = leaderboard[0] if leaderboard else None
         except Exception as exc:
             logger.error(f"Failed to fetch season summary for season {season_row['id']}: {exc}")
@@ -90,7 +92,7 @@ class SeasonSummaryCog(StatsCogBase):
             title=f"🎯 Season Summary — {season_row.get('name')}",
             color=discord.Color.gold(),
         )
-        builder.add_league_field("League", season_league_display, league_code)
+        builder.add_league_field(league_code, league_name=season_league_display, label="Division")
         builder.add_field("Season", season_row.get('name', 'Unknown'), inline=True)
         builder.add_field("Total Matches Played", str(total_matches), inline=True)
 
@@ -98,14 +100,17 @@ class SeasonSummaryCog(StatsCogBase):
         total_teams = len(standings_data)
         builder.add_field("Total Teams", str(total_teams), inline=True)
 
-        # Top teams
-        if standings_data and len(standings_data) >= 3:
-            top_3 = standings_data[:3]
-            top_teams_str = "\n".join(
-                f"{idx+1}. {team.get('team_name', 'Unknown')} ({team.get('wins', 0)}-{team.get('losses', 0)}-{team.get('draws', 0)})"
-                for idx, team in enumerate(top_3)
-            )
-            builder.add_field("Top 3 Teams (by Wins)", top_teams_str, inline=False)
+        # Top teams: the division's top 3, or every division's leader
+        def record(team: dict) -> str:
+            return f"{team.get('emoji') or ''} {team.get('team_name', 'Unknown')} ({team.get('wins', 0)}-{team.get('losses', 0)})".strip()
+
+        if league_meta:
+            top_teams_str = "\n".join(f"{team['rank']}. {record(team)}" for team in standings_data[:3])
+            builder.add_field("Top 3 Teams", top_teams_str, inline=False)
+        else:
+            leaders = [team for team in standings_data if team.get('rank') == 1]
+            leaders_str = "\n".join(f"**{team.get('league_type')}** {record(team)}" for team in leaders)
+            builder.add_field("Division Leaders", leaders_str or "—", inline=False)
 
         # Top scorer
         if top_scorer:

@@ -1,7 +1,6 @@
 """Helpers for loading team/league assets and wiring up embeds."""
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Dict, Optional
@@ -12,74 +11,20 @@ logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 IMAGES_DIR = ROOT_DIR / "images"
-TEAMS_FILE = ROOT_DIR / "teams.json"
-EMOJIS_FILE = ROOT_DIR / "emojis.json"
 TEAM_IMAGE_SUFFIX = ".png"
 LEAGUE_IMAGE_SUFFIX = ".png"
 
-_teams_by_code: Dict[str, Dict[str, str]] = {}
-_league_emojis: Dict[str, str] = {}
-
-
-def _load_teams() -> None:
-    global _teams_by_code
-    if _teams_by_code:
-        return
-    try:
-        with TEAMS_FILE.open("r", encoding="utf-8") as fh:
-            raw = json.load(fh)
-    except FileNotFoundError:
-        logger.warning("teams.json not found; team assets disabled")
-        return
-    except json.JSONDecodeError as exc:
-        logger.error("Failed to decode teams.json: %s", exc)
-        return
-
-    normalized: Dict[str, Dict[str, str]] = {}
-    for region, teams in (raw or {}).items():
-        for name, data in (teams or {}).items():
-            code = data.get("code")
-            if not code:
-                continue
-            normalized[code.lower()] = {
-                "code": code,
-                "display_name": name,
-                "emoji": data.get("emoji"),
-                "region": region,
-            }
-    _teams_by_code = normalized
-
-
-def _load_league_emojis() -> None:
-    global _league_emojis
-    if _league_emojis:
-        return
-    try:
-        with EMOJIS_FILE.open("r", encoding="utf-8") as fh:
-            raw = json.load(fh)
-    except FileNotFoundError:
-        logger.warning("emojis.json not found; league emojis disabled")
-        return
-    except json.JSONDecodeError as exc:
-        logger.error("Failed to decode emojis.json: %s", exc)
-        return
-
-    leagues = (raw or {}).get("leagues") or {}
-    for key, val in leagues.items():
-        if key and isinstance(key, str) and isinstance(val, str):
-            _league_emojis[key.upper()] = val
-
 
 def get_team_data(team_code: Optional[str]) -> Optional[Dict[str, str]]:
-    if not team_code:
-        return None
-    _load_teams()
-    return _teams_by_code.get(team_code.lower())
+    """{code, display_name, emoji, region} for a team (from the team cache)."""
+    from utils.team_data_provider import TeamDataProvider
+
+    return TeamDataProvider.get_team(team_code)
 
 
 def get_team_emoji(team_code: Optional[str]) -> Optional[str]:
     data = get_team_data(team_code)
-    return data.get("emoji") if data else None
+    return (data.get("emoji") or None) if data else None
 
 
 def get_team_display(team_code: Optional[str]) -> Optional[str]:
@@ -110,10 +55,13 @@ def get_team_logo_file(team_code: Optional[str], filename: Optional[str] = None)
 
 
 def get_league_emoji(league_code: Optional[str]) -> Optional[str]:
+    """The division's emoji (set in the dashboard), looked up by code."""
     if not league_code:
         return None
-    _load_league_emojis()
-    return _league_emojis.get(league_code.upper())
+    from utils.league_cache import LeagueCache
+
+    division = LeagueCache.find_division(league_code)
+    return (division or {}).get("emoji") or None
 
 
 def _league_image_path(league_code: Optional[str]) -> Optional[Path]:
@@ -182,13 +130,11 @@ def build_league_logo_payload(league_code: Optional[str], suffix: str = "logo") 
 
 def get_all_team_codes() -> list[str]:
     """Get all team codes (flat list, sorted)."""
-    _load_teams()
-    return sorted(_teams_by_code.keys())
+    from utils.team_data_provider import TeamDataProvider
+
+    return TeamDataProvider.get_all_codes()
 
 
 def get_team_full_info(team_code: Optional[str]) -> Optional[dict]:
-    """Get complete team info including code, display name, emoji, region."""
-    if not team_code:
-        return None
-    _load_teams()
-    return _teams_by_code.get(team_code.lower())
+    """Get complete team info including code, display name, emoji, division code (region)."""
+    return get_team_data(team_code)

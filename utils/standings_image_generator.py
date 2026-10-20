@@ -15,6 +15,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 from utils.caching import TTLCache
 
+from utils.image_theme import division_color, tinted_theme
+
 logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -40,48 +42,6 @@ BASE_THEME = {
         1: (255, 197, 80, 255),
         2: (200, 200, 220, 255),
         3: (209, 148, 90, 255),
-    },
-}
-
-LEAGUE_THEME_OVERRIDES = {
-    "NBL": {
-        "canvas_gradient": ((45, 30, 18), (95, 60, 28)),
-        "card_bg": (52, 35, 20, 255),
-        "card_border": (111, 74, 38, 255),
-        "header_gradient": ((192, 142, 86), (126, 74, 33)),
-        "header_overlay": None,
-        "header_title_color": (255, 250, 240, 255),
-        "header_title_shadow": None,
-        "header_subtitle_color": (255, 227, 176, 255),
-        "header_subtitle_shadow": None,
-        "text_primary": (255, 250, 240, 255),
-        "text_muted": (236, 210, 160, 255),
-        "text_stats": (234, 199, 141, 255),
-        "row_primary": (64, 44, 24, 255),
-        "row_alt": (55, 36, 20, 255),
-        "row_divider": (122, 86, 44, 255),
-        "rank_accent": {
-            1: (255, 234, 173, 255),
-            2: (200, 175, 150, 255),
-            3: (248, 203, 129, 255),
-        },
-    },
-    "MBL": {
-        "canvas_gradient": ((24, 12, 2), (68, 38, 6)),
-        "header_gradient": ((255, 150, 2), (191, 105, 2)),
-        "row_primary": (58, 36, 10, 255),
-        "row_alt": (66, 40, 12, 255),
-        "row_divider": (120, 80, 20, 255),
-        "card_bg": (48, 30, 8, 255),
-        "card_border": (128, 78, 12, 255),
-    },
-    "NCBA": {
-        "canvas_gradient": ((5, 24, 24), (9, 58, 70)),
-        "header_gradient": ((0, 173, 181), (0, 119, 182)),
-        "row_primary": (16, 46, 60, 255),
-        "row_alt": (18, 54, 70, 255),
-        "card_bg": (14, 34, 44, 255),
-        "card_border": (22, 64, 78, 255),
     },
 }
 
@@ -117,16 +77,9 @@ def _to_rgba(color: Tuple[int, ...]) -> Tuple[int, int, int, int]:
     raise ValueError("Color tuples must be length 3 or 4")
 
 
-def _get_theme(league_code: Optional[str]) -> Dict[str, Any]:
-    theme = {**BASE_THEME}
-    theme["rank_accent"] = BASE_THEME["rank_accent"].copy()
-    if league_code:
-        overrides = LEAGUE_THEME_OVERRIDES.get(league_code.upper())
-        if overrides:
-            if "rank_accent" in overrides:
-                theme["rank_accent"] = overrides["rank_accent"].copy()
-            theme.update({k: v for k, v in overrides.items() if k != "rank_accent"})
-    return theme
+def _get_theme(league_code: Optional[str], accent_color: Optional[str] = None) -> Dict[str, Any]:
+    """Base theme tinted with the division's colour."""
+    return tinted_theme(BASE_THEME, accent_color or division_color(league_code))
 
 
 def _normalize_key(value: str) -> str:
@@ -230,9 +183,11 @@ def generate_simple_standings_image(
     league_name: str,
     league_code: Optional[str] = None,
     recent_results: Optional[Dict[str, List[str]]] = None,
+    accent_color: Optional[str] = None,
 ) -> Optional[io.BytesIO]:
     """Generate compact standings image.
-    standings: list of dicts with keys: team_id, team_name, wins, losses, pf, pa, diff
+    standings: list of dicts with keys: team_id, name, code, wins, losses, points_for, points_against, point_diff
+    accent_color: division colour (#RRGGBB) used to tint the theme (looked up from league_code when omitted)
     recent_results: optional dict mapping team_id -> list of last 5 markers ['W'|'L'|'N']
     Returns PNG bytes.
     """
@@ -244,6 +199,7 @@ def generate_simple_standings_image(
         payload = {
             "type": "simple",
             "league_code": (league_code or "").upper(),
+            "accent_color": accent_color or division_color(league_code),
             "league_name": league_name,
             "season_name": season_name,
             "standings": standings_data,
@@ -257,7 +213,7 @@ def generate_simple_standings_image(
             buf.seek(0)
             return buf
 
-        theme = _get_theme(league_code)
+        theme = _get_theme(league_code, accent_color)
 
         # Fixed team column width for all leagues (standardized sizing)
         team_column_width = COL_TEAM

@@ -86,8 +86,8 @@ class StatRegistrationCog(commands.Cog):
             # Validate both teams are in the same league
             if not self.roster_cache.teams_in_same_league(team1_code, team2_code):
                 await team_select_interaction.response.send_message(
-                    f"❌ **{team1_data.name}** and **{team2_data.name}** are in different leagues. "
-                    "Both teams must be from the same league.",
+                    f"❌ **{team1_data.name}** and **{team2_data.name}** are in different divisions. "
+                    "Both teams must be in the same division this season.",
                     ephemeral=True
                 )
                 return
@@ -202,20 +202,15 @@ class StatRegistrationCog(commands.Cog):
         """Save match + all player_stats to Supabase"""
 
         try:
-            # Get the active season for this match's division
-            season = await queries.get_active_season(
-                self.supabase,
-                division_id=match_entry.division_id,
-            )
+            # Matches belong to the league-wide active season; the database checks the phase and
+            # that both teams play in this division.
+            season = await queries.get_active_season(self.supabase)
             if not season:
-                await interaction.followup.send(
-                    "❌ No active season found for this match's division",
-                    ephemeral=True,
-                )
+                await interaction.followup.send("❌ There is no active season.", ephemeral=True)
                 return
 
             season_id = season['id']
-            division_id = season['division_id']
+            division_id = match_entry.division_id
 
             # Prepare match data
             match_data = match_entry.to_supabase_match(season_id, division_id)

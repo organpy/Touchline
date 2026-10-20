@@ -116,13 +116,13 @@ async def _admin_division_autocomplete(
         current_lower = current.lower()
         filtered = [
             d for d in divisions
-            if current_lower in d.get('name', '').lower() or current_lower in d.get('league_type', '').lower()
+            if current_lower in d.get('name', '').lower() or current_lower in (d.get('code') or '').lower()
         ]
         
         # Return as choices (sorted by name, max 25)
         return [
             app_commands.Choice(
-                name=f"{d.get('name', 'Unknown')} ({d.get('league_type', '?')})",
+                name=f"{d.get('name', 'Unknown')} ({d.get('code', '?')})",
                 value=d.get('name', '')
             )
             for d in sorted(filtered, key=lambda x: x.get('name', ''))[:25]

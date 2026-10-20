@@ -51,62 +51,57 @@ class RosterCache:
         return cls._instance
 
     async def load_cache(self, supabase_client):
-        """Load all teams and active rosters from Supabase at startup"""
+        """Load active teams and the active season's rosters (a player is on at most one team)."""
         logger.info("🔄 Loading roster cache...")
         try:
-            # Get all teams across all divisions with division_id for league validation
-            teams_response = await execute_async(supabase_client.table('teams').select('id, code, name, emoji, division_id'))
-            for team_row in teams_response.data:
-                team = CachedTeam(
+            self.teams = {}
+            self.players = {}
+            season_response = await execute_async(
+                supabase_client.table('seasons').select('id').eq('active', True).limit(1)
+            )
+            season_id = season_response.data[0]['id'] if season_response.data else None
+
+            divisions: Dict[str, Optional[str]] = {}
+            if season_id:
+                assignments = await execute_async(
+                    supabase_client.table('season_teams').select('team_id, division_id').eq('season_id', season_id)
+                )
+                divisions = {row['team_id']: row['division_id'] for row in (assignments.data or [])}
+
+            teams_response = await execute_async(
+                supabase_client.table('teams').select('id, code, name, emoji').is_('archived_at', 'null')
+            )
+            for team_row in teams_response.data or []:
+                self.teams[team_row['code']] = CachedTeam(
                     team_id=team_row['id'],
                     code=team_row['code'],
                     name=team_row['name'],
                     emoji=team_row.get('emoji'),
-                    division_id=team_row.get('division_id')
+                    division_id=divisions.get(team_row['id']),
                 )
-                self.teams[team_row['code']] = team
-                logger.debug(f"  Cached team: {team_row['code']}")
-
-            # Get all active rosters (left_at IS NULL) - NO season filter
-            # This includes players from ALL seasons who are currently active (left_at IS NULL)
-            rosters_response = await execute_async(supabase_client.table('rosters').select(
-                'id, player_id, team_id, season_id, joined_at, left_at, '
-                'players(id, display_name, discord_id), teams(code)'
-            ).is_('left_at', 'null'))
 
             roster_count = 0
-            loaded_player_ids = set()  # Track unique players to avoid duplicates
-            
-            for roster_row in rosters_response.data:
-                player_data = roster_row['players']
-                team_code = roster_row['teams']['code']
-                player_id = player_data['id']
-
-                # Skip if we've already loaded this player (they might be in multiple rosters)
-                if player_id in loaded_player_ids:
-                    continue
-
-                player = CachedPlayer(
-                    player_id=player_id,
-                    display_name=player_data['display_name'],
-                    discord_id=player_data.get('discord_id')
-                )
-
-                # Cache player (once per unique player)
-                self.players[player_id] = player
-                loaded_player_ids.add(player_id)
-
-                # Add to team's active players
-                if team_code in self.teams:
-                    # Avoid duplicates in team roster
-                    if not any(p.player_id == player_id for p in self.teams[team_code].active_players):
-                        self.teams[team_code].active_players.append(player)
-                        roster_count += 1
+            if season_id:
+                rosters_response = await execute_async(supabase_client.table('rosters').select(
+                    'player_id, team_id, players(id, display_name, discord_id), teams(code)'
+                ).eq('season_id', season_id).is_('left_at', 'null'))
+                for roster_row in rosters_response.data or []:
+                    player_data = roster_row.get('players') or {}
+                    team_code = (roster_row.get('teams') or {}).get('code')
+                    if not player_data or team_code not in self.teams:
+                        continue
+                    player = CachedPlayer(
+                        player_id=player_data['id'],
+                        display_name=player_data['display_name'],
+                        discord_id=player_data.get('discord_id'),
+                    )
+                    self.players[player.player_id] = player
+                    self.teams[team_code].active_players.append(player)
+                    roster_count += 1
 
             self.loaded = True
             logger.info(
-                f"✅ Roster cache loaded: {len(self.teams)} teams, "
-                f"{len(self.players)} active players ({roster_count} roster entries)"
+                f"✅ Roster cache loaded: {len(self.teams)} teams, {roster_count} active players"
             )
 
         except Exception as e:
@@ -114,13 +109,15 @@ class RosterCache:
             self.loaded = False
 
     def get_team_by_code(self, code: str) -> Optional[CachedTeam]:
-        """Get team by code"""
-        return self.teams.get(code)
+        """Get team by code (codes are lowercase slugs)"""
+        if not code:
+            return None
+        return self.teams.get(code) or self.teams.get(code.strip().lower())
 
     def teams_in_same_league(self, team_code1: str, team_code2: str) -> bool:
         """Check if two teams are in the same league (division)"""
-        team1 = self.teams.get(team_code1)
-        team2 = self.teams.get(team_code2)
+        team1 = self.get_team_by_code(team_code1)
+        team2 = self.get_team_by_code(team_code2)
         
         if not team1 or not team2:
             return False

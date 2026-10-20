@@ -5,6 +5,8 @@ from db import get_supabase, queries
 from utils.team_player_cache import TeamPlayerCache
 import logging
 from db.db_utils import execute_async
+from cogs.transactions.pick_trading import picks_enabled_for_division
+from utils.league_cache import LeagueCache
 
 logger = logging.getLogger(__name__)
 
@@ -60,35 +62,12 @@ async def enrich_trade_assets(
 
 async def can_trade_picks(team1_division_id: str, team2_division_id: str, supabase: Optional[Any] = None) -> bool:
     """
-    Determine if draft picks can be traded between two teams.
-    
-    Rules:
-    - Different divisions: NO picks (regardless of league)
-    - Same division + NBL: YES picks
-    - Same division + MBL/NCBA: NO picks
+    Draft picks can change hands only between two teams of the same division, and only when that
+    division runs a draft (``picks_enabled``).
     """
-    if not supabase:
-        supabase = get_supabase()
-    
-    if not supabase:
+    if not team1_division_id or team1_division_id != team2_division_id:
         return False
-    
-    # If different divisions, no picks allowed
-    if team1_division_id != team2_division_id:
-        return False
-    
-    # Same division - check if it's NBL
-    try:
-        response = await execute_async(supabase.table('divisions').select('league_type').eq('id', team1_division_id))
-        if response.data and len(response.data) > 0:
-            division = response.data[0]
-            league_type = division.get('league_type', '').upper()
-            # Only NBL teams in the same division can trade picks
-            return league_type == 'NBL'
-    except Exception as e:
-        logger.warning(f"Failed to check division for pick trading: {e}")
-    
-    return False
+    return picks_enabled_for_division(team1_division_id)
 
 
 async def get_available_trade_assets(
@@ -126,7 +105,8 @@ async def get_available_trade_assets(
             try:
                 from db.transactions_repository import TransactionsRepository
                 repo = TransactionsRepository(supabase)
-                picks = await repo.list_draft_picks(season_id)
+                division = LeagueCache.team_division(team_id, season_id)
+                picks = await repo.list_draft_picks(season_id, division['id']) if division else []
                 team_picks = [p for p in picks if p.get('current_owner_team_id') == team_id]
                 
                 result['picks'] = [
