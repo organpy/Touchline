@@ -58,13 +58,17 @@ def test_cache_refresh_enriches_team_and_player_metadata():
     fake_supabase = FakeSupabase(
         {
             "divisions": [
-                {"id": "div-nbl", "league_type": "NBL", "name": "NBL Prime"},
+                {"id": "div-1", "code": "D1", "name": "Premier", "tier": 1},
             ],
+            "division_groups": [],
             "seasons": [
-                {"id": "season-1", "name": "S10", "division_id": "div-nbl", "active": True},
+                {"id": "season-1", "number": 1, "name": "Season 1", "phase": "regular", "active": True},
+            ],
+            "season_teams": [
+                {"season_id": "season-1", "team_id": "team-1", "division_id": "div-1", "group_id": None},
             ],
             "teams": [
-                {"id": "team-1", "division_id": "div-nbl", "code": "PANDAS", "name": "Pandas"},
+                {"id": "team-1", "code": "pandas", "name": "Pandas", "color": "#112233"},
             ],
             "players": [
                 {"id": "player-1", "display_name": "Ace", "discord_id": 111},
@@ -78,7 +82,7 @@ def test_cache_refresh_enriches_team_and_player_metadata():
                     "joined_at": "2025-01-01T00:00:00Z",
                     "left_at": None,
                     "players": {"id": "player-1", "display_name": "Ace", "discord_id": 111},
-                    "teams": {"id": "team-1", "code": "PANDAS"},
+                    "teams": {"id": "team-1", "code": "pandas"},
                 }
             ],
         }
@@ -91,17 +95,21 @@ def test_cache_refresh_enriches_team_and_player_metadata():
 
     team = TeamPlayerCache.get_team_by_code("PANDAS")
     assert team is not None
-    assert team.get("league_type") == "NBL"
+    assert team.get("division_id") == "div-1"
+    assert team.get("league_type") == "D1"
     assert team.get("active_season_id") == "season-1"
+    assert team.get("color_primary") == 0x112233
 
     player = TeamPlayerCache.get_player_by_name("Ace")
     assert player is not None
-    assert player.get("current_team_code") == "PANDAS"
+    assert player.get("current_team_code") == "pandas"
     memberships = player.get("active_memberships")
     assert memberships and memberships[0]["season_id"] == "season-1"
-    assert memberships[0]["league_type"] == "NBL"
+    assert memberships[0]["league_type"] == "D1"
 
     TeamPlayerCache.invalidate()
+    from utils.league_cache import LeagueCache
+    LeagueCache.invalidate()
 
 
 def test_is_fresh_after_refresh():

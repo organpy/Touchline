@@ -27,6 +27,7 @@ from utils.embed_assets import (
 )
 from utils.embed_builder import EmbedBuilder
 from db.db_utils import execute_async
+from utils.league_cache import LeagueCache
 
 logger = logging.getLogger(__name__)
 
@@ -84,21 +85,8 @@ async def load_trade_context(supabase, proposal_id: str) -> Optional[TradeContex
     if not initiating_team or not counterparty_team:
         return None
 
-    league_code = None
-    division_id = initiating_team.get('division_id')
-    if division_id:
-        try:
-            division_response = await execute_async(
-                supabase
-                .table('divisions')
-                .select('league_type')
-                .eq('id', division_id)
-                .limit(1)
-            )
-            if division_response.data:
-                league_code = (division_response.data[0].get('league_type') or '').upper() or None
-        except Exception as exc:  # pragma: no cover - network path
-            logger.warning("Failed to resolve league for trade %s: %s", proposal_id, exc)
+    division = LeagueCache.team_division(initiating_id, proposal.get('season_id')) or {}
+    league_code = (division.get('code') or '').upper() or None
 
     return TradeContext(
         proposal=proposal,

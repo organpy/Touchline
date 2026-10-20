@@ -116,7 +116,7 @@ class TradeAssetModal(discord.ui.Modal):
             if r.get('team_id') == self.initiating_team['id']
         ]
 
-        # Fetch available rosters for counterparty (from THEIR season - may be different division)
+        # Fetch available rosters for counterparty
         counterparty_rosters = await queries.get_active_rosters(self.supabase, self.counterparty_season['id'])
         counterparty_players = [
             r for r in counterparty_rosters
@@ -125,13 +125,14 @@ class TradeAssetModal(discord.ui.Modal):
 
         # Check if picks can be traded between these teams
         allow_picks = await can_trade_picks(
-            self.initiating_team['division_id'],
-            self.counterparty_team['division_id'],
+            self.initiating_team.get('division_id'),
+            self.counterparty_team.get('division_id'),
             self.supabase
         )
+        pick_division_id = self.initiating_team.get('division_id')
 
         # Get initiating team's picks (from their season)
-        initiating_picks = await self.cog.repo.list_draft_picks(self.season['id'])
+        initiating_picks = await self.cog.repo.list_draft_picks(self.season['id'], pick_division_id) if allow_picks else []
         initiating_picks = [
             p for p in initiating_picks
             if p.get('current_owner_team_id') == self.initiating_team['id']
@@ -142,7 +143,7 @@ class TradeAssetModal(discord.ui.Modal):
             initiating_picks = []
 
         # Get counterparty's picks (from THEIR season)
-        counterparty_picks = await self.cog.repo.list_draft_picks(self.counterparty_season['id'])
+        counterparty_picks = await self.cog.repo.list_draft_picks(self.counterparty_season['id'], pick_division_id) if allow_picks else []
         counterparty_picks = [
             p for p in counterparty_picks
             if p.get('current_owner_team_id') == self.counterparty_team['id']
@@ -215,7 +216,7 @@ class TradeAssetModal(discord.ui.Modal):
         league_display, league_code = await self.cog._get_league_display(self.season)
         
         # Check if this is a cross-division trade
-        is_cross_division = self.initiating_team['division_id'] != self.counterparty_team['division_id']
+        is_cross_division = self.initiating_team.get('division_id') != self.counterparty_team.get('division_id')
         
         builder = EmbedBuilder(
             title="Trade Proposal Builder",
@@ -326,7 +327,7 @@ class TradeAssetSelectionView(discord.ui.View):
             )
             return
 
-        # Validate draft picks (NBL only, ownership, etc.)
+        # Validate draft picks (division runs a draft, ownership, etc.)
         try:
             outbound_picks = [a for a in assets['outbound'] if a.get('type') == 'pick']
             inbound_picks = [a for a in assets['inbound'] if a.get('type') == 'pick']

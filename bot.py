@@ -24,7 +24,7 @@ load_dotenv()
 from db import get_supabase
 from utils.config_manager import init_config_manager
 from utils.team_player_cache import TeamPlayerCache
-from utils.season_cache import SeasonCache
+from utils.league_cache import LeagueCache
 from cogs.score.roster_cache import RosterCache
 from utils.health_check import HealthCheckServer
 from utils.error_embeds import error_embed, permission_error_embed, rate_limit_embed, send_error
@@ -127,21 +127,14 @@ class TouchlineBot(commands.Bot):
         except Exception as e:
             logger.error(f"❌ Failed to initialize ConfigManager: {e}", exc_info=True)
         
-        logger.info("🔄 Initializing TeamPlayerCache...")
+        logger.info("🔄 Initializing LeagueCache and TeamPlayerCache...")
         try:
+            LeagueCache.set_supabase(self.supabase)
             TeamPlayerCache.set_supabase(self.supabase)
-            await TeamPlayerCache.refresh()
-            logger.info("✅ TeamPlayerCache initialized")
+            await TeamPlayerCache.refresh()  # also refreshes LeagueCache (seasons, divisions, groups)
+            logger.info("✅ League and team caches initialized")
         except Exception as e:
-            logger.error(f"❌ Failed to initialize TeamPlayerCache: {e}", exc_info=True)
-
-        logger.info("🔄 Initializing SeasonCache...")
-        try:
-            SeasonCache.set_supabase(self.supabase)
-            await SeasonCache.refresh()
-            logger.info("✅ SeasonCache initialized")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize SeasonCache: {e}", exc_info=True)
+            logger.error(f"❌ Failed to initialize league/team caches: {e}", exc_info=True)
         
         logger.info("🔄 Initializing RosterCache...")
         try:

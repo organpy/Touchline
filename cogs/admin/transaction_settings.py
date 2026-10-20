@@ -132,13 +132,13 @@ class TransactionSettingsView(LazyInitView):
     
     @discord.ui.button(label="Picks: ON", style=discord.ButtonStyle.success, row=0)
     async def toggle_picks(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Toggle NBL draft picks on/off."""
+        """Toggle draft picks on/off."""
         await interaction.response.defer()
         
         try:
             config_mgr = get_config_manager()
             
-            # Toggle picks state (simple toggle, NBL-only is handled in the /pick command)
+            # Toggle picks state (which divisions run a draft is a per-division setting)
             config = await config_mgr.get_config(self.guild_id)
             picks_paused = config.get('picks_paused', False)
             new_state = not picks_paused

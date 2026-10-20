@@ -1,7 +1,7 @@
 """
 EmbedBuilder: Modular, DRY embed creation with team/league branding, images, and metadata.
 Provides standardized embeds for stats, transactions, and other commands.
-Leverages teams.json, league emojis, and image assets.
+Team, division and colour data come from the database caches (TeamPlayerCache, LeagueCache).
 """
 
 import logging
@@ -134,7 +134,7 @@ class EmbedBuilder:
     ) -> "EmbedBuilder":
         """Add formatted league field with emoji and short code.
         
-        Shows: "<emoji> CODE" (e.g. '<nblemoji> NBL')
+        Shows: "<emoji> CODE" (e.g. '🏆 D1')
         """
         code = (league_code or '').upper()
         if not code:
