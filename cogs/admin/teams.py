@@ -154,6 +154,11 @@ class AddTeamModal(discord.ui.Modal, title="Add New Team"):
         placeholder="e.g., PANDAS (max 10 chars, uppercase)",
         max_length=10,
     )
+    division = discord.ui.TextInput(
+        label="Division",
+        placeholder="NBL, MBL, or NCBA",
+        max_length=10,
+    )
 
     def __init__(self, supabase: Any, view: TeamActionsView) -> None:
         super().__init__()
@@ -165,10 +170,14 @@ class AddTeamModal(discord.ui.Modal, title="Add New Team"):
 
         team_name = self.team_name.value.strip()
         team_code = self.team_code.value.strip().upper()
+        division_code = self.division.value.strip().upper()
 
         # Validation
-        if not team_name or not team_code:
-            await interaction.followup.send("❌ Team name and code are required.", ephemeral=True)
+        if not team_name or not team_code or not division_code:
+            await interaction.followup.send(
+                "❌ Team name, code, and division are required.",
+                ephemeral=True,
+            )
             return
 
         if len(team_code) < 2:
@@ -182,33 +191,28 @@ class AddTeamModal(discord.ui.Modal, title="Add New Team"):
             return
 
         try:
-            # ✅ FIXED: Get active season to extract division (this is a single-server bot)
-            
-            # Get active season which contains the division
-            active_season = await queries.get_active_season(self.supabase)
-            if not active_season:
+            division = await queries.get_division_by_type(self.supabase, division_code)
+            if not division:
                 await interaction.followup.send(
-                    "❌ No active season configured. Set up seasons first.",
+                    f"❌ Unknown division `{division_code}`. Use NBL, MBL, or NCBA.",
                     ephemeral=True,
                 )
                 return
-            
-            division_id = active_season['division_id']
-            
-            # Insert team into correct division
+
+            # Insert team into the selected division
             result = await execute_async(self.supabase.table('teams').insert({
                 'name': team_name,
                 'code': team_code,
-                'division_id': division_id,  # ✅ Now scoped to division
+                'division_id': division['id'],
                 'owner_discord_id': None,  # Can be set later
             }))
 
             if result.data:
                 logger.info("✅ Team created: %s (%s) by %s in division %s", 
-                           team_name, team_code, interaction.user.id, division_id)
+                           team_name, team_code, interaction.user.id, division['id'])
                 await TeamPlayerCache.refresh(self.supabase)
                 await interaction.followup.send(
-                    f"✅ Team **{team_name}** (`{team_code}`) created successfully!",
+                    f"✅ Team **{team_name}** (`{team_code}`) created successfully in {division_code}!",
                     ephemeral=True,
                 )
                 await self.view.update_display()
