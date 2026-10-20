@@ -14,7 +14,7 @@ from cogs.admin.common import LazyInitView
 from cogs.admin.base import AdminBaseManager
 from utils.team_player_cache import TeamPlayerCache
 from db.db_utils import execute_async
-from db.league_repository import LeagueRepository, LeagueRuleError
+from db.league_repository import LeagueRepository, LeagueRuleError, friendly_error
 from utils.league_cache import LeagueCache
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -285,6 +285,15 @@ class SetTeamOwnerView(LazyInitView):
                 await owner_interaction.response.defer(ephemeral=True)
                 new_owner_id = owner_interaction.data['values'][0]
 
+                current = TeamPlayerCache.get_team_by_owner(int(new_owner_id))
+                if current and current.get('id') != self.selected_team.get('id'):
+                    await owner_interaction.followup.send(
+                        f"❌ <@{new_owner_id}> already owns **{current.get('name')}**. "
+                        "A member can only own one team.",
+                        ephemeral=True,
+                    )
+                    return
+
                 try:
                     update_result = await execute_async(self.supabase.table('teams').update({
                         'owner_discord_id': int(new_owner_id),
@@ -354,7 +363,7 @@ class SetTeamOwnerView(LazyInitView):
                 except Exception as exc:  # pragma: no cover
                     logger.error("Failed to set team owner: %s", exc)
                     await owner_interaction.followup.send(
-                        "❌ Failed to set team owner. Check server logs.",
+                        f"❌ {friendly_error(exc, 'Failed to set team owner. Check server logs.')}",
                         ephemeral=True,
                     )
 

@@ -26,7 +26,8 @@ def _patch_config(config=None):
 
 
 def _patch_owned_teams(teams):
-    return patch.object(access_module.queries, "get_teams_by_owner", AsyncMock(return_value=teams))
+    team = teams[0] if teams else None
+    return patch.object(access_module.queries, "get_team_by_owner", AsyncMock(return_value=team))
 
 
 class TestReporterAccess:
@@ -57,10 +58,10 @@ class TestResolveReporterAccess:
         assert access is not None and access.is_admin
 
     @pytest.mark.asyncio
-    async def test_team_owner_gets_owned_teams(self):
-        with _patch_config(), _patch_owned_teams([{"id": "t1"}, {"id": "t2"}]):
+    async def test_team_owner_gets_their_team(self):
+        with _patch_config(), _patch_owned_teams([{"id": "t1"}]):
             access = await resolve_reporter_access(Mock(), Mock(), _make_interaction())
-        assert access == ReporterAccess(is_admin=False, owned_team_ids=frozenset({"t1", "t2"}))
+        assert access == ReporterAccess(is_admin=False, owned_team_ids=frozenset({"t1"}))
 
     @pytest.mark.asyncio
     async def test_regular_member_is_denied(self):

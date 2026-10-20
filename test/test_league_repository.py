@@ -6,6 +6,7 @@ from postgrest.exceptions import APIError
 from db.league_repository import (
     LeagueRepository,
     LeagueRuleError,
+    friendly_error,
     normalize_division_code,
     normalize_team_code,
     rule_error_from_api_error,
@@ -47,6 +48,14 @@ def test_unique_violation_gets_friendly_message():
 
 def test_unknown_error_is_not_translated():
     assert rule_error_from_api_error(api_error(code="42P01", hint="something else")) is None
+
+
+def test_friendly_error_explains_one_team_rules():
+    owner = api_error(code="23505", message='duplicate key value violates unique constraint "ux_teams_owner"')
+    assert friendly_error(owner, "fallback") == "That user already owns a team."
+    roster = api_error(hint="ROSTER_PLAYER_ON_TEAM")
+    assert "already on another team" in friendly_error(roster, "fallback")
+    assert friendly_error(RuntimeError("network"), "fallback") == "fallback"
 
 
 @pytest.mark.asyncio

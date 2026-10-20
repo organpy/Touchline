@@ -100,6 +100,11 @@ class SigningAcceptButton(ui.DynamicItem[ui.Button], template=r'signing:accept:(
         })
 
         if not transaction:
+            if repo.last_error:
+                # A league rule refused it (e.g. already on a team this season); the offer is done.
+                await repo.update_pending_signing_status(signing['id'], 'declined')
+                await interaction.followup.send(f"❌ {repo.last_error}", ephemeral=True)
+                return
             await repo.update_pending_signing_status(signing['id'], 'pending')
             await interaction.followup.send("❌ Failed to record transaction.", ephemeral=True)
             return

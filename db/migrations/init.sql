@@ -485,6 +485,15 @@ CREATE TRIGGER trg_rosters_team_in_season BEFORE INSERT ON rosters
 CREATE FUNCTION apply_transaction_to_roster() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF NEW.type IN ('sign', 'transfer', 'loan') AND NEW.to_team_id IS NOT NULL THEN
+        -- A signing never moves a player off another team; that is a transfer.
+        IF NEW.type = 'sign' AND EXISTS (
+            SELECT 1 FROM rosters r
+            WHERE r.player_id = NEW.player_id AND r.season_id = NEW.season_id
+              AND r.left_at IS NULL AND r.team_id <> NEW.to_team_id
+        ) THEN
+            RAISE EXCEPTION 'player % is already on another team in season %', NEW.player_id, NEW.season_id
+                USING HINT = 'ROSTER_PLAYER_ON_TEAM';
+        END IF;
         UPDATE rosters
             SET left_at = COALESCE(NEW.created_at, now())
             WHERE player_id = NEW.player_id
