@@ -109,7 +109,8 @@ class StatRegistrationCog(commands.Cog):
                         team_name=team2_data.name,
                         emoji=team2_data.emoji,
                         score=team2_score
-                    )
+                    ),
+                    division_id=team1_data.division_id,
                 )
 
                 self.active_matches[interaction.user.id] = match_entry
@@ -201,10 +202,16 @@ class StatRegistrationCog(commands.Cog):
         """Save match + all player_stats to Supabase"""
 
         try:
-            # Get active season & division
-            season = await queries.get_active_season(self.supabase)
+            # Get the active season for this match's division
+            season = await queries.get_active_season(
+                self.supabase,
+                division_id=match_entry.division_id,
+            )
             if not season:
-                await interaction.followup.send("❌ No active season found", ephemeral=True)
+                await interaction.followup.send(
+                    "❌ No active season found for this match's division",
+                    ephemeral=True,
+                )
                 return
 
             season_id = season['id']

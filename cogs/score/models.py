@@ -84,6 +84,7 @@ class MatchEntry:
     team1: TeamMatchEntry
     team2: TeamMatchEntry
     week: int = 1
+    division_id: Optional[str] = None
 
     def to_supabase_match(self, season_id: str, division_id: str) -> dict:
         """Convert to match row for Supabase insert"""
