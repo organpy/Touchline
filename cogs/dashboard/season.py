@@ -10,6 +10,7 @@ from db.league_repository import SEASON_PHASE_LABELS
 from utils.league_cache import LeagueCache
 from utils.team_player_cache import TeamPlayerCache
 
+from services.standings import recompute_season
 from services.league import (
     NEXT_STEP,
     Movement,
@@ -127,6 +128,8 @@ class SeasonPage(DashboardPage):
         elif phase in NEXT_STEP:
             self.button(NEXT_STEP[phase], self._step, style=discord.ButtonStyle.primary, emoji="➡️", row=0)
         self.button("Rename", self._rename, emoji="✏️", row=2)
+        if phase == "regular":
+            self.button("Recalculate standings", self._recalculate, emoji="🔄", row=2)
         past = [s for s in self.seasons if not s.get("active")]
         if len(past) > PAST_PER_PAGE:
             self.button("◀", self._prev, row=3, disabled=self.page == 0)
@@ -189,6 +192,9 @@ class SeasonPage(DashboardPage):
         }
         change, success = actions[preview["phase"]]
         await self.apply(interaction, change, success, rosters=True)
+
+    async def _recalculate(self, interaction: discord.Interaction) -> None:
+        await self.apply(interaction, lambda: recompute_season(self.repo, self.season["id"]), "Standings recalculated.")
 
     async def _cancel(self, interaction: discord.Interaction) -> None:
         self.preview = None
