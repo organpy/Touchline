@@ -11,9 +11,10 @@ from dotenv import load_dotenv
 import logging
 
 # Setup logging
+LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format=LOG_FORMAT
 )
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ from utils.season_cache import SeasonCache
 from cogs.score.roster_cache import RosterCache
 from utils.health_check import HealthCheckServer
 from utils.error_embeds import error_embed, permission_error_embed, rate_limit_embed, send_error
+from utils.error_alerts import install_error_alerts
 
 # ============================================================================
 # CONFIG
@@ -34,6 +36,7 @@ from utils.error_embeds import error_embed, permission_error_embed, rate_limit_e
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 BOT_OWNER_ID = os.getenv("BOT_OWNER_ID")
+ERROR_WEBHOOK_URL = os.getenv("ERROR_WEBHOOK_URL")
 # Fingerprint of the last command set synced to Discord. Delete it to force a sync on next boot.
 COMMAND_SYNC_STATE_FILE = "data/.command_sync_hash"
 
@@ -286,4 +289,14 @@ async def main():
         await bot.start(DISCORD_TOKEN)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    alert_listener = install_error_alerts(ERROR_WEBHOOK_URL, LOG_FORMAT) if ERROR_WEBHOOK_URL else None
+    try:
+        asyncio.run(main())
+    except Exception:
+        # Log instead of letting Python print it, so a crash (bad token, missing intent) also raises an alert.
+        logger.critical("💥 Bot crashed", exc_info=True)
+        sys.exit(1)
+    finally:
+        if alert_listener:
+            # Flush alerts still queued, such as the crash above.
+            alert_listener.stop()
