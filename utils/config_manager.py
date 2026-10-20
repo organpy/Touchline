@@ -7,6 +7,7 @@ import discord
 from typing import Optional, Dict, Any
 import logging
 from db.db_utils import execute_async
+from utils import branding
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ class GuildConfig:
                 }))
                 self._cache = {}
             self._loaded = True
+            branding.apply_config(self._cache)
             logger.debug(f"✅ Loaded config for guild {self.guild_id}")
         except Exception as e:
             logger.error(f"❌ Failed to load config for guild {self.guild_id}: {e}")
@@ -61,6 +63,8 @@ class GuildConfig:
     def set(self, key: str, value: Any):
         """Set config value (call save() to persist)"""
         self._cache[key] = value
+        if key == branding.LEAGUE_NAME_KEY:
+            branding.set_league_name(value)
 
     def get_nested(self, path: str, default: Any = None) -> Any:
         """Get nested config value using dot notation (e.g., 'transactions.channel_id')"""
