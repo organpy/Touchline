@@ -208,20 +208,18 @@ async def post_trade_executed_announcement(ctx: TradeContext, guild: Optional[di
         embed, files = builder.build_with_files()
 
         mentions = []
-        members_to_mention = []
+        users_to_mention = []
         for owner_id in (ctx.initiating_team.get('owner_discord_id'), ctx.counterparty_team.get('owner_discord_id')):
             if not owner_id:
                 continue
             mentions.append(f"<@{owner_id}>")
-            member = guild.get_member(int(owner_id))
-            if member:
-                members_to_mention.append(member)
+            users_to_mention.append(discord.Object(int(owner_id)))
 
         await channel.send(
             content=" ".join(mentions) if mentions else None,
             embed=embed,
             files=files or None,
-            allowed_mentions=discord.AllowedMentions(users=members_to_mention if members_to_mention else True),
+            allowed_mentions=discord.AllowedMentions(users=users_to_mention),
         )
     except Exception as e:
         logger.warning(f"Failed to post trade executed announcement: {e}")
