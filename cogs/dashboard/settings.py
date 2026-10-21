@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 import discord
 
 from db.league_repository import LeagueRuleError
-from utils import branding
+from utils import board_events, branding
 from utils.config_utility import ConfigUtility
 
 from .core import EMBED_COLOR, DashboardPage, FormModal, parse_int
@@ -21,6 +21,7 @@ CHANNELS: Dict[str, tuple] = {
     "admin": ("Admin commands", "Admin commands only work here (leave unset for anywhere)", ("adminCommandsChannelId",)),
     "trading": ("Trading", "Trade proposals are posted here", ("trading", "channel_id")),
     "announcements": ("Announcements", "Playoff results, champions and promotions are announced here", ("announcements_channel_id",)),
+    "board": ("League board", "Standings and brackets that update themselves after every result", ("board", "channel_id")),
 }
 
 
@@ -106,6 +107,12 @@ class SettingsPage(DashboardPage):
 
         self.button("League name", self._league_name, emoji="🏷️", row=3)
         self.button("Signing offers", self._offers, emoji="✉️", row=3)
+        self.button("Refresh board", self._refresh_board, emoji="🔄", row=3, disabled=not read_channel(self.config, "board"))
+
+    async def _refresh_board(self, interaction: discord.Interaction) -> None:
+        board_events.league_changed(delay=0)
+        self.notice = "🔄 The league board is refreshing."
+        await self.show(interaction)
 
     async def _save(self, interaction: discord.Interaction, success: str) -> None:
         config = self.config
