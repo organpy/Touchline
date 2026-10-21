@@ -88,6 +88,10 @@ class TeamOverviewCog(StatsCogBase):
         else:
             from utils.formatting import number_to_ordinal
             rank_display = f"{number_to_ordinal(team_standing['rank'])} of {len(standings)}"
+            from services.standings import ZONE_EMOJI, ZONE_LABELS
+            if team_standing.get('zone') in ZONE_LABELS:
+                zone = team_standing['zone']
+                rank_display += f" · {ZONE_EMOJI[zone]} {ZONE_LABELS[zone]}"
             gp = team_standing.get('gp', 0)
             wins = team_standing.get('wins', 0)
             losses = team_standing.get('losses', 0)

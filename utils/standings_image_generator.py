@@ -46,6 +46,15 @@ BASE_THEME = {
     },
 }
 
+# Colour bar for each standings zone (services.standings zone names)
+ZONE_COLORS = {
+    "champion_playoff": (255, 197, 80, 255),
+    "promoted": (46, 204, 113, 255),
+    "promotion_playoff": (125, 220, 160, 255),
+    "relegation_playoff": (241, 160, 70, 255),
+    "relegated": (231, 76, 60, 255),
+}
+
 # Compact layout constants - standardized sizing (centered content)
 CANVAS_PADDING = 40
 CARD_CORNER_RADIUS = 28
@@ -355,10 +364,14 @@ def generate_simple_standings_image(
             card_draw.rectangle((table_x, row_top, table_x + table_width, row_bottom), fill=row_color)
             card_draw.line((table_x, row_bottom, table_x + table_width, row_bottom), fill=theme["row_divider"], width=1)
 
-            # Rank accent bar
-            rank_accent = theme["rank_accent"].get(rank)
-            if rank_accent:
-                card_draw.rectangle((table_x, row_top, table_x + 4, row_bottom), fill=rank_accent)
+            # Zone bar (promotion/relegation/playoff), else the podium accent
+            zone_color = ZONE_COLORS.get(team.get("zone"))
+            if zone_color:
+                card_draw.rectangle((table_x, row_top, table_x + 6, row_bottom), fill=zone_color)
+            else:
+                rank_accent = theme["rank_accent"].get(rank)
+                if rank_accent:
+                    card_draw.rectangle((table_x, row_top, table_x + 4, row_bottom), fill=rank_accent)
 
             x = table_x
 

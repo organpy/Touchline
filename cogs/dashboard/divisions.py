@@ -21,6 +21,7 @@ from services.division_settings import (
     describe_championship,
     describe_rules,
 )
+from services.standings import division_conflicts, zone_conflicts
 from utils.league_cache import LeagueCache
 
 from .core import EMBED_COLOR, DashboardPage, FormModal, division_label, parse_color, parse_int
@@ -164,6 +165,9 @@ class DivisionPage(DashboardPage):
                 value=f"{describe_boundary(above_boundary)}\n*(set on {self.above.get('code')})*",
                 inline=False,
             )
+        conflicts = division_conflicts(self.division_id, season_id=(self.season or {}).get("id")) if self.team_count else []
+        if conflicts:
+            embed.add_field(name="⚠️ Zones don't fit", value="\n".join(conflicts)[:1024], inline=False)
         if self.confirm_archive:
             embed.add_field(name="⚠️ Archive?", value="Press **Confirm archive** to archive this division.", inline=False)
         return embed
@@ -228,10 +232,41 @@ class DivisionPage(DashboardPage):
         await self.apply(interaction, change, "Rules saved.")
 
     async def _save(self, settings: DivisionSettings) -> None:
-        errors = settings.validate()
+        errors = settings.validate() or self._zone_conflicts(settings)
         if errors:
             raise LeagueRuleError("INVALID", " ".join(errors))
         await self.repo.update_division_settings(self.division_id, settings.to_dict())
+
+    def _zone_conflicts(self, settings: DivisionSettings) -> List[str]:
+        """Zone overlaps the new settings would cause here and in the division below.
+
+        Only divisions that already have teams this season are checked; starting the regular season
+        checks the whole league again.
+        """
+        season_id = (LeagueCache.active_season() or {}).get("id")
+        if not season_id:
+            return []
+        errors: List[str] = []
+        count = len(LeagueCache.team_ids_in_division(self.division_id, season_id))
+        if count:
+            errors += zone_conflicts(
+                count,
+                division_label=(self.division.get("code") or "").upper(),
+                championship=settings.championship if self.division["tier"] == 1 else None,
+                boundary_above=DivisionSettings.from_division(self.above).boundary_below if self.above else None,
+                boundary_below=settings.boundary_below if self.below else None,
+            )
+        if self.below:
+            below_count = len(LeagueCache.team_ids_in_division(self.below["id"], season_id))
+            if below_count:
+                further = LeagueCache.division_below(self.below["id"])
+                errors += zone_conflicts(
+                    below_count,
+                    division_label=(self.below.get("code") or "").upper(),
+                    boundary_above=settings.boundary_below,
+                    boundary_below=DivisionSettings.from_division(self.below).boundary_below if further else None,
+                )
+        return errors
 
     # ------------------------------------------------------------------ championship
     async def _edit_championship(self, interaction: discord.Interaction) -> None:

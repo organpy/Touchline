@@ -21,6 +21,7 @@ from utils.team_player_cache import TeamPlayerCache
 from db.db_utils import execute_async
 from utils.league_cache import LeagueCache
 from utils.team_picker import TeamSelect, entries_from_cached_teams
+from services.standings import refresh_after_match
 
 logger = logging.getLogger(__name__)
 
@@ -622,6 +623,7 @@ class BulkStatsCog(commands.Cog):
                 return
             
             match_id = match_response.data[0]['id']
+            await refresh_after_match(self.supabase, season['id'], match_response.data[0].get('division_id') or team1.division_id)
             
             # Insert player stats
             player_stats = match_entry.to_supabase_player_stats(match_id)
@@ -869,6 +871,7 @@ class BulkStatsCog(commands.Cog):
                 return
             
             match_id = match_response.data[0]['id']
+            await refresh_after_match(self.supabase, season['id'], match_response.data[0].get('division_id') or team1.division_id)
             
             # Success
             winner = team1.name if score1 > score2 else team2.name

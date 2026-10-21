@@ -9,7 +9,6 @@ division (``division_id``, ``league_type`` = division code, ``league_name``).
 import logging
 from typing import Optional, Dict, List, Any
 
-from services.division_settings import DivisionSettings
 from utils.league_cache import LeagueCache, enrich_team
 from .db_utils import execute_async
 
@@ -330,27 +329,57 @@ async def get_standings(
     season_id: str,
     division_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Ranked standings rows for a season (optionally one division), best first.
+    """Ranked standings rows for a season (optionally one division), by tier then rank.
 
-    Each row has ``team_id``, ``team_name``, ``code``, ``emoji``, ``division_id``, ``league_type``,
-    ``gp``, ``wins``, ``losses``, ``points_for``, ``points_against``, ``point_diff``,
-    ``competition_points`` and ``rank`` (within the division).
+    Reads the ``standings`` table the bot keeps up to date after every result. When a division has no
+    stored rows yet, it is ranked on the fly (same rules, see ``services.standings``).
+
+    Each row has ``team_id``, ``team_name``/``name``, ``code``, ``emoji``, ``color``, ``logo_url``,
+    ``division_id``, ``group_id``, ``league_type``, ``tier``, ``gp``, ``wins``, ``losses``,
+    ``points_for``, ``points_against``, ``point_diff``, ``competition_points``, ``rank``,
+    ``group_rank``, ``zone`` and ``final``.
     """
+    from db.league_repository import LeagueRepository
+    from services.standings import compute_division
+
     try:
-        query = supabase.table('team_records').select('*, teams(name, code, emoji, color, logo_url)').eq('season_id', season_id)
+        repo = LeagueRepository(supabase)
+        stored = await repo.get_standings(season_id, division_id)
+        await LeagueCache.load_season_teams(season_id)
         if division_id:
-            query = query.eq('division_id', division_id)
-        response = await execute_async(query)
-        rows = []
-        for record in response.data or []:
-            team = record.get('teams') if isinstance(record.get('teams'), dict) else {}
-            division = LeagueCache.division(record.get('division_id')) or {}
-            settings = DivisionSettings.from_division(division)
-            pf = record.get('points_for') or 0
-            pa = record.get('points_against') or 0
-            wins = record.get('wins') or 0
-            rows.append({
-                **record,
+            division_ids = [division_id]
+        else:
+            division_ids = sorted(
+                {(LeagueCache.assignment(team_id, season_id) or {}).get('division_id')
+                 for team_id in LeagueCache.assigned_team_ids(season_id)} - {None},
+                key=lambda d: (LeagueCache.division(d) or {}).get('tier') or 999,
+            )
+        have = {row['division_id'] for row in stored}
+        rows: List[Dict[str, Any]] = list(stored)
+
+        missing = [d for d in division_ids if d and d not in have]
+        if missing:
+            season_teams = await repo.list_season_teams(season_id)
+            matches = await repo.list_regular_matches(season_id)
+            for missing_id in missing:
+                teams = [
+                    {'team_id': r['team_id'], 'group_id': r.get('group_id'), 'name': (r.get('teams') or {}).get('name'),
+                     'teams': r.get('teams')}
+                    for r in season_teams if r.get('division_id') == missing_id
+                ]
+                if not teams:
+                    continue
+                team_info = {t['team_id']: t.get('teams') or {} for t in teams}
+                division_matches = [m for m in matches if m.get('division_id') == missing_id]
+                for row in compute_division(missing_id, teams, division_matches):
+                    rows.append({**row.to_db(season_id, missing_id), 'teams': team_info.get(row.team_id), 'final': False})
+
+        result = []
+        for row in rows:
+            team = row.get('teams') if isinstance(row.get('teams'), dict) else {}
+            division = LeagueCache.division(row.get('division_id')) or {}
+            result.append({
+                **{k: v for k, v in row.items() if k != 'teams'},
                 'team_name': team.get('name'),
                 'name': team.get('name'),
                 'code': team.get('code'),
@@ -359,21 +388,12 @@ async def get_standings(
                 'logo_url': team.get('logo_url'),
                 'league_type': division.get('code'),
                 'tier': division.get('tier') or 0,
-                'gp': record.get('games_played') or 0,
-                'point_diff': pf - pa,
-                'competition_points': settings.competition_points(wins=wins, points_for=pf),
+                'gp': row.get('games_played') or 0,
             })
-        rows.sort(key=lambda r: (
-            r['tier'], -r['competition_points'], -r['point_diff'], -(r.get('points_for') or 0),
-            -(r.get('wins') or 0), (r.get('team_name') or '').lower(),
-        ))
-        ranks: Dict[str, int] = {}
-        for row in rows:
-            ranks[row['division_id']] = ranks.get(row['division_id'], 0) + 1
-            row['rank'] = ranks[row['division_id']]
-        return rows
+        result.sort(key=lambda r: (r['tier'], r.get('rank') or 0))
+        return result
     except Exception as e:
-        logger.error(f"Error fetching standings: {e}")
+        logger.error(f"Error fetching standings: {e}", exc_info=True)
         return []
 
 
