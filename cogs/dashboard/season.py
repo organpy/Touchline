@@ -140,7 +140,7 @@ class SeasonPage(DashboardPage):
         phase = self.season.get("phase")
         if phase == "offseason":
             modal = FormModal("Start next season", self._submit_next)
-            modal.season_name = modal.text("New season name", default=suggested_next_name(self.season), max_length=100)
+            modal.season_name = modal.text("New season name", default=suggested_next_name(self.season), max_length=64)
             await interaction.response.send_modal(modal)
             return
         await interaction.response.defer()
@@ -211,7 +211,7 @@ class SeasonPage(DashboardPage):
 
     async def _create(self, interaction: discord.Interaction) -> None:
         modal = FormModal("Create first season", self._submit_create)
-        modal.season_name = modal.text("Season name", default="Season 1", max_length=100)
+        modal.season_name = modal.text("Season name", default="Season 1", max_length=64)
         await interaction.response.send_modal(modal)
 
     async def _submit_create(self, interaction: discord.Interaction, modal: FormModal) -> None:
@@ -224,7 +224,7 @@ class SeasonPage(DashboardPage):
 
     async def _rename(self, interaction: discord.Interaction) -> None:
         modal = FormModal("Rename season", self._submit_rename)
-        modal.season_name = modal.text("Season name", default=self.season.get("name"), max_length=100)
+        modal.season_name = modal.text("Season name", default=self.season.get("name"), max_length=64)
         await interaction.response.send_modal(modal)
 
     async def _submit_rename(self, interaction: discord.Interaction, modal: FormModal) -> None:
