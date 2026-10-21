@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 IMAGES_DIR = ROOT_DIR / "images"
+LOGO_CACHE_DIR = ROOT_DIR / "data" / "logo_cache"
 DATA_DIR = ROOT_DIR / "data"
 FONTS_DIR = ROOT_DIR / "fonts"
 
@@ -112,12 +113,14 @@ def _normalize_key(value: str) -> str:
 @lru_cache(maxsize=1)
 def _image_index() -> Dict[str, Path]:
     index: Dict[str, Path] = {}
-    if not IMAGES_DIR.exists():
-        return index
-    for file_path in IMAGES_DIR.iterdir():
-        if file_path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+    # Uploaded logos (data/logo_cache) win over bundled images with the same name
+    for directory in (IMAGES_DIR, LOGO_CACHE_DIR):
+        if not directory.exists():
             continue
-        index[_normalize_key(file_path.stem)] = file_path
+        for file_path in directory.iterdir():
+            if file_path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+                continue
+            index[_normalize_key(file_path.stem)] = file_path
     return index
 
 

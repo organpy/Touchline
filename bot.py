@@ -143,6 +143,15 @@ class TouchlineBot(commands.Bot):
             logger.info("✅ RosterCache initialized")
         except Exception as e:
             logger.error(f"❌ Failed to initialize RosterCache: {e}", exc_info=True)
+
+        try:
+            from utils.logo_store import sync_team_logos
+
+            fetched = await sync_team_logos(TeamPlayerCache.get_all_teams())
+            if fetched:
+                logger.info("✅ Downloaded %d uploaded team logo(s)", fetched)
+        except Exception as e:
+            logger.warning(f"⚠️ Could not sync team logos: {e}")
         
         logger.info("🔄 Discovering cogs...")
         extensions = self.discover_cogs()

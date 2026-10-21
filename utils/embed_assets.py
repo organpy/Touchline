@@ -35,6 +35,11 @@ def get_team_display(team_code: Optional[str]) -> Optional[str]:
 def _team_image_path(team_code: Optional[str]) -> Optional[Path]:
     if not team_code:
         return None
+    from utils.logo_store import cached_logo_path
+
+    uploaded = cached_logo_path(team_code)
+    if uploaded:
+        return uploaded
     candidate = IMAGES_DIR / f"{team_code.lower()}{TEAM_IMAGE_SUFFIX}"
     if candidate.exists():
         return candidate
