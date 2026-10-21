@@ -578,12 +578,13 @@ class ForceReleaseView(LazyInitView):
                                         embed, files = builder.build_with_files()
                                         # Ping the player
                                         ping_content = f"<@{player_discord_id}>" if player_discord_id else None
-                                        player_member = confirm_interaction.guild.get_member(int(player_discord_id)) if player_discord_id else None
                                         await channel.send(
                                             content=ping_content,
                                             embed=embed,
                                             files=files or None,
-                                            allowed_mentions=discord.AllowedMentions(users=[player_member] if player_member else True),
+                                            allowed_mentions=discord.AllowedMentions(
+                                                users=[discord.Object(int(player_discord_id))] if player_discord_id else []
+                                            ),
                                         )
                                 except Exception as e:
                                     logger.warning(f"Failed to post admin release to transactions channel: {e}")
@@ -810,12 +811,13 @@ class ForceTransferView(LazyInitView):
                                         embed, files = builder.build_with_files()
                                         # Ping the player
                                         ping_content = f"<@{player_discord_id}>" if player_discord_id else None
-                                        player_member = confirm_interaction.guild.get_member(int(player_discord_id)) if player_discord_id else None
                                         await channel.send(
                                             content=ping_content,
                                             embed=embed,
                                             files=files or None,
-                                            allowed_mentions=discord.AllowedMentions(users=[player_member] if player_member else True),
+                                            allowed_mentions=discord.AllowedMentions(
+                                                users=[discord.Object(int(player_discord_id))] if player_discord_id else []
+                                            ),
                                         )
                                 except Exception as e:
                                     logger.warning(f"Failed to post admin transfer to transactions channel: {e}")

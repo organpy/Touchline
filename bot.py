@@ -60,6 +60,8 @@ class TouchlineBot(commands.Bot):
         super().__init__(
             command_prefix="!",
             intents=intents,
+            # Ping nobody unless a send names the users to ping, so names like "@everyone" in league data stay inert.
+            allowed_mentions=discord.AllowedMentions.none(),
             # League commands only make sense inside a server; hide them from DMs and group DMs.
             allowed_contexts=app_commands.AppCommandContext(guild=True, dm_channel=False, private_channel=False),
             allowed_installs=app_commands.AppInstallationType(guild=True, user=False),
