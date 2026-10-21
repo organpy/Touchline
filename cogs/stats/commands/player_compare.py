@@ -71,11 +71,12 @@ class PlayerCompareCog(StatsCogBase):
             league_input=league,
             season_input=season,
             default_season_id=(membership_hint or {}).get('season_id'),
-            default_league_code=(membership_hint or {}).get('league_type'),
         )
         if not season_row:
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
+        if not league_meta:
+            league_meta = await self._resolve_player_division(player_a, season_row)
 
         league_season_display = self._format_league_season_display(league_meta, season_row)
 

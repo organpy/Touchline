@@ -51,11 +51,11 @@ async def test_division_autocomplete_uses_all_divisions(monkeypatch):
         autocomplete.queries,
         "get_all_divisions",
         AsyncMock(return_value=[
-            {"name": "National Bobble League", "league_type": "NBL"},
-            {"name": "Minor Bobble League", "league_type": "MBL"},
+            {"name": "Premier", "code": "D1"},
+            {"name": "Championship", "code": "D2"},
         ]),
     )
 
-    choices = await autocomplete._admin_division_autocomplete(None, "nbl")
+    choices = await autocomplete._admin_division_autocomplete(None, "d1")
 
-    assert [choice.value for choice in choices] == ["National Bobble League"]
+    assert [choice.value for choice in choices] == ["Premier"]

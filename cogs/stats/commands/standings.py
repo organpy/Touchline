@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 import discord
 from discord import app_commands
@@ -18,18 +18,26 @@ from cogs.stats.autocomplete import (
     _league_autocomplete,
     _season_autocomplete,
 )
+from services.standings import ZONE_EMOJI, ZONE_LABELS
+from utils.league_cache import LeagueCache
 from utils.standings_image_generator import generate_simple_standings_image
 
 logger = logging.getLogger(__name__)
 
 
+def zone_legend(rows: List[Dict[str, Any]]) -> str:
+    """One line explaining the zone colours that appear in these standings."""
+    present = [zone for zone in ZONE_LABELS if any(row.get('zone') == zone for row in rows)]
+    return " · ".join(f"{ZONE_EMOJI[zone]} {ZONE_LABELS[zone]}" for zone in present)
+
+
 class StandingsCog(StatsCogBase):
     """Standings command: /standings (uses compact standings view with recent results)"""
 
-    @app_commands.command(name="standings", description="[STATS] Show current season standings for a league")
+    @app_commands.command(name="standings", description="[STATS] Show season standings for a division")
     @app_commands.describe(
-        league="League code or name",
-        season="Season name (e.g., S10). Defaults to active season",
+        league="Division code or name (defaults to every division)",
+        season="Season name or number. Defaults to the active season",
     )
     @app_commands.autocomplete(
         league=_league_autocomplete,
@@ -41,95 +49,96 @@ class StandingsCog(StatsCogBase):
         league: Optional[str] = None,
         season: Optional[str] = None,
     ) -> None:
-        """Compact standings image with W, L, PF, PA, Diff, and last 5 results."""
+        """Compact standings image per division with W, L, PF, PA, Diff and the last 5 results."""
         await interaction.response.defer(thinking=True)
 
-        # Resolve season
-        season_row, league_meta = await self._resolve_season_context(
-            league_input=league,
-            season_input=season,
-            default_season_id=None,
-            default_league_code=None,
-        )
+        season_row, league_meta = await self._resolve_season_context(league_input=league, season_input=season)
         if not season_row:
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
-        league_code = ((league_meta or {}).get('code') or season_row.get('league_type') or '').upper()
-        
-        # Fetch standings
         try:
             standings_data = await queries.get_standings(
                 self.supabase,
                 season_row['id'],
-                league_type=league_code or None,
+                division_id=(league_meta or {}).get('id'),
             )
         except Exception as exc:
             logger.error(f"Failed to fetch standings for season {season_row['id']}: {exc}")
-            standings_data = None
+            standings_data = []
 
         if not standings_data:
             league_season_display = self._format_league_season_display(league_meta, season_row)
-            await interaction.followup.send(
-                f"ℹ️ No standings recorded for {league_season_display} yet."
-            )
+            await interaction.followup.send(f"ℹ️ No standings recorded for {league_season_display} yet.")
             return
 
-        season_league_display = self._format_league_display(league_meta)
-
-        # Compute recent results markers per team (last 5)
-        recent_map = {}
+        by_division: Dict[str, List[Dict[str, Any]]] = {}
         for row in standings_data:
-            team_id = row.get('team_id') or row.get('id')
+            by_division.setdefault(row['division_id'], []).append(row)
+
+        recent_map = await self._recent_results(season_row['id'], standings_data)
+        files: List[discord.File] = []
+        text_blocks: List[str] = []
+        for division_id, rows in by_division.items():
+            division = LeagueCache.division(division_id) or {}
+            division_display = self._format_league_display(division)
+            image = await asyncio.to_thread(
+                generate_simple_standings_image,
+                rows,
+                season_row.get('name', 'Unknown'),
+                division_display,
+                league_code=division.get('code'),
+                recent_results={r['team_id']: recent_map.get(r['team_id'], []) for r in rows},
+                accent_color=division.get('color'),
+            )
+            if image:
+                files.append(discord.File(image, filename=f"standings-{(division.get('code') or 'division').lower()}.png"))
+            else:
+                text_blocks.append(self._text_table(rows, division_display, season_row))
+
+        legend = zone_legend(standings_data)
+        # Discord allows 10 attachments per message.
+        for start in range(0, len(files), 10):
+            await interaction.followup.send(content=legend if start == 0 and legend else None, files=files[start:start + 10])
+        for block in text_blocks:
+            await interaction.followup.send(block)
+
+    async def _recent_results(self, season_id: str, rows: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+        """Last five regular-season results per team as 'W'/'L' markers, padded with 'N'."""
+        results: Dict[str, List[str]] = {}
+        for row in rows:
+            team_id = row.get('team_id')
             if not team_id:
                 continue
-            recent = await queries.get_team_recent_matches(self.supabase, season_row['id'], team_id, limit=5)
+            recent = await queries.get_team_recent_matches(self.supabase, season_id, team_id, limit=5)
             markers = []
-            for m in recent:
-                t1 = m.get('team1_id')
-                t2 = m.get('team2_id')
-                s1 = m.get('team1_score', 0)
-                s2 = m.get('team2_score', 0)
-                if s1 == 0 and s2 == 0:
-                    markers.append('N')
-                else:
-                    if (t1 == team_id and s1 > s2) or (t2 == team_id and s2 > s1):
-                        markers.append('W')
-                    else:
-                        markers.append('L')
-            while len(markers) < 5:
-                markers.append('N')
-            recent_map[team_id] = markers
+            for match in recent:
+                if match.get('stage', 'regular') != 'regular':
+                    continue
+                own, other = (
+                    (match.get('team1_score', 0), match.get('team2_score', 0))
+                    if match.get('team1_id') == team_id
+                    else (match.get('team2_score', 0), match.get('team1_score', 0))
+                )
+                markers.append('W' if own > other else 'L')
+            results[team_id] = (markers + ['N'] * 5)[:5]
+        return results
 
-        # Generate simple standings image (CPU-bound rendering runs in a worker thread)
-        standings_image = await asyncio.to_thread(
-            generate_simple_standings_image,
-            standings_data,
-            season_row.get('name', 'Unknown'),
-            season_league_display,
-            league_code=league_code,
-            recent_results=recent_map,
-        )
-
-        if standings_image:
-            standings_file = discord.File(standings_image, filename="standings.png")
-            await interaction.followup.send(file=standings_file)
-        else:
-            # Fallback to text
-            header = f"Standings — {season_league_display} ({season_row.get('name', 'Unknown')})"
-            lines = [header, "```", "Rk Team         W  L   PF   PA  ±"]
-            lines.append("-" * 38)
-            for rank, team in enumerate(standings_data, 1):
-                name = team.get('name', '?')[:10].ljust(10)
-                w = str(team.get('wins', 0)).rjust(2)
-                l = str(team.get('losses', 0)).rjust(2)
-                pf = str(team.get('points_for', 0)).rjust(4)
-                pa = str(team.get('points_against', 0)).rjust(4)
-                diff = team.get('point_diff', 0)
-                diff_str = f"{diff:+d}".rjust(4) if diff != 0 else "   0"
-                lines.append(f"{rank:<2} {name} {w} {l} {pf} {pa} {diff_str}")
-            lines.append("```")
-            await interaction.followup.send("\n".join(lines))
+    @staticmethod
+    def _text_table(rows: List[Dict[str, Any]], division_display: str, season_row: Dict[str, Any]) -> str:
+        lines = [f"Standings — {division_display} ({season_row.get('name', 'Unknown')})", "```",
+                 "Rk Team         W  L   PF   PA    ±"]
+        lines.append("-" * 40)
+        for row in rows:
+            name = (row.get('team_name') or '?')[:10].ljust(10)
+            zone = ZONE_EMOJI.get(row.get('zone'), '')
+            diff = row.get('point_diff', 0)
+            lines.append(
+                f"{row.get('rank', '?'):<2} {name} {row.get('wins', 0):>2} {row.get('losses', 0):>2} "
+                f"{row.get('points_for', 0):>4} {row.get('points_against', 0):>4} {diff:>+5d} {zone}"
+            )
+        lines.append("```")
+        return "\n".join(lines)
 
 
 async def setup(bot: commands.Bot) -> None:

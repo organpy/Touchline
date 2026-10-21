@@ -1,5 +1,5 @@
 -- Test script for execute_trade_proposal().
--- Run against a database that has all migrations applied (e.g. a Supabase branch):
+-- Run against a database with db/migrations/init.sql applied (e.g. a Supabase branch):
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/tests/execute_trade_proposal_test.sql
 -- Everything runs inside one transaction and is rolled back; no data is kept.
 -- A failed assertion aborts with an error; success prints "ALL TRADE TESTS PASSED".
@@ -23,18 +23,19 @@ DECLARE
     v_count integer;
 BEGIN
     -- ---------------------------------------------------------------- fixtures
-    INSERT INTO divisions (league_type, name) VALUES ('ZZTEST', 'Trade Test Division') RETURNING id INTO v_division;
-    INSERT INTO seasons (division_id, name, active) VALUES (v_division, 'ZZ Test Season', false) RETURNING id INTO v_season;
-    INSERT INTO teams (division_id, code, name, owner_discord_id) VALUES (v_division, 'zztest_a', 'Test A', 1001) RETURNING id INTO v_team_a;
-    INSERT INTO teams (division_id, code, name, owner_discord_id) VALUES (v_division, 'zztest_b', 'Test B', 1002) RETURNING id INTO v_team_b;
+    INSERT INTO divisions (code, name, tier) VALUES ('ZZT', 'Trade Test Division', 9001) RETURNING id INTO v_division;
+    INSERT INTO seasons (number, name, active) VALUES (9001, 'ZZ Test Season', false) RETURNING id INTO v_season;
+    INSERT INTO teams (code, name, owner_discord_id) VALUES ('zztest-a', 'Test A', 1001) RETURNING id INTO v_team_a;
+    INSERT INTO teams (code, name, owner_discord_id) VALUES ('zztest-b', 'Test B', 1002) RETURNING id INTO v_team_b;
+    INSERT INTO season_teams (season_id, team_id, division_id) VALUES (v_season, v_team_a, v_division), (v_season, v_team_b, v_division);
     INSERT INTO players (display_name) VALUES ('ZZ Player One') RETURNING id INTO v_player_1;
     INSERT INTO players (display_name) VALUES ('ZZ Player Two') RETURNING id INTO v_player_2;
     INSERT INTO rosters (season_id, team_id, player_id, joined_at) VALUES (v_season, v_team_a, v_player_1, t_past);
     INSERT INTO rosters (season_id, team_id, player_id, joined_at) VALUES (v_season, v_team_b, v_player_2, t_past);
-    INSERT INTO draft_picks (season_id, original_team_id, current_owner_team_id, round, overall)
-        VALUES (v_season, v_team_b, v_team_b, 1, 9001) RETURNING id INTO v_pick_1;
-    INSERT INTO draft_picks (season_id, original_team_id, current_owner_team_id, round, overall)
-        VALUES (v_season, v_team_a, v_team_a, 1, 9002) RETURNING id INTO v_pick_2;
+    INSERT INTO draft_picks (season_id, division_id, original_team_id, current_owner_team_id, round, overall)
+        VALUES (v_season, v_division, v_team_b, v_team_b, 1, 9001) RETURNING id INTO v_pick_1;
+    INSERT INTO draft_picks (season_id, division_id, original_team_id, current_owner_team_id, round, overall)
+        VALUES (v_season, v_division, v_team_a, v_team_a, 1, 9002) RETURNING id INTO v_pick_2;
 
     -- ------------------------------------------- 1. happy path: player out, pick in
     INSERT INTO trade_proposals (guild_id, season_id, initiating_team_id, counterparty_team_id, created_by)
@@ -129,7 +130,7 @@ BEGIN
     -- ------------------------------------------- 6. unknown proposal
     v_hint := NULL;
     BEGIN
-        PERFORM execute_trade_proposal(uuid_generate_v4(), 1002);
+        PERFORM execute_trade_proposal(gen_random_uuid(), 1002);
     EXCEPTION WHEN others THEN
         GET STACKED DIAGNOSTICS v_hint = PG_EXCEPTION_HINT;
     END;

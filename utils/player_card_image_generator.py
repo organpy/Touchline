@@ -1,7 +1,7 @@
 """Player card image generator.
 
 Design goal: match the standings-style visuals (gradient canvas + inner rounded card +
-gradient header) and render a league-specific card type (NBL/MBL/NCBA).
+gradient header) and render a card tinted with the division colour.
 
 The stat fields displayed are aligned with the Supabase schema (db/migrations/init.sql):
 - points, goals, assists, saves, blocks, own_goals
@@ -24,10 +24,13 @@ from PIL import Image, ImageDraw, ImageFont
 
 from utils.caching import TTLCache
 
+from utils.image_theme import division_color, tinted_theme
+
 logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 IMAGES_DIR = ROOT_DIR / "images"
+LOGO_CACHE_DIR = ROOT_DIR / "data" / "logo_cache"
 DATA_DIR = ROOT_DIR / "data"
 FONTS_DIR = ROOT_DIR / "fonts"
 
@@ -45,42 +48,6 @@ BASE_THEME: Dict[str, Any] = {
     "row_alt": (40, 52, 76, 255),
     "row_divider": (56, 68, 94, 255),
 }
-
-LEAGUE_THEME_OVERRIDES: Dict[str, Dict[str, Any]] = {
-    "NBL": {
-        "canvas_gradient": ((45, 30, 18), (95, 60, 28)),
-        "card_bg": (52, 35, 20, 255),
-        "card_border": (111, 74, 38, 255),
-        "header_gradient": ((192, 142, 86), (126, 74, 33)),
-        "text_primary": (255, 250, 240, 255),
-        "text_muted": (236, 210, 160, 255),
-        "accent_color": (247, 173, 68, 255),
-        "row_primary": (64, 44, 24, 255),
-        "row_alt": (55, 36, 20, 255),
-        "row_divider": (122, 86, 44, 255),
-    },
-    "MBL": {
-        "canvas_gradient": ((24, 12, 2), (68, 38, 6)),
-        "header_gradient": ((255, 150, 2), (191, 105, 2)),
-        "card_bg": (48, 30, 8, 255),
-        "card_border": (128, 78, 12, 255),
-        "accent_color": (255, 149, 0, 255),
-        "row_primary": (58, 36, 10, 255),
-        "row_alt": (66, 40, 12, 255),
-        "row_divider": (120, 80, 20, 255),
-    },
-    "NCBA": {
-        "canvas_gradient": ((5, 24, 24), (9, 58, 70)),
-        "header_gradient": ((0, 173, 181), (0, 119, 182)),
-        "card_bg": (14, 34, 44, 255),
-        "card_border": (22, 64, 78, 255),
-        "accent_color": (126, 199, 255, 255),
-        "row_primary": (16, 46, 60, 255),
-        "row_alt": (18, 54, 70, 255),
-        "row_divider": (34, 92, 110, 255),
-    },
-}
-
 
 # Layout constants (standings-style)
 CANVAS_PADDING = 36
@@ -134,13 +101,9 @@ def _to_rgba(color: Tuple[int, ...]) -> Tuple[int, int, int, int]:
     raise ValueError("Color tuples must be length 3 or 4")
 
 
-def _get_theme(league_code: Optional[str]) -> Dict[str, Any]:
-    theme = {**BASE_THEME}
-    if league_code:
-        overrides = LEAGUE_THEME_OVERRIDES.get(league_code.upper())
-        if overrides:
-            theme.update(overrides)
-    return theme
+def _get_theme(league_code: Optional[str], accent_color: Optional[str] = None) -> Dict[str, Any]:
+    """Base theme tinted with the division's colour."""
+    return tinted_theme(BASE_THEME, accent_color or division_color(league_code))
 
 
 def _normalize_key(value: str) -> str:
@@ -150,31 +113,15 @@ def _normalize_key(value: str) -> str:
 @lru_cache(maxsize=1)
 def _image_index() -> Dict[str, Path]:
     index: Dict[str, Path] = {}
-    if not IMAGES_DIR.exists():
-        return index
-    for file_path in IMAGES_DIR.iterdir():
-        if file_path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+    # Uploaded logos (data/logo_cache) win over bundled images with the same name
+    for directory in (IMAGES_DIR, LOGO_CACHE_DIR):
+        if not directory.exists():
             continue
-        index[_normalize_key(file_path.stem)] = file_path
+        for file_path in directory.iterdir():
+            if file_path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+                continue
+            index[_normalize_key(file_path.stem)] = file_path
     return index
-
-
-@lru_cache(maxsize=1)
-def _team_colors_index() -> Dict[str, Dict[str, Any]]:
-    """Load team color palettes from data/team_colors.json if available."""
-    path = DATA_DIR / "team_colors.json"
-    if not path.exists():
-        return {}
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-        out: Dict[str, Dict[str, Any]] = {}
-        for code, palette in (data or {}).items():
-            out[(code or "").upper()] = palette or {}
-        return out
-    except Exception:
-        logger.warning("Failed to load team colors from %s", path)
-        return {}
 
 
 player_card_cache = TTLCache(ttl_seconds=PLAYER_CARD_CACHE_TTL_SECONDS, max_size=32) 
@@ -201,6 +148,7 @@ def _make_cache_key(
         "player_name": player_name,
         "team_code": (team_code or "").upper(),
         "league_code": (league_code or "").upper(),
+        "accent_color": division_color(league_code),
         "stats": stats,
         "season_name": (season_name or ""),
         "seasons": seasons,
@@ -388,7 +336,7 @@ def generate_player_card_image(
         player_name: Player display name
         team_name: Team name (for display)
         team_code: Team code (for logo lookup)
-        league_code: League code for theming (NBL, MBL, NCBA)
+        league_code: Division code; the image is tinted with that division's colour
         stats: Dict with season totals aligned to schema
         seasons: List of seasons played
         awards: List of awards

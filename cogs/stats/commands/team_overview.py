@@ -59,16 +59,11 @@ class TeamOverviewCog(StatsCogBase):
         team_name = team_data.get('name')
         team_id = team_data.get('id')
 
-        # 2. Resolve Season Context
-        # Use team's active season as hint if no input provided
-        default_season_id = team_data.get('active_season_id')
-        default_league_code = team_data.get('league_type')
-
+        # 2. Resolve season; the division is the one the team played in that season
         season_row, league_meta = await self._resolve_season_context(
             league_input=league,
             season_input=season,
-            default_season_id=default_season_id,
-            default_league_code=default_league_code,
+            team_id=team_id,
         )
 
         if not season_row:
@@ -77,57 +72,35 @@ class TeamOverviewCog(StatsCogBase):
 
         season_id = season_row['id']
         season_name = season_row['name']
+        if not league_meta:
+            await interaction.followup.send(f"ℹ️ **{team_name}** didn't play in **{season_name}**.")
+            return
         league_code = league_meta.get('code')
         league_name = league_meta.get('name')
 
-        # 3. Validate Team in Season (via Division)
-        # We check if team's division matches season's division
-        # Note: Teams can change divisions, but usually fixed per season.
-        # A robust check is: is the team in the standings for this season?
-        # We'll proceed to fetch standings and check presence there.
+        # 3-4. Division standings (already ranked)
+        standings = await queries.get_standings(self.supabase, season_id, division_id=league_meta['id'])
+        team_standing = next((s for s in standings if s.get('team_id') == team_id), None)
 
-        # 4. Fetch Standings & Compute Rank
-        standings = await queries.get_standings(self.supabase, season_id)
-        if not standings:
-            await interaction.followup.send(f"ℹ️ No standings data found for **{season_name}**.")
-            return
-
-        # Sort: Points desc, Diff desc, Wins desc
-        sorted_standings = sorted(
-            standings,
-            key=lambda x: (
-                x.get('competition_points', 0),
-                x.get('point_diff', 0),
-                x.get('wins', 0)
-            ),
-            reverse=True
-        )
-
-        team_standing = next((s for s in sorted_standings if s.get('team_id') == team_id), None)
-        
         if not team_standing:
-            # Team might not have played yet or not in this season
-            # We can still show roster, but stats will be empty
             rank_display = "N/A"
             stats_display = "No games played in this season."
         else:
-            rank = sorted_standings.index(team_standing) + 1
-            total_teams = len(sorted_standings)
             from utils.formatting import number_to_ordinal
-            rank_display = number_to_ordinal(rank)
-            
-            # Extract stats
+            rank_display = f"{number_to_ordinal(team_standing['rank'])} of {len(standings)}"
+            from services.standings import ZONE_EMOJI, ZONE_LABELS
+            if team_standing.get('zone') in ZONE_LABELS:
+                zone = team_standing['zone']
+                rank_display += f" · {ZONE_EMOJI[zone]} {ZONE_LABELS[zone]}"
             gp = team_standing.get('gp', 0)
             wins = team_standing.get('wins', 0)
             losses = team_standing.get('losses', 0)
-            draws = team_standing.get('draws', 0)
             points = team_standing.get('competition_points', 0)
             pf = team_standing.get('points_for', 0)
             pa = team_standing.get('points_against', 0)
             diff = team_standing.get('point_diff', 0)
-            
             stats_display = (
-                f"**Record**: {wins}-{losses}-{draws} ({gp} GP)\n"
+                f"**Record**: {wins}-{losses} ({gp} GP)\n"
                 f"**Points**: {points}\n"
                 f"**Scoring**: {pf} PF / {pa} PA ({diff:+d})"
             )
@@ -158,7 +131,7 @@ class TeamOverviewCog(StatsCogBase):
             division_code=league_code,
         )
         
-        builder.add_field("League", f"{league_name} ({league_code})", inline=True)
+        builder.add_field("Division", f"{league_name} ({league_code})", inline=True)
         builder.add_field("Season", season_name, inline=True)
         builder.add_field("Position", rank_display, inline=True)
         
@@ -179,7 +152,3 @@ async def setup(bot):
     """Register the cog."""
     await bot.add_cog(TeamOverviewCog(bot))
 
-
-async def setup(bot):
-    """Load the TeamOverviewCog."""
-    await bot.add_cog(TeamOverviewCog(bot))

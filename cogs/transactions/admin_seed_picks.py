@@ -1,19 +1,32 @@
-"""Admin command to seed draft picks for the active season."""
+"""Admin command to seed draft picks for a division in the active season."""
 
 from __future__ import annotations
+
+import logging
+from typing import List
 
 import discord
 from discord import app_commands
 from discord.ext import commands
-import logging
-from typing import Optional
-from uuid import UUID
 
-from db import get_supabase, queries
+from cogs.admin.picks import MAX_ROUNDS, build_pick_rows, division_teams
+from db import get_supabase
 from db.db_utils import execute_async
-from .pick_trading import get_nbl_division
+from db.transactions_repository import TransactionsRepository
+from utils.league_cache import LeagueCache
 
 logger = logging.getLogger(__name__)
+
+
+async def draft_division_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+    """Divisions that run a draft."""
+    await LeagueCache.ensure_ready()
+    needle = current.lower()
+    return [
+        app_commands.Choice(name=f"{d.get('code')} · {d.get('name')}"[:100], value=d['code'])
+        for d in LeagueCache.picks_divisions()
+        if needle in f"{d.get('code')} {d.get('name')}".lower()
+    ][:25]
 
 
 class AdminSeedPicksCog(commands.GroupCog, name="admin_seed_picks"):
@@ -22,106 +35,69 @@ class AdminSeedPicksCog(commands.GroupCog, name="admin_seed_picks"):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.supabase = get_supabase()
+        self.repo = TransactionsRepository(self.supabase)
 
     @app_commands.command(
         name="populate_picks",
-        description="Populate draft picks for the active NBL season (admin only)"
+        description="Populate draft picks for a division in the active season (admin only)"
     )
     @app_commands.describe(
-        num_rounds="Number of rounds (e.g., 5)",
-        picks_per_round="Number of picks per round (e.g., 8)"
+        division="Division that runs a draft",
+        num_rounds="Number of rounds (every team in the division gets one pick per round)",
     )
+    @app_commands.autocomplete(division=draft_division_autocomplete)
     @app_commands.checks.has_permissions(administrator=True)
-    async def populate_picks(
-        self,
-        interaction: discord.Interaction,
-        num_rounds: int,
-        picks_per_round: int
-    ):
-        """
-        Seed draft picks for the active NBL season.
-
-        Draft picks are NBL-only by design. Each team gets one pick per round.
-        """
+    async def populate_picks(self, interaction: discord.Interaction, division: str, num_rounds: int):
+        """Seed draft picks for one division of the active season."""
         await interaction.response.defer(ephemeral=True)
 
-        if num_rounds < 1 or picks_per_round < 1:
+        if not 1 <= num_rounds <= MAX_ROUNDS:
+            await interaction.followup.send(f"❌ Rounds must be between 1 and {MAX_ROUNDS}.", ephemeral=True)
+            return
+
+        await LeagueCache.ensure_ready()
+        division_row = LeagueCache.find_division(division)
+        if not division_row:
+            await interaction.followup.send(f"❌ Division `{division}` not found.", ephemeral=True)
+            return
+        if not LeagueCache.settings(division_row['id']).picks_enabled:
             await interaction.followup.send(
-                "❌ Rounds and picks per round must be positive integers.",
+                f"❌ **{division_row['name']}** doesn't run a draft. Enable picks in Dashboard → Divisions → Rules.",
                 ephemeral=True,
             )
             return
 
-        nbl_division = await get_nbl_division(self.supabase)
-        if not nbl_division:
-            await interaction.followup.send("⚠️ NBL division is not configured.", ephemeral=True)
-            return
-
-        season = await queries.get_active_season(self.supabase, division_id=nbl_division['id'])
+        season = LeagueCache.active_season()
         if not season:
-            await interaction.followup.send("⚠️ No active NBL season configured.", ephemeral=True)
+            await interaction.followup.send("⚠️ No active season.", ephemeral=True)
             return
 
-        teams = await queries.get_all_teams(self.supabase, season['division_id'])
-        if not teams:
+        if await self.repo.list_draft_picks(season['id'], division_row['id']):
             await interaction.followup.send(
-                "⚠️ No teams found for the active NBL season.",
-                ephemeral=True,
+                f"⚠️ {division_row['name']} already has draft picks for {season['name']}.", ephemeral=True,
             )
             return
 
-        if len(teams) != picks_per_round:
-            logger.warning(
-                "Team count (%d) does not match picks_per_round (%d); "
-                "some picks may be unassigned.",
-                len(teams),
-                picks_per_round
+        teams = await division_teams(division_row['id'], season['id'])
+        if len(teams) < 2:
+            await interaction.followup.send(
+                f"⚠️ {division_row['name']} needs at least 2 teams this season.", ephemeral=True,
             )
-
-        picks_to_insert = []
-        overall_pick = 1
-
-        for round_num in range(1, num_rounds + 1):
-            for slot in range(picks_per_round):
-                team_idx = slot % len(teams)
-                team = teams[team_idx]
-
-                picks_to_insert.append({
-                    'season_id': season['id'],
-                    'original_team_id': team['id'],
-                    'current_owner_team_id': team['id'],
-                    'round': round_num,
-                    'overall': overall_pick,
-                    'notes': None,
-                    'metadata': {}
-                })
-                overall_pick += 1
-
-        if not picks_to_insert:
-            await interaction.followup.send("ℹ️ No picks to insert.", ephemeral=True)
             return
 
+        rows = build_pick_rows(teams, num_rounds, season_id=season['id'], division_id=division_row['id'])
         try:
-            response = await execute_async(self.supabase.table('draft_picks').insert(picks_to_insert))
+            response = await execute_async(self.supabase.table('draft_picks').insert(rows))
             inserted = len(response.data) if response.data else 0
             await interaction.followup.send(
-                f"✅ Seeded {inserted} draft picks for season {season['name']}:\n"
-                f"  • {num_rounds} rounds × {picks_per_round} picks per round",
+                f"✅ Seeded {inserted} draft picks for **{division_row['name']}**, {season['name']}:\n"
+                f"  • {num_rounds} rounds × {len(teams)} teams",
                 ephemeral=True,
             )
-            logger.info(
-                "✅ Seeded %d draft picks for season %s (rounds=%d, per_round=%d)",
-                inserted,
-                season['name'],
-                num_rounds,
-                picks_per_round
-            )
+            logger.info("✅ Seeded %d draft picks for %s %s", inserted, division_row['code'], season['name'])
         except Exception as exc:
             logger.error("Failed to seed draft picks: %s", exc)
-            await interaction.followup.send(
-                "❌ Failed to seed draft picks. Check logs for details.",
-                ephemeral=True,
-            )
+            await interaction.followup.send("❌ Failed to seed draft picks. Check logs for details.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

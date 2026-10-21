@@ -25,6 +25,8 @@ from utils.embed_assets import (
 )
 from utils.team_colors import get_team_color
 from db.db_utils import execute_async
+from utils.league_cache import LeagueCache
+from utils.team_picker import team_select_for
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -176,21 +178,7 @@ class ForceSignView(discord.ui.View):
             )
             return
 
-        team_select = discord.ui.Select(
-            placeholder="Select team...",
-            min_values=1,
-            max_values=1,
-            options=[
-                discord.SelectOption(
-                    label=f"{t.get('name', 'Unknown')} ({t.get('code', '?')})",
-                    value=t.get('id', ''),
-                )
-                for t in sorted(self._teams, key=lambda x: x.get('code', ''))
-            ],
-            row=0,
-        )
-        team_select.callback = self.select_team
-        self.add_item(team_select)
+        self.add_item(team_select_for(self._teams, on_pick=self.select_team, placeholder="Select team...", row=0))
 
     async def select_team(self, interaction: discord.Interaction) -> None:
         """Handle team selection."""
@@ -346,54 +334,45 @@ class ForceSignView(discord.ui.View):
                     await interaction.followup.send("❌ Failed to create player record.", ephemeral=True)
                     return
 
-            # Get active season for team's division
-            team_division_id = self._selected_team.get('division_id')
-            season_response = await execute_async(
-                self.supabase
-                .table('seasons')
-                .select('*')
-                .eq('division_id', team_division_id)
-                .eq('active', True)
-                .limit(1)
-            )
-            season = season_response.data[0] if season_response.data else None
+            # Signings go into the active season; the team must be in a division this season
+            season = await queries.get_active_season(self.supabase)
             if not season:
+                await interaction.followup.send("❌ No active season. Cannot sign player.", ephemeral=True)
+                return
+            if not LeagueCache.assignment(self._selected_team['id'], season['id']):
                 await interaction.followup.send(
-                    f"❌ No active season found for division {team_division_id}. Cannot sign player.",
+                    f"❌ **{self._selected_team.get('name')}** isn't in a division for {season['name']}.",
                     ephemeral=True,
                 )
                 return
 
-            # Check if already on roster
-            existing_roster = await execute_async(
-                self.supabase
-                .table('rosters')
-                .select('*')
-                .eq('season_id', season['id'])
-                .eq('team_id', self._selected_team['id'])
-                .eq('player_id', player['id'])
-                .is_('left_at', None)
-            )
-            if existing_roster.data:
+            # A player is on one team per season: same team is a no-op, another team is a transfer
+            existing_roster = await self.repo.get_active_roster_entry(season['id'], player['id'])
+            if existing_roster and existing_roster.get('team_id') == self._selected_team['id']:
                 await interaction.followup.send(
                     f"⚠️ **{player['display_name']}** is already on the roster.",
                     ephemeral=True,
                 )
                 return
+            from_team_id = existing_roster.get('team_id') if existing_roster else None
 
-            # Sign player
             transaction_result = await self.repo.insert_transaction({
                 'season_id': season['id'],
-                'transaction_type': 'admin_force_sign',
+                'transaction_type': 'admin_force_transfer' if from_team_id else 'admin_force_sign',
                 'player_id': player['id'],
                 'team_id': self._selected_team['id'],
                 'metadata': {
-                    'from_team_id': None,
+                    'from_team_id': from_team_id,
                     'admin_user_id': interaction.user.id,
                     'signed_by': interaction.user.display_name,
                 },
             })
             transaction_id = transaction_result.get('id') if transaction_result else None
+            if not transaction_id and self.repo.last_error:
+                await interaction.followup.send(f"❌ {self.repo.last_error}", ephemeral=True)
+                return
+            if from_team_id:
+                await TeamPlayerCache.invalidate_team(from_team_id)
 
             if transaction_id:
                 # Import unified embed utilities
@@ -402,15 +381,7 @@ class ForceSignView(discord.ui.View):
                 from utils.team_colors import get_division_color
                 
                 # Get league code from division
-                league_code = ''
-                division_id = self._selected_team.get('division_id')
-                if division_id:
-                    try:
-                        div_resp = await execute_async(self.supabase.table('divisions').select('league_type').eq('id', division_id).limit(1))
-                        if div_resp.data:
-                            league_code = div_resp.data[0].get('league_type', '').upper()
-                    except Exception:
-                        pass
+                league_code = ((LeagueCache.team_division(self._selected_team['id']) or {}).get('code') or '').upper()
                 
                 team_code = self._selected_team.get('code', '')
                 team_label = format_team_label_from_record(self._selected_team)
@@ -585,7 +556,7 @@ class ForceReleaseView(LazyInitView):
                                         
                                         cache = TeamPlayerCache()
                                         team_info = cache.get_team_by_code(team_code) or {}
-                                        league_code = team_info.get('league_type', '').upper()
+                                        league_code = (team_info.get('league_type') or '').upper()
                                         team_label = format_team_label_by_code(team_code)
                                         
                                         # Build unified embed
@@ -727,21 +698,12 @@ class ForceTransferView(LazyInitView):
                     await interaction.followup.send("❌ No other teams available.", ephemeral=True)
                     return
 
-                team_select = discord.ui.Select(
+                team_select = team_select_for(
+                    available_teams,
+                    on_pick=self.select_destination_team,
                     placeholder="Select destination team...",
-                    min_values=1,
-                    max_values=1,
-                    options=[
-                        discord.SelectOption(
-                            label=t.get('name', 'Unknown')[:100],
-                            value=t.get('id', ''),
-                            description=t.get('code', '?'),
-                        )
-                        for t in sorted(available_teams, key=lambda x: x.get('code', ''))[:25]
-                    ],
                     row=0,
                 )
-                team_select.callback = self.select_destination_team
                 view = discord.ui.View()
                 view.add_item(team_select)
 
@@ -823,7 +785,7 @@ class ForceTransferView(LazyInitView):
                                         cache = TeamPlayerCache()
                                         source_team = cache.get_team_by_code(current_code) or {}
                                         dest_team_info = cache.get_team_by_code(dest_code) or {}
-                                        league_code = dest_team_info.get('league_type', '').upper()
+                                        league_code = (dest_team_info.get('league_type') or '').upper()
                                         
                                         from_team_label = format_team_label_by_code(current_code)
                                         to_team_label = format_team_label_by_code(dest_code)
@@ -932,21 +894,7 @@ class BlacklistView(discord.ui.View):
             )
             return
 
-        team_select = discord.ui.Select(
-            placeholder="Select team...",
-            min_values=1,
-            max_values=1,
-            options=[
-                discord.SelectOption(
-                    label=f"{t.get('name', 'Unknown')} ({t.get('code', '?')})",
-                    value=t.get('id', ''),
-                )
-                for t in sorted(self._teams, key=lambda x: x.get('code', ''))
-            ],
-            row=0,
-        )
-        team_select.callback = self.select_team
-        self.add_item(team_select)
+        self.add_item(team_select_for(self._teams, on_pick=self.select_team, placeholder="Select team...", row=0))
 
     async def select_team(self, interaction: discord.Interaction) -> None:
         """Handle team selection and show blacklist actions."""
@@ -1175,22 +1123,9 @@ class ViewRosterView(LazyInitView):
             self.add_item(empty_select)
             return
 
-        team_select = discord.ui.Select(
-            placeholder="Select team to view roster...",
-            min_values=1,
-            max_values=1,
-            options=[
-                discord.SelectOption(
-                    label=t.get('name', 'Unknown')[:100],
-                    value=t.get('id', ''),
-                    description=t.get('code', '?'),
-                )
-                for t in sorted(teams, key=lambda x: x.get('code', ''))[:25]
-            ],
-            row=0,
-        )
-        team_select.callback = self.view_team_roster
-        self.add_item(team_select)
+        self.add_item(team_select_for(
+            teams, on_pick=self.view_team_roster, placeholder="Select team to view roster...", row=0,
+        ))
 
     async def view_team_roster(self, interaction: discord.Interaction) -> None:
         """Show roster for team."""

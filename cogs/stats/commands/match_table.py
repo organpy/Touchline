@@ -20,7 +20,8 @@ from cogs.stats.autocomplete import (
     _season_autocomplete,
 )
 from utils.match_table_image_generator import generate_match_table_image
-from utils.config_manager import get_config_manager
+from utils.league_cache import LeagueCache
+from utils.team_player_cache import TeamPlayerCache
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +31,8 @@ class MatchTableCog(StatsCogBase):
 
     @app_commands.command(name="match-table", description="[STATS] Show all games (played and scheduled) in a grid")
     @app_commands.describe(
-        league="League code or name (defaults to active season league)",
-        season="Season name (e.g., S10). Defaults to active season",
+        league="Division code or name (defaults to your team's division)",
+        season="Season name or number. Defaults to the active season",
     )
     @app_commands.autocomplete(
         league=_league_autocomplete,
@@ -45,51 +46,43 @@ class MatchTableCog(StatsCogBase):
     ) -> None:
         await interaction.response.defer(thinking=True)
 
-        # Resolve season
-        season_row, league_meta = await self._resolve_season_context(
-            league_input=league,
-            season_input=season,
-            default_season_id=None,
-            default_league_code=None,
-        )
+        # Resolve season and division (default: your team's division, else the top division)
+        season_row, league_meta = await self._resolve_season_context(league_input=league, season_input=season)
         if not season_row:
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
+        if not league_meta:
+            own_team = TeamPlayerCache.get_team_by_owner(interaction.user.id) or {}
+            await LeagueCache.load_season_teams(season_row['id'])
+            league_meta = LeagueCache.team_division(own_team.get('id'), season_row['id']) or LeagueCache.top_division()
+        if not league_meta:
+            await interaction.followup.send("ℹ️ No divisions have been set up yet.")
+            return
 
         league_season_display = self._format_league_season_display(league_meta, season_row)
-        league_code = ((league_meta or {}).get('code') or season_row.get('league_type') or '').upper()
+        league_code = (league_meta.get('code') or '').upper()
         league_display = self._format_league_display(league_meta)
 
-        # Fetch all matches (played and scheduled)
         try:
-            matches = await queries.get_all_matches_for_season(self.supabase, season_row['id'])
+            matches = [
+                m for m in await queries.get_all_matches_for_season(self.supabase, season_row['id'])
+                if m.get('stage', 'regular') == 'regular' and m.get('division_id') == league_meta['id']
+            ]
         except Exception as exc:
             logger.error(f"Failed to fetch matches for season {season_row['id']}: {exc}")
             matches = []
 
-        # Fetch all teams in the division
-        try:
-            teams = await queries.get_all_teams(self.supabase, season_row.get('division_id'))
-        except Exception as exc:
-            logger.error(f"Failed to fetch teams for division: {exc}")
-            teams = []
-
+        await LeagueCache.load_season_teams(season_row['id'])
+        teams = sorted(
+            (TeamPlayerCache.get_team(team_id) for team_id in LeagueCache.team_ids_in_division(league_meta['id'], season_row['id'])),
+            key=lambda t: ((t or {}).get('name') or '').lower(),
+        )
+        teams = [t for t in teams if t]
         if not teams:
-            await interaction.followup.send(
-                f"ℹ️ No teams found for {league_season_display}."
-            )
+            await interaction.followup.send(f"ℹ️ No teams found for {league_season_display}.")
             return
 
-        # Get games_per_matchup from config (default 2)
-        games_per_matchup = 2
-        if interaction.guild_id and league_code:
-            try:
-                config_mgr = get_config_manager()
-                limit = await config_mgr.get_division_games_limit(interaction.guild_id, league_code)
-                if limit and limit in [2, 3, 4, 6]:
-                    games_per_matchup = limit
-            except Exception as exc:
-                logger.warning(f"Failed to get games_per_matchup config: {exc}")
+        games_per_matchup = LeagueCache.settings(league_meta['id']).games_per_matchup
 
         # Generate the match table image (CPU-bound rendering runs in a worker thread)
         match_table_image = await asyncio.to_thread(

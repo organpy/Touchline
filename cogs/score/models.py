@@ -86,7 +86,7 @@ class MatchEntry:
     week: int = 1
     division_id: Optional[str] = None
 
-    def to_supabase_match(self, season_id: str, division_id: str) -> dict:
+    def to_supabase_match(self, season_id: str, division_id: Optional[str]) -> dict:
         """Convert to match row for Supabase insert"""
         # Determine winner
         if self.team1.score > self.team2.score:
@@ -114,15 +114,12 @@ class MatchEntry:
     def to_supabase_player_stats(self, match_id: str) -> list:
         """Convert to player_stats rows for Supabase insert"""
         stats = []
-        for player_stat in self.team1.get_players_list():
-            stat_dict = player_stat.to_dict()
-            stat_dict['match_id'] = match_id
-            stats.append(stat_dict)
-
-        for player_stat in self.team2.get_players_list():
-            stat_dict = player_stat.to_dict()
-            stat_dict['match_id'] = match_id
-            stats.append(stat_dict)
+        for team in (self.team1, self.team2):
+            for player_stat in team.get_players_list():
+                stat_dict = player_stat.to_dict()
+                stat_dict['match_id'] = match_id
+                stat_dict['team_id'] = team.team_id
+                stats.append(stat_dict)
 
         return stats
 

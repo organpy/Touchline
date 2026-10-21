@@ -14,6 +14,7 @@ from db import queries, get_supabase
 from cogs.admin.base import AdminBaseManager, AdminUIView
 from cogs.admin.common import LazyInitView
 from db.db_utils import execute_async
+from utils.league_cache import LeagueCache
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -342,18 +343,7 @@ class ResendAnnouncementModal(discord.ui.Modal, title="Resend Announcement"):
 
             # Get league code from season if available
             season_id = payload.get("season_id")
-            league_code = None
-            if season_id:
-                try:
-                    season_resp = await execute_async(supabase.table("seasons").select("division_id").eq("id", season_id).limit(1))
-                    if season_resp.data:
-                        division_id = season_resp.data[0].get("division_id")
-                        if division_id:
-                            div_resp = await execute_async(supabase.table("divisions").select("league_type").eq("id", division_id).limit(1))
-                            if div_resp.data:
-                                league_code = div_resp.data[0].get("league_type")
-                except Exception:
-                    pass
+            league_code = (LeagueCache.team_division(team_id, season_id) or {}).get("code") if team_id else None
 
             # Get player info
             player_id = payload.get("player_id")

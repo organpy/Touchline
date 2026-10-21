@@ -24,7 +24,7 @@ load_dotenv()
 from db import get_supabase
 from utils.config_manager import init_config_manager
 from utils.team_player_cache import TeamPlayerCache
-from utils.season_cache import SeasonCache
+from utils.league_cache import LeagueCache
 from cogs.score.roster_cache import RosterCache
 from utils.health_check import HealthCheckServer
 from utils.error_embeds import error_embed, permission_error_embed, rate_limit_embed, send_error
@@ -48,8 +48,8 @@ if not DISCORD_TOKEN:
 # BOT CLASS
 # ============================================================================
 
-class NBLBot(commands.Bot):
-    """Main NBL Bot class with auto-cog discovery"""
+class TouchlineBot(commands.Bot):
+    """Main Touchline bot class with auto-cog discovery"""
 
     def __init__(self):
         intents = discord.Intents.default()
@@ -100,7 +100,7 @@ class NBLBot(commands.Bot):
             'trade_utils.py', 'views.py', 'pick_trading.py', 'configuration.py', 'picks_view.py',
             'roster_transactions.py', 'trading.py', 'persistent_views.py',
             # Admin panel helper modules (deprecated/excluded)
-            'admin_transactions_views_example.py', 'teams.py', 'rosters.py', 'picks.py', "common.py",
+            'teams.py', 'rosters.py', 'picks.py', "common.py",
             # Stats helper modules (deprecated)
             'stats_commands.py',
         }
@@ -127,21 +127,14 @@ class NBLBot(commands.Bot):
         except Exception as e:
             logger.error(f"❌ Failed to initialize ConfigManager: {e}", exc_info=True)
         
-        logger.info("🔄 Initializing TeamPlayerCache...")
+        logger.info("🔄 Initializing LeagueCache and TeamPlayerCache...")
         try:
+            LeagueCache.set_supabase(self.supabase)
             TeamPlayerCache.set_supabase(self.supabase)
-            await TeamPlayerCache.refresh()
-            logger.info("✅ TeamPlayerCache initialized")
+            await TeamPlayerCache.refresh()  # also refreshes LeagueCache (seasons, divisions, groups)
+            logger.info("✅ League and team caches initialized")
         except Exception as e:
-            logger.error(f"❌ Failed to initialize TeamPlayerCache: {e}", exc_info=True)
-
-        logger.info("🔄 Initializing SeasonCache...")
-        try:
-            SeasonCache.set_supabase(self.supabase)
-            await SeasonCache.refresh()
-            logger.info("✅ SeasonCache initialized")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize SeasonCache: {e}", exc_info=True)
+            logger.error(f"❌ Failed to initialize league/team caches: {e}", exc_info=True)
         
         logger.info("🔄 Initializing RosterCache...")
         try:
@@ -150,6 +143,15 @@ class NBLBot(commands.Bot):
             logger.info("✅ RosterCache initialized")
         except Exception as e:
             logger.error(f"❌ Failed to initialize RosterCache: {e}", exc_info=True)
+
+        try:
+            from utils.logo_store import sync_team_logos
+
+            fetched = await sync_team_logos(TeamPlayerCache.get_all_teams())
+            if fetched:
+                logger.info("✅ Downloaded %d uploaded team logo(s)", fetched)
+        except Exception as e:
+            logger.warning(f"⚠️ Could not sync team logos: {e}")
         
         logger.info("🔄 Discovering cogs...")
         extensions = self.discover_cogs()
@@ -282,7 +284,7 @@ def install_shutdown_handlers(bot: commands.Bot) -> None:
 
 async def main():
     """Main entry point"""
-    bot = NBLBot()
+    bot = TouchlineBot()
 
     async with bot:
         install_shutdown_handlers(bot)

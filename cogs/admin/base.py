@@ -9,6 +9,7 @@ import discord
 from discord.ext import commands
 
 from db import get_supabase, queries
+from utils.league_cache import LeagueCache, enrich_team
 from utils.team_player_cache import TeamPlayerCache
 from utils.config_manager import get_config_manager
 from db.db_utils import execute_async
@@ -35,129 +36,62 @@ class AdminBaseManager:
     # =====================================================================
 
     async def get_guild_divisions(self, guild_id: int) -> list[Dict[str, Any]]:
-        """Get all divisions from Supabase (ignores guild_id - single server setup)."""
+        """Divisions in tier order (guild_id ignored - single server setup)."""
         return await queries.get_all_divisions(self.supabase)
 
     async def get_active_league_for_guild(self, guild_id: int) -> Optional[Dict[str, Any]]:
-        """Get the active league/division for a guild.
-        
-        Returns division metadata if found, None otherwise.
-        """
-        try:
-            divisions = await self.get_guild_divisions(guild_id)
-            if not divisions:
-                return None
-            
-            # Return first division (or implement selection logic)
-            return divisions[0] if divisions else None
-        except Exception as exc:
-            logger.error(f"Failed to get active league: {exc}")
-            return None
+        """The top division (tier 1), if any."""
+        divisions = await self.get_guild_divisions(guild_id)
+        return divisions[0] if divisions else None
 
     async def resolve_team_in_guild(
         self,
         team_code_or_name: str,
         guild_id: int,
     ) -> Optional[Dict[str, Any]]:
-        """Resolve a team by code or name (guild_id ignored - single server setup)."""
-        try:
-            search_term = team_code_or_name.strip()
-            
-            # Try by exact code first (faster)
-            response = await execute_async(self.supabase.table('teams').select(
-                '*'
-            ).eq('code', search_term.upper()))
-            
-            if response.data and len(response.data) > 0:
-                return response.data[0]
-            
-            # Try without dashes (in case code stored without dashes)
-            code_no_dash = search_term.upper().replace('-', '')
-            response = await execute_async(self.supabase.table('teams').select(
-                '*'
-            ).eq('code', code_no_dash))
-            
-            if response.data and len(response.data) > 0:
-                return response.data[0]
-            
-            # Try by name (case insensitive, partial match)
-            response = await execute_async(self.supabase.table('teams').select(
-                '*'
-            ).ilike('name', f"%{search_term}%"))
-            
-            if response.data and len(response.data) > 0:
-                return response.data[0]
-            
-            # Try name with dashes converted to spaces
-            name_with_spaces = search_term.replace('-', ' ')
-            response = await execute_async(self.supabase.table('teams').select(
-                '*'
-            ).ilike('name', f"%{name_with_spaces}%"))
-            
-            if response.data and len(response.data) > 0:
-                return response.data[0]
-            
+        """Resolve a team by code or name (cache first, then the database)."""
+        search_term = (team_code_or_name or '').strip()
+        if not search_term:
             return None
+        cached = TeamPlayerCache.find_team(search_term)
+        if cached:
+            return cached
+        team = await queries.get_team_by_code(self.supabase, search_term)
+        if team:
+            return team
+        try:
+            response = await execute_async(
+                self.supabase.table('teams').select('*')
+                .ilike('name', f"%{search_term.replace('-', ' ')}%")
+                .is_('archived_at', 'null').limit(1)
+            )
+            return enrich_team(response.data[0]) if response.data else None
         except Exception as exc:
             logger.error(f"Error resolving team: {exc}")
             return None
 
     async def get_teams_for_guild(self, guild_id: int) -> list[Dict[str, Any]]:
-        """Get all teams from Supabase (guild_id ignored - single server setup)."""
-        try:
-            response = await execute_async(self.supabase.table('teams').select('*'))
-            return response.data or []
-        except Exception as exc:
-            logger.error(f"Failed to get teams: {exc}")
-            return []
+        """Every active team, enriched with its division this season."""
+        return await queries.get_all_teams(self.supabase)
 
     # =====================================================================
     # Season Context Methods
     # =====================================================================
 
     async def get_active_season_for_guild(self, guild_id: int) -> Optional[Dict[str, Any]]:
-        """Get the active season for the guild's primary division."""
-        try:
-            division = await self.get_active_league_for_guild(guild_id)
-            if not division:
-                return None
-            
-            response = await execute_async(self.supabase.table('seasons').select(
-                '*'
-            ).eq('division_id', division['id']).eq('active', True).limit(1))
-            
-            return response.data[0] if response.data else None
-        except Exception as exc:
-            logger.error(f"Failed to get active season: {exc}")
-            return None
+        """The league's active season."""
+        return await queries.get_active_season(self.supabase)
 
     async def resolve_season_context(
         self,
         guild_id: int,
         season_name: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Resolve season by name, or return active season.
-        
-        Returns season with full context if found, None otherwise.
-        """
-        try:
-            if season_name:
-                # Search for specific season
-                division = await self.get_active_league_for_guild(guild_id)
-                if not division:
-                    return None
-                
-                response = await execute_async(self.supabase.table('seasons').select(
-                    '*'
-                ).eq('division_id', division['id']).eq('name', season_name).limit(1))
-                
-                return response.data[0] if response.data else None
-            else:
-                # Return active season
-                return await self.get_active_season_for_guild(guild_id)
-        except Exception as exc:
-            logger.error(f"Failed to resolve season context: {exc}")
-            return None
+        """Season by name/number, or the active season."""
+        await LeagueCache.ensure_ready()
+        if season_name:
+            return LeagueCache.find_season(season_name)
+        return await self.get_active_season_for_guild(guild_id)
 
     # =====================================================================
     # Validation Methods
@@ -168,34 +102,20 @@ class AdminBaseManager:
         team_id: str,
         guild_id: int,
     ) -> bool:
-        """Check if a team belongs to the guild's divisions."""
-        try:
-            divisions = await self.get_guild_divisions(guild_id)
-            if not divisions:
-                return False
-            
-            division_ids = [d['id'] for d in divisions]
-            
-            response = await execute_async(self.supabase.table('teams').select(
-                'id'
-            ).eq('id', team_id).in_('division_id', division_ids).limit(1))
-            
-            return len(response.data or []) > 0
-        except Exception as exc:
-            logger.error(f"Failed to validate team: {exc}")
-            return False
+        """True when the team exists and isn't archived."""
+        team = TeamPlayerCache.get_team(team_id)
+        return bool(team and not team.get('archived_at'))
 
     async def validate_player_in_season(
         self,
         player_id: str,
         season_id: str,
     ) -> bool:
-        """Check if a player is on any roster in the season."""
+        """Check if a player is on an active roster in the season."""
         try:
             response = await execute_async(self.supabase.table('rosters').select(
                 'id'
-            ).eq('player_id', player_id).eq('season_id', season_id).is_('left_at', True).limit(1))
-            
+            ).eq('player_id', player_id).eq('season_id', season_id).is_('left_at', 'null').limit(1))
             return len(response.data or []) > 0
         except Exception as exc:
             logger.error(f"Failed to validate player in season: {exc}")
@@ -210,7 +130,7 @@ class AdminBaseManager:
         if not division:
             return "Unknown Division"
         
-        code = division.get('league_type', '').upper()
+        code = (division.get('code') or division.get('league_type') or '').upper()
         name = division.get('name', '').strip()
         
         if name and code and name.upper() != code:

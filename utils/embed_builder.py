@@ -1,7 +1,7 @@
 """
 EmbedBuilder: Modular, DRY embed creation with team/league branding, images, and metadata.
 Provides standardized embeds for stats, transactions, and other commands.
-Leverages teams.json, league emojis, and image assets.
+Team, division and colour data come from the database caches (TeamPlayerCache, LeagueCache).
 """
 
 import logging
@@ -18,6 +18,7 @@ from utils.embed_assets import (
     get_league_emoji,
 )
 from utils.team_colors import resolve_color, get_default_color
+from utils.branding import get_league_name
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ class EmbedBuilder:
         """Initialize embed with base properties and unified footer/logo theming.
 
         Color priority: force_color -> team_code -> division_code -> global default.
-        Footer text always 'National Bobble League'. Footer icon uses NBL logo if available.
+        Footer text is the league name from settings (default 'Touchline').
         Thumbnail intentionally set separately via add_team_image/league methods.
         """
         resolved_int = resolve_color(team_code=team_code, division_code=division_code, force_color=force_color)
@@ -52,7 +53,7 @@ class EmbedBuilder:
 
         if apply_footer:
             # Set footer text only (no attachment icon to avoid extra files)
-            self.embed.set_footer(text="National Bobble League")
+            self.embed.set_footer(text=get_league_name())
 
     # ==================== STYLING ====================
 
@@ -133,7 +134,7 @@ class EmbedBuilder:
     ) -> "EmbedBuilder":
         """Add formatted league field with emoji and short code.
         
-        Shows: "<emoji> CODE" (e.g. '<nblemoji> NBL')
+        Shows: "<emoji> CODE" (e.g. '🏆 D1')
         """
         code = (league_code or '').upper()
         if not code:

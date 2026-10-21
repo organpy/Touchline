@@ -41,21 +41,19 @@ class TransactionsRepository:
 
     def __init__(self, supabase):
         self.supabase = supabase
+        # User-facing reason the last insert_transaction failed (rule violations only).
+        self.last_error: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Draft picks
     # ------------------------------------------------------------------
-    async def list_draft_picks(self, season_id: str) -> List[Dict[str, Any]]:
-        """Return all draft picks for a season."""
+    async def list_draft_picks(self, season_id: str, division_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Return the draft picks for a season, optionally only one division's."""
         try:
-            response = await execute_async(
-                self.supabase
-                .table('draft_picks')
-                .select('*')
-                .eq('season_id', season_id)
-                .order('round')
-                .order('overall')
-            )
+            query = self.supabase.table('draft_picks').select('*').eq('season_id', season_id)
+            if division_id:
+                query = query.eq('division_id', division_id)
+            response = await execute_async(query.order('round').order('overall'))
             return response.data or []
         except Exception as exc:  # pragma: no cover - network failure path
             logger.error("Error fetching draft picks for %s: %s", season_id, exc)
@@ -243,6 +241,7 @@ class TransactionsRepository:
         Accepts either the workflow shape (transaction_type / team_id / metadata) or the
         table's own column names (type / from_team_id / to_team_id / executed_by / details).
         """
+        self.last_error = None
         try:
             metadata = payload.get('metadata') or payload.get('details') or {}
             transaction_type = payload.get('transaction_type') or payload.get('type') or 'unknown'
@@ -280,6 +279,9 @@ class TransactionsRepository:
             return transaction
         except Exception as exc:
             logger.error("Failed to insert transaction %s: %s", payload, exc)
+            from .league_repository import friendly_error  # local: league_repository imports db helpers
+
+            self.last_error = friendly_error(exc, None) if isinstance(exc, APIError) else None
             return None
 
     def _map_transaction_type(self, transaction_type: str) -> str:

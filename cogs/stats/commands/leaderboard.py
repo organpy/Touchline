@@ -83,6 +83,7 @@ class LeaderboardCog(StatsCogBase):
                 stat_normalized,
                 season_row['id'],
                 limit,
+                division_id=(league_meta or {}).get('id'),
             )
         except Exception as exc:
             logger.error(f"Failed to fetch leaderboard for stat {stat_normalized} season {season_row['id']}: {exc}")
@@ -96,7 +97,7 @@ class LeaderboardCog(StatsCogBase):
 
         # Build embed with EmbedBuilder for consistency and styling
         season_league_display = self._format_league_display(league_meta)
-        league_code = (league_meta or {}).get('league_type', '').upper() or ''
+        league_code = ((league_meta or {}).get('code') or '').upper()
         stat_display = stat.title().replace("_", " ")
         
         # Create leaderboard embed using EmbedBuilder factory
