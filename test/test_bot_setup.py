@@ -147,3 +147,11 @@ async def test_failed_command_sync_is_retried_next_boot(nbl_bot, tmp_path):
     await nbl_bot.sync_commands_if_changed(str(state_file))
 
     assert not state_file.exists()
+
+
+def test_bot_pings_nobody_by_default(nbl_bot):
+    allowed = nbl_bot.allowed_mentions
+    assert allowed.everyone is False
+    assert allowed.roles is False
+    assert allowed.users is False
+    assert allowed.replied_user is False
