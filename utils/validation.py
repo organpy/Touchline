@@ -4,6 +4,8 @@ Pure functions - no circular imports
 """
 
 import logging
+import re
+import unicodedata
 from typing import Tuple
 
 logger = logging.getLogger(__name__)
@@ -69,3 +71,29 @@ def validate_team_selection(team1_code: str, team2_code: str) -> Tuple[bool, str
         return False, "Both teams must be selected"
 
     return True, ""
+
+
+# Characters that let a name break out of markdown or forge a mention: control characters, backticks,
+# angle brackets (<@id>, <@&role>, <#channel>) and the two broadcast mentions.
+_UNSAFE_NAME = re.compile(r"[\x00-\x1f\x7f`<>]|@everyone|@here", re.IGNORECASE)
+
+
+def clean_name(text: str, label: str = "Name", max_len: int = 64) -> str:
+    """Trimmed name safe to show anywhere. Raises ValueError (message safe for users) when it is not."""
+    raw = (text or "").strip()
+    if _UNSAFE_NAME.search(raw):
+        raise ValueError(f"{label} cannot contain backticks, < >, line breaks, @everyone or @here.")
+    name = " ".join(raw.split())
+    if not name:
+        raise ValueError(f"{label} cannot be empty.")
+    if len(name) > max_len:
+        raise ValueError(f"{label} can be at most {max_len} characters.")
+    return name
+
+
+def sanitize_player_name(text: str, max_len: int = 64) -> str:
+    """Discord display name made safe for storage: unsafe characters removed rather than refused."""
+    name = unicodedata.normalize("NFC", text or "")
+    name = _UNSAFE_NAME.sub("", name)
+    name = " ".join(name.split())[:max_len].strip()
+    return name or "Unknown player"
