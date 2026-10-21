@@ -14,6 +14,7 @@ from cogs.admin.base import AdminBaseManager, AdminUIView
 from cogs.admin.common import LazyInitView
 from utils.team_player_cache import TeamPlayerCache
 from db.db_utils import execute_async
+from utils.validation import sanitize_player_name
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -74,7 +75,7 @@ class AddPlayerModal(discord.ui.Modal, title="Add Player"):
         try:
             player_data = {
                 "discord_id": discord_id_int,
-                "display_name": self.display_name.value,
+                "display_name": sanitize_player_name(self.display_name.value),
             }
 
             response = await execute_async(supabase.table("players").insert(player_data))
