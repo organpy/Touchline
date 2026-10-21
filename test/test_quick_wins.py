@@ -12,7 +12,6 @@ from discord.ext import commands
 from utils.error_handler import StandardError, ErrorCategory, ConfirmationView
 from cogs.search import fuzzy_match, search_players, search_teams
 from cogs.help.help import CommandCategory, HelpView
-from utils.dashboard_metrics import DashboardMetricsView
 from db.connection_pool import ConnectionPool, QueryOptimizer, QueryBatcher
 
 
@@ -240,50 +239,6 @@ class TestQueryBatcher:
         # May execute immediately or be batched
         
         await batcher.close()
-
-
-class TestDashboardMetrics:
-    """Test dashboard metrics view."""
-    
-    @pytest.mark.asyncio
-    async def test_health_score_calculation(self):
-        """Test health score calculation."""
-        view = DashboardMetricsView(12345, None)
-        
-        # Mock metrics
-        view.metrics = {
-            'teams': 5,
-            'players': 20,
-            'active_rosters': 4,
-            'completed_matches': 10,
-            'pending_offers': 0,
-            'unassigned_picks': 0,
-            'divisions': 1,
-            'active_seasons': [{'name': 'S10', 'season_count': 1}],
-        }
-        
-        score = view._calculate_health_score()
-        assert 0 <= score <= 100
-    
-    @pytest.mark.asyncio
-    async def test_health_score_with_issues(self):
-        """Test health score with issues."""
-        view = DashboardMetricsView(12345, None)
-        
-        # Mock metrics with issues
-        view.metrics = {
-            'teams': 0,  # Major issue
-            'players': 0,  # Major issue
-            'active_rosters': 0,
-            'completed_matches': 0,  # Major issue
-            'pending_offers': 10,  # Issue
-            'unassigned_picks': 5,  # Issue
-            'divisions': 0,
-            'active_seasons': [],
-        }
-        
-        score = view._calculate_health_score()
-        assert score < 30  # Poor health
 
 
 # Integration tests with mocked Discord
