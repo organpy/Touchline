@@ -8,6 +8,7 @@ import discord
 
 from db.league_repository import SEASON_PHASE_LABELS
 from services.division_settings import DivisionSettings, describe_rules
+from services.league import NEXT_STEP
 from utils.branding import get_league_name
 from utils.league_cache import LeagueCache
 from utils.team_player_cache import TeamPlayerCache
@@ -74,6 +75,9 @@ class HomePage(DashboardPage):
         self.button("Teams", self._nav(TeamsPage), emoji="🛡️", style=discord.ButtonStyle.primary, row=0)
         self.button("Transactions", self._nav(TransactionsPage), emoji="💼", row=1)
         self.button("Settings", self._nav(SettingsPage), emoji="⚙️", row=1)
+        if self.season and self.season.get("phase") in NEXT_STEP:
+            self.button(f"Next: {NEXT_STEP[self.season['phase']]}", self._nav(SeasonPage), emoji="➡️",
+                        style=discord.ButtonStyle.success, row=2)
         self.button("Refresh", self._refresh, emoji="🔄", row=3)
 
     def _nav(self, page_class: Any):
