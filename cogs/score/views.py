@@ -10,6 +10,7 @@ import logging
 from typing import Callable, Optional
 
 from .models import PlayerStatEntry, TeamMatchEntry, MatchEntry
+from utils.team_picker import TeamSelect, entries_from_cached_teams
 
 logger = logging.getLogger(__name__)
 
@@ -290,31 +291,13 @@ class TeamSelectionView(discord.ui.View):
         self.team2_code = None
 
         # Create team selects
-        teams = roster_cache.get_all_teams()
-        team_options = [
-            discord.SelectOption(label=t.name, value=t.code, emoji=t.emoji)
-            for t in teams
-        ]
-
-        team1_select = discord.ui.Select(
-            custom_id="team1_select",
-            placeholder="Select Team 1",
-            options=team_options[:25],
-            min_values=1,
-            max_values=1
-        )
-        team1_select.callback = self.on_team1_select
-        self.add_item(team1_select)
-
-        team2_select = discord.ui.Select(
-            custom_id="team2_select",
-            placeholder="Select Team 2",
-            options=team_options[:25],
-            min_values=1,
-            max_values=1
-        )
-        team2_select.callback = self.on_team2_select
-        self.add_item(team2_select)
+        entries = entries_from_cached_teams(roster_cache.get_all_teams())
+        self.add_item(TeamSelect(
+            entries, on_pick=self.on_team1_select, placeholder="Select Team 1", custom_id="team1_select", row=0,
+        ))
+        self.add_item(TeamSelect(
+            entries, on_pick=self.on_team2_select, placeholder="Select Team 2", custom_id="team2_select", row=1,
+        ))
 
     async def on_team1_select(self, interaction: discord.Interaction):
         self.team1_code = interaction.data['values'][0]

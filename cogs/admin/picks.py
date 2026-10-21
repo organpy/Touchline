@@ -17,6 +17,7 @@ from db.db_utils import execute_async
 from db.transactions_repository import TransactionsRepository
 from utils.league_cache import LeagueCache, hex_to_int
 from utils.team_player_cache import TeamPlayerCache
+from utils.team_picker import team_select_for
 
 logger = logging.getLogger(__name__)
 
@@ -448,14 +449,8 @@ class ViewPicksByTeamView(DivisionSeasonFlow):
         if not self.teams:
             await interaction.response.send_message("❌ No teams in this division that season.", ephemeral=True)
             return
-        select = discord.ui.Select(
-            placeholder="Select team...",
-            options=[
-                discord.SelectOption(label=t.get('name', 'Unknown')[:100], value=t['id'], description=t.get('code'))
-                for t in self.teams[:25]
-            ],
-        )
-        select.callback = self.view_team_picks
+        # Already one division, so this only pages when the division has more than 25 teams
+        select = team_select_for(self.teams, on_pick=self.view_team_picks, placeholder="Select team...")
         view = discord.ui.View(timeout=300)
         view.add_item(select)
         await interaction.response.send_message(f"**{self.context_label}**: choose a team:", view=view, ephemeral=True)

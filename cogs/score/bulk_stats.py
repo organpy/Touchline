@@ -20,6 +20,7 @@ from .access import NOT_ALLOWED_MESSAGE, NOT_YOUR_MATCH_MESSAGE, resolve_reporte
 from utils.team_player_cache import TeamPlayerCache
 from db.db_utils import execute_async
 from utils.league_cache import LeagueCache
+from utils.team_picker import TeamSelect, entries_from_cached_teams
 
 logger = logging.getLogger(__name__)
 
@@ -312,26 +313,10 @@ class BulkTeamSelectView(discord.ui.View):
         self.team1_code = None
         self.team2_code = None
         
-        teams = roster_cache.get_all_teams()
-        team_options = [
-            discord.SelectOption(label=t.name, value=t.code, emoji=t.emoji if t.emoji else None)
-            for t in teams
-        ][:25]
-        
-        self.team1_select = discord.ui.Select(
-            placeholder="Select Team 1",
-            options=team_options,
-            row=0
-        )
-        self.team1_select.callback = self.on_team1
+        entries = entries_from_cached_teams(roster_cache.get_all_teams())
+        self.team1_select = TeamSelect(entries, on_pick=self.on_team1, placeholder="Select Team 1", row=0)
         self.add_item(self.team1_select)
-        
-        self.team2_select = discord.ui.Select(
-            placeholder="Select Team 2",
-            options=team_options,
-            row=1
-        )
-        self.team2_select.callback = self.on_team2
+        self.team2_select = TeamSelect(entries, on_pick=self.on_team2, placeholder="Select Team 2", row=1)
         self.add_item(self.team2_select)
     
     async def on_team1(self, interaction: discord.Interaction):
