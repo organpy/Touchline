@@ -538,6 +538,8 @@ DECLARE
     v_bracket brackets%ROWTYPE;
     v_div1 uuid;
     v_div2 uuid;
+    v_limit integer;
+    v_played integer;
 BEGIN
     SELECT phase INTO v_phase FROM seasons WHERE id = NEW.season_id;
 
@@ -589,8 +591,24 @@ BEGIN
             RAISE EXCEPTION 'both teams must be in the same division' USING HINT = 'MATCH_DIVISION_MISMATCH';
         END IF;
         NEW.division_id := v_div1;
+
+        -- One report at a time per pair: a second reporter waits here, then sees the first game when counting,
+        -- so two people can never both squeeze in under the division's games-per-matchup limit.
+        PERFORM pg_advisory_xact_lock(hashtextextended(
+            NEW.season_id::text || ':' || LEAST(NEW.team1_id, NEW.team2_id)::text || ':'
+            || GREATEST(NEW.team1_id, NEW.team2_id)::text, 0));
+        SELECT COALESCE((settings ->> 'games_per_matchup')::integer, 2) INTO v_limit FROM divisions WHERE id = v_div1;
+        SELECT count(*) INTO v_played
+        FROM matches
+        WHERE season_id = NEW.season_id AND series_id IS NULL AND status = 'final'
+          AND LEAST(team1_id, team2_id) = LEAST(NEW.team1_id, NEW.team2_id)
+          AND GREATEST(team1_id, team2_id) = GREATEST(NEW.team1_id, NEW.team2_id);
+        IF v_played >= v_limit THEN
+            RAISE EXCEPTION 'all % games between these teams are already recorded', v_limit USING HINT = 'MATCH_LIMIT';
+        END IF;
     ELSE
-        SELECT * INTO v_series FROM series WHERE id = NEW.series_id;
+        -- Lock the series so concurrent reports line up and the status check below sees the latest result.
+        SELECT * INTO v_series FROM series WHERE id = NEW.series_id FOR UPDATE;
         SELECT * INTO v_bracket FROM brackets WHERE id = v_series.bracket_id;
         IF v_bracket.season_id IS DISTINCT FROM NEW.season_id THEN
             RAISE EXCEPTION 'series % is not in season %', NEW.series_id, NEW.season_id
