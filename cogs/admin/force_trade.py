@@ -10,6 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from db import get_supabase, queries
+from db.league_repository import friendly_error
 from db.transactions_repository import TradeExecutionError, TransactionsRepository
 from cogs.score.roster_cache import RosterCache
 from utils.team_player_cache import TeamPlayerCache
@@ -187,7 +188,7 @@ class ForceTradeSelectionView(discord.ui.View):
 
         except Exception as e:
             logger.error(f"Error executing force trade: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error: {str(e)[:100]}", ephemeral=True)
+            await interaction.followup.send(f"❌ {friendly_error(e, 'Something went wrong. The error was logged; please try again.')}", ephemeral=True)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, row=4)
     async def cancel_trade(self, interaction: discord.Interaction, button: discord.ui.Button):

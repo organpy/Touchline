@@ -11,6 +11,7 @@ from discord import app_commands
 
 from db import queries
 from db import get_supabase
+from db.league_repository import friendly_error
 from db.transactions_repository import TransactionsRepository
 from cogs.admin.common import LazyInitView
 from cogs.admin.base import AdminBaseManager
@@ -439,7 +440,7 @@ class ForceSignView(discord.ui.View):
 
         except Exception as exc:
             logger.error("Error confirming force sign: %s", exc, exc_info=True)
-            await interaction.followup.send(f"❌ Error: {str(exc)[:100]}", ephemeral=True)
+            await interaction.followup.send(f"❌ {friendly_error(exc, 'Something went wrong. The error was logged; please try again.')}", ephemeral=True)
 
 
 class ForceReleaseView(LazyInitView):
@@ -1095,7 +1096,7 @@ class BlacklistView(discord.ui.View):
 
         except Exception as exc:
             logger.error("Error in confirm_blacklist_action: %s", exc, exc_info=True)
-            await interaction.followup.send(f"❌ Error: {str(exc)[:100]}", ephemeral=True)
+            await interaction.followup.send(f"❌ {friendly_error(exc, 'Something went wrong. The error was logged; please try again.')}", ephemeral=True)
 
 
 class ViewRosterView(LazyInitView):
