@@ -27,6 +27,7 @@ from utils.team_colors import get_team_color
 from db.db_utils import execute_async
 from utils.league_cache import LeagueCache
 from utils.team_picker import team_select_for
+from utils.validation import sanitize_player_name
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -324,7 +325,7 @@ class ForceSignView(discord.ui.View):
                     self.supabase
                     .table('players')
                     .insert({
-                        'display_name': self._selected_member.display_name,
+                        'display_name': sanitize_player_name(self._selected_member.display_name),
                         'discord_id': self._selected_member.id,
                     })
                 )
@@ -1041,7 +1042,7 @@ class BlacklistView(discord.ui.View):
                     self.supabase
                     .table('players')
                     .insert({
-                        'display_name': member.display_name,
+                        'display_name': sanitize_player_name(member.display_name),
                         'discord_id': member.id,
                         'active': True,
                     })

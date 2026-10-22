@@ -11,6 +11,7 @@ from typing import Optional, Dict, List, Any
 
 from utils.league_cache import LeagueCache, enrich_team
 from .db_utils import execute_async
+from utils.validation import sanitize_player_name
 
 logger = logging.getLogger(__name__)
 
@@ -290,8 +291,8 @@ async def get_or_create_player(supabase, display_name: str, discord_id: Optional
         if player:
             return player
 
-        # Create new
-        insert_data = {'display_name': display_name}
+        # Create new; Discord display names can hold backticks, <@id> and @everyone
+        insert_data = {'display_name': sanitize_player_name(display_name)}
         if discord_id:
             insert_data['discord_id'] = discord_id
 
