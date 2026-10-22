@@ -14,6 +14,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from db import get_supabase, queries
+from db.league_repository import friendly_error
 from utils.player_card_image_generator import generate_player_card
 from utils.team_player_cache import TeamPlayerCache
 from utils.league_cache import LeagueCache
@@ -193,7 +194,7 @@ class PlayerCardCog(commands.Cog):
         
         except Exception as e:
             logger.error(f"Error generating player card: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error: {str(e)}")
+            await interaction.followup.send(f"❌ {friendly_error(e, 'Something went wrong. The error was logged; please try again.')}", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:
