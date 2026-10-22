@@ -16,6 +16,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from postgrest.exceptions import APIError
 
 from db.db_utils import execute_async
+from utils.validation import clean_name
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,14 @@ class LeagueRuleError(Exception):
         self.message = message or RULE_MESSAGES.get(code) or "That change is not allowed."
         self.detail = detail
         super().__init__(f"{code}: {self.message}")
+
+
+def _name(text: str, label: str, max_len: int = 64) -> str:
+    """Validated name; an unsafe one is refused with a message the dashboard shows as a notice."""
+    try:
+        return clean_name(text, label, max_len)
+    except ValueError as exc:
+        raise LeagueRuleError("INVALID", str(exc)) from None
 
 
 def rule_error_from_api_error(exc: APIError) -> Optional[LeagueRuleError]:
@@ -167,12 +176,13 @@ class LeagueRepository:
         color: Optional[str] = None,
         emoji: Optional[str] = None,
     ) -> Dict[str, Any]:
+        name = _name(name, "Division name")
         if tier is None:
             divisions = await self.list_divisions()
             tier = (max((d["tier"] for d in divisions), default=0)) + 1
         payload = {
             "code": normalize_division_code(code),
-            "name": name.strip(),
+            "name": name,
             "tier": tier,
             "settings": settings or {},
             "color": color,
@@ -182,6 +192,8 @@ class LeagueRepository:
         return response.data[0]
 
     async def update_division(self, division_id: str, **fields: Any) -> Dict[str, Any]:
+        if "name" in fields:
+            fields["name"] = _name(fields["name"], "Division name")
         if "code" in fields and fields["code"] is not None:
             fields["code"] = normalize_division_code(fields["code"])
         fields["updated_at"] = utc_now_iso()
@@ -218,13 +230,15 @@ class LeagueRepository:
         return response.data or []
 
     async def create_group(self, division_id: str, name: str) -> Dict[str, Any]:
+        name = _name(name, "Group name", 32)
         existing = await self.list_groups(division_id)
-        payload = {"division_id": division_id, "name": name.strip(), "sort_order": len(existing)}
+        payload = {"division_id": division_id, "name": name, "sort_order": len(existing)}
         response = await run(self.supabase.table("division_groups").insert(payload))
         return response.data[0]
 
     async def rename_group(self, group_id: str, name: str) -> None:
-        await run(self.supabase.table("division_groups").update({"name": name.strip()}).eq("id", group_id))
+        name = _name(name, "Group name", 32)
+        await run(self.supabase.table("division_groups").update({"name": name}).eq("id", group_id))
 
     async def delete_group(self, group_id: str) -> None:
         await run(self.supabase.table("division_groups").delete().eq("id", group_id))
@@ -244,10 +258,11 @@ class LeagueRepository:
 
     async def create_first_season(self, name: str) -> Dict[str, Any]:
         """Create the league's first season (later ones come from start_next_season)."""
+        name = _name(name, "Season name")
         if await self.list_seasons():
             raise LeagueRuleError("SEASON_WRONG_PHASE", "A season already exists. Start the next one from the dashboard.")
         response = await run(
-            self.supabase.table("seasons").insert({"number": 1, "name": name.strip(), "active": True})
+            self.supabase.table("seasons").insert({"number": 1, "name": name, "active": True})
         )
         return response.data[0]
 
@@ -255,7 +270,8 @@ class LeagueRepository:
         await run(self.supabase.table("seasons").update({"phase": phase}).eq("id", season_id))
 
     async def rename_season(self, season_id: str, name: str) -> None:
-        await run(self.supabase.table("seasons").update({"name": name.strip()}).eq("id", season_id))
+        name = _name(name, "Season name")
+        await run(self.supabase.table("seasons").update({"name": name}).eq("id", season_id))
 
     # ------------------------------------------------------------------ teams
     async def list_teams(self, include_archived: bool = False) -> List[Dict[str, Any]]:
@@ -282,7 +298,7 @@ class LeagueRepository:
             raise LeagueRuleError("INVALID", "Team codes need at least one letter or digit.")
         payload = {
             "code": normalized,
-            "name": name.strip(),
+            "name": _name(name, "Team name"),
             "emoji": emoji or None,
             "color": color or None,
             "owner_discord_id": owner_discord_id,
@@ -291,6 +307,8 @@ class LeagueRepository:
         return response.data[0]
 
     async def update_team(self, team_id: str, **fields: Any) -> Dict[str, Any]:
+        if "name" in fields:
+            fields["name"] = _name(fields["name"], "Team name")
         if fields.get("code"):
             fields["code"] = normalize_team_code(fields["code"])
         fields["updated_at"] = utc_now_iso()
@@ -455,8 +473,9 @@ class LeagueRepository:
         )
 
     async def start_next_season(self, previous_season_id: str, name: str) -> str:
+        name = _name(name, "Season name")
         response = await run(
-            self.supabase.rpc("start_next_season", {"p_prev_season_id": previous_season_id, "p_name": name.strip()})
+            self.supabase.rpc("start_next_season", {"p_prev_season_id": previous_season_id, "p_name": name})
         )
         return response.data
 
