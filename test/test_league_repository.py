@@ -146,3 +146,37 @@ async def test_create_first_season_only_once():
     repo = LeagueRepository(supabase)
     with pytest.raises(LeagueRuleError):
         await repo.create_first_season("Season 1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("call", [
+    lambda repo: repo.create_team(code="pack", name="@everyone"),
+    lambda repo: repo.update_team("t1", name="The `Pack"),
+    lambda repo: repo.create_division(code="d1", name="<@&123>", tier=1),
+    lambda repo: repo.update_division("d1", name="two\nlines"),
+    lambda repo: repo.create_group("d1", "@here"),
+    lambda repo: repo.rename_group("g1", "x" * 33),
+    lambda repo: repo.rename_season("s1", "@everyone"),
+    lambda repo: repo.start_next_season("s1", "Season <3>"),
+])
+async def test_unsafe_names_are_refused_before_touching_the_database(call):
+    supabase = MagicMock()
+    repo = LeagueRepository(supabase)
+
+    with pytest.raises(LeagueRuleError) as exc_info:
+        await call(repo)
+
+    assert exc_info.value.code == "INVALID"
+    supabase.table.assert_not_called()
+    supabase.rpc.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_names_are_trimmed_before_saving():
+    supabase = MagicMock()
+    supabase.table.return_value.insert.return_value = ok_query([{"id": "t1"}])
+    repo = LeagueRepository(supabase)
+
+    await repo.create_team(code="pack", name="  The   Pack ")
+
+    assert supabase.table.return_value.insert.call_args.args[0]["name"] == "The Pack"
