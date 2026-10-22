@@ -22,7 +22,7 @@ from db.db_utils import execute_async
 from utils.league_cache import LeagueCache
 from utils.team_picker import TeamSelect, entries_from_cached_teams
 from services.reporting import STAGE_LABELS, record_match, resolve_match_context
-from db.league_repository import LeagueRuleError
+from db.league_repository import LeagueRuleError, friendly_error
 
 logger = logging.getLogger(__name__)
 
@@ -631,7 +631,7 @@ class BulkStatsCog(commands.Cog):
         
         except Exception as e:
             logger.error(f"Error saving bulk match: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ {friendly_error(e, 'Something went wrong. The error was logged; please try again.')}", ephemeral=True)
     
     @app_commands.command(
         name="report-stats-help",
@@ -841,7 +841,7 @@ class BulkStatsCog(commands.Cog):
         
         except Exception as e:
             logger.error(f"Error saving score: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ {friendly_error(e, 'Something went wrong. The error was logged; please try again.')}", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
