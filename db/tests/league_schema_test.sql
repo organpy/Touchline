@@ -55,6 +55,17 @@ BEGIN
     INSERT INTO divisions (code, name, tier) VALUES ('ZZ3', 'Test League One', 903) RETURNING id INTO d3;
     PERFORM pg_temp.expect_hint($q$INSERT INTO divisions (code, name, tier) VALUES ('zz1', 'Dup code', 950)$q$, NULL);
 
+    -- Names cannot hold mentions, markdown breakers or control characters.
+    PERFORM pg_temp.expect_hint($q$INSERT INTO divisions (code, name, tier) VALUES ('zz8', '@everyone', 958)$q$, NULL);
+    PERFORM pg_temp.expect_hint($q$INSERT INTO divisions (code, name, tier) VALUES ('zz8', 'Go @HERE now', 958)$q$, NULL);
+    PERFORM pg_temp.expect_hint($q$INSERT INTO teams (code, name) VALUES ('zz-bad-name', 'Team `x`')$q$, NULL);
+    PERFORM pg_temp.expect_hint($q$INSERT INTO teams (code, name) VALUES ('zz-bad-name', '<@&123>')$q$, NULL);
+    PERFORM pg_temp.expect_hint($q$INSERT INTO players (display_name) VALUES (E'two\nlines')$q$, NULL);
+    PERFORM pg_temp.expect_hint($q$INSERT INTO players (display_name) VALUES ('<@1>')$q$, NULL);
+    PERFORM pg_temp.expect_hint($q$INSERT INTO players (display_name) VALUES (repeat('x', 65))$q$, NULL);
+    ASSERT is_safe_name('Falcons #1') AND is_safe_name('O''Brien & Sons') AND is_safe_name('Team @ Home'),
+        'ordinary names must be accepted';
+
     -- Swapping two tiers in one call works (deferred exclusion constraint).
     PERFORM reorder_divisions(ARRAY[d2, d1, d3]);
     SET CONSTRAINTS ex_divisions_tier IMMEDIATE;
