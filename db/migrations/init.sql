@@ -10,6 +10,13 @@
 
 BEGIN;
 
+-- Names are shown in Discord messages and embeds, so refuse control characters, backticks, angle brackets
+-- (<@id>, <@&role>) and the broadcast mentions. The bot validates the same rule (utils/validation.py).
+CREATE FUNCTION is_safe_name(p_name text) RETURNS boolean
+LANGUAGE sql IMMUTABLE AS $$
+    SELECT p_name !~ '[[:cntrl:]`<>]' AND p_name !~* '@(everyone|here)'
+$$;
+
 -- ============================================================================
 -- Core league structure
 -- ============================================================================
@@ -32,7 +39,8 @@ CREATE TABLE divisions (
     updated_at timestamptz NOT NULL DEFAULT now(),
     -- Deferred so tiers can be swapped/reordered inside one transaction.
     CONSTRAINT ex_divisions_tier EXCLUDE USING btree (tier WITH =)
-        WHERE (archived_at IS NULL) DEFERRABLE INITIALLY DEFERRED
+        WHERE (archived_at IS NULL) DEFERRABLE INITIALLY DEFERRED,
+    CONSTRAINT ck_divisions_name_safe CHECK (is_safe_name(name))
 );
 CREATE UNIQUE INDEX ux_divisions_code ON divisions (lower(code));
 
@@ -42,7 +50,8 @@ CREATE TABLE division_groups (
     division_id uuid NOT NULL REFERENCES divisions(id) ON DELETE CASCADE,
     name text NOT NULL CHECK (length(btrim(name)) BETWEEN 1 AND 32),
     sort_order integer NOT NULL DEFAULT 0,
-    created_at timestamptz NOT NULL DEFAULT now()
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ck_division_groups_name_safe CHECK (is_safe_name(name))
 );
 CREATE UNIQUE INDEX ux_division_groups_name ON division_groups (division_id, lower(name));
 
@@ -58,7 +67,8 @@ CREATE TABLE teams (
     metadata jsonb,
     archived_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ck_teams_name_safe CHECK (is_safe_name(name))
 );
 CREATE UNIQUE INDEX ux_teams_code ON teams (code);
 -- One team per owner.
@@ -70,7 +80,8 @@ CREATE TABLE players (
     display_name text NOT NULL,
     discord_id bigint UNIQUE,
     metadata jsonb,
-    created_at timestamptz NOT NULL DEFAULT now()
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ck_players_name CHECK (length(btrim(display_name)) BETWEEN 1 AND 64 AND is_safe_name(display_name))
 );
 
 -- League-wide seasons. Exactly one season is active at a time.
@@ -86,7 +97,8 @@ CREATE TABLE seasons (
     regular_ended_at timestamptz,
     ended_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ck_seasons_name_safe CHECK (is_safe_name(name))
 );
 CREATE UNIQUE INDEX ux_seasons_name ON seasons (lower(name));
 CREATE UNIQUE INDEX ux_seasons_one_active ON seasons ((true)) WHERE active;
