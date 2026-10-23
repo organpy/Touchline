@@ -47,3 +47,21 @@ class TestSanitizePlayerName:
 
     def test_limits_length(self):
         assert len(sanitize_player_name("x" * 200)) == 64
+
+
+@pytest.mark.asyncio
+async def test_new_players_are_stored_with_a_safe_name():
+    from unittest.mock import MagicMock
+
+    from db import queries
+
+    supabase = MagicMock()
+    supabase.table.return_value.select.return_value.ilike.return_value.limit.return_value.execute.return_value = MagicMock(data=[])
+    supabase.table.return_value.select.return_value.eq.return_value.limit.return_value.execute.return_value = MagicMock(data=[])
+    supabase.table.return_value.insert.return_value.execute.return_value = MagicMock(data=[{"id": "p1"}])
+
+    await queries.get_or_create_player(supabase, "Ace `@everyone` <@1>", 5)
+
+    stored = supabase.table.return_value.insert.call_args.args[0]
+    assert stored["display_name"] == "Ace @1"
+    assert stored["discord_id"] == 5
