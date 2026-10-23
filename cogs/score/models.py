@@ -3,6 +3,7 @@ Data models for stat registration
 Dataclasses for type safety and serialization
 """
 
+import uuid
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 from datetime import datetime, timezone
@@ -85,6 +86,8 @@ class MatchEntry:
     team2: TeamMatchEntry
     week: int = 1
     division_id: Optional[str] = None
+    # One id per report: saving the same report twice (double click, retry) stores the game once.
+    report_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     def to_supabase_match(self, season_id: str, division_id: Optional[str]) -> dict:
         """Convert to match row for Supabase insert"""
@@ -111,13 +114,14 @@ class MatchEntry:
             }
         }
 
-    def to_supabase_player_stats(self, match_id: str) -> list:
-        """Convert to player_stats rows for Supabase insert"""
+    def to_supabase_player_stats(self, match_id: Optional[str] = None) -> list:
+        """Convert to player_stats rows (match_id is filled in by the database when saving with the game)"""
         stats = []
         for team in (self.team1, self.team2):
             for player_stat in team.get_players_list():
                 stat_dict = player_stat.to_dict()
-                stat_dict['match_id'] = match_id
+                if match_id:
+                    stat_dict['match_id'] = match_id
                 stat_dict['team_id'] = team.team_id
                 stats.append(stat_dict)
 
