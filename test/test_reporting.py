@@ -203,3 +203,32 @@ async def test_void_playoff_match_leaves_standings_alone():
 def test_context_without_limit_is_never_full():
     context = MatchContext(season={"id": "s1"}, stage="regular", division_id="d1", games_limit=None, played=[{}] * 9)
     assert not context.at_limit
+
+
+class _FailingQuery:
+    """Any query chain whose execute() fails like a dropped connection."""
+
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: self
+
+    def execute(self):
+        raise ConnectionError("database unreachable")
+
+
+async def test_games_played_read_failure_is_not_treated_as_no_games():
+    supabase = MagicMock()
+    supabase.table.return_value = _FailingQuery()
+
+    with pytest.raises(ConnectionError):
+        await reporting.queries.get_matches_between_teams(supabase, "s1", "a", "b")
+
+
+async def test_record_match_fails_closed_when_games_played_cannot_be_read():
+    load()
+    repo = recording_repo({"id": "m4"})
+    failing = AsyncMock(side_effect=ConnectionError("database unreachable"))
+    with patch.object(reporting.queries, "get_matches_between_teams", failing), \
+         patch.object(reporting, "LeagueRepository", return_value=repo):
+        with pytest.raises(ConnectionError):
+            await record_match(MagicMock(), entry())
+    repo.record_match.assert_not_awaited()
