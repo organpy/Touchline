@@ -21,7 +21,6 @@ from .views import (
 )
 from .roster_cache import RosterCache
 from .access import NOT_ALLOWED_MESSAGE, NOT_YOUR_MATCH_MESSAGE, resolve_reporter_access
-from db.db_utils import execute_async
 from services.reporting import STAGE_LABELS, record_match, resolve_match_context
 from db.league_repository import LeagueRuleError, friendly_error
 
@@ -204,30 +203,16 @@ class StatRegistrationCog(commands.Cog):
 
         try:
             # Checks the phase, games limit or playoff series again (things may have changed while
-            # stats were typed in), inserts the game and refreshes standings.
+            # stats were typed in), saves the game with its stats in one transaction and refreshes standings.
             logger.info(f"🔄 Inserting match: {match_entry.team1.team_code} vs {match_entry.team2.team_code}")
             try:
-                match_row, context = await record_match(self.supabase, match_entry)
+                match_row, context = await record_match(self.supabase, match_entry, recorded_by=user_id)
             except LeagueRuleError as exc:
                 await interaction.followup.send(f"❌ {exc.message}", ephemeral=True)
                 return
 
             match_id = match_row['id']
             logger.info(f"✅ Match inserted: {match_id} ({context.stage})")
-
-            # Prepare & insert player_stats
-            player_stats_list = match_entry.to_supabase_player_stats(match_id)
-
-            if player_stats_list:
-                logger.info(f"🔄 Inserting {len(player_stats_list)} player stats...")
-                stats_response = await execute_async(self.supabase.table('player_stats').insert(player_stats_list))
-
-                if not stats_response.data:
-                    await interaction.followup.send("❌ Failed to insert player stats", ephemeral=True)
-                    logger.error("Player stats insert returned no data")
-                    return
-
-                logger.info(f"✅ Player stats inserted: {len(stats_response.data)} entries")
 
             # Success message
             embed = discord.Embed(
