@@ -6,8 +6,8 @@
   takes games until someone reaches the wins it needs.
 * Any other phase: no games.
 
-The database enforces the same rules (``validate_match``); checking here first gives owners a
-clear message before they type in a whole stat sheet.
+The database enforces the same rules under a lock (``validate_match``); checking here first gives
+owners a clear message before they type in a whole stat sheet.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from db import queries
-from db.league_repository import LeagueRepository, LeagueRuleError, run
+from db.league_repository import LeagueRepository, LeagueRuleError
 from services.standings import refresh_after_match
 from utils import board_events
 from utils.league_cache import LeagueCache
@@ -118,16 +118,22 @@ async def resolve_match_context(supabase: Any, team1_id: str, team2_id: str) -> 
     raise LeagueRuleError("MATCH_WRONG_PHASE")
 
 
-async def record_match(supabase: Any, match_entry: Any) -> tuple:
-    """Check and insert a reported game. Returns (match row, context). Raises LeagueRuleError."""
+async def record_match(supabase: Any, match_entry: Any, recorded_by: Optional[int] = None) -> tuple:
+    """Check and save a reported game with its player stats. Returns (match row, context).
+
+    The game and its stats are saved in one database transaction; the database re-checks the rules under a lock.
+    Saving the same entry twice (same ``report_id``) stores it once. Raises LeagueRuleError.
+    """
     context = await resolve_match_context(supabase, match_entry.team1.team_id, match_entry.team2.team_id)
     context.ensure_open()
     payload = match_entry.to_supabase_match(context.season["id"], context.division_id)
     payload.update(context.match_fields())
-    response = await run(supabase.table("matches").insert(payload))
-    if not response.data:
+    payload["recorded_by"] = recorded_by
+    match = await LeagueRepository(supabase).record_match(
+        payload, match_entry.to_supabase_player_stats(), match_entry.report_id
+    )
+    if not match:
         raise LeagueRuleError("MATCH_INVALID", "The game could not be saved. Please try again.")
-    match = response.data[0]
     if context.stage == "regular":
         await refresh_after_match(supabase, context.season["id"], match.get("division_id") or context.division_id)
     board_events.league_changed()
