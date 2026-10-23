@@ -180,3 +180,28 @@ async def test_names_are_trimmed_before_saving():
     await repo.create_team(code="pack", name="  The   Pack ")
 
     assert supabase.table.return_value.insert.call_args.args[0]["name"] == "The Pack"
+
+
+@pytest.mark.asyncio
+async def test_record_match_sends_game_stats_and_report_id_to_the_database():
+    supabase = MagicMock()
+    supabase.rpc.return_value = ok_query({"id": "m1"})
+    repo = LeagueRepository(supabase)
+
+    match = await repo.record_match({"team1_id": "a"}, [{"player_id": "p1"}], "r1")
+
+    assert match == {"id": "m1"}
+    supabase.rpc.assert_called_once_with(
+        "record_match", {"p_match": {"team1_id": "a"}, "p_stats": [{"player_id": "p1"}], "p_report_id": "r1"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_record_match_turns_the_games_limit_into_a_rule_error():
+    supabase = MagicMock()
+    supabase.rpc.return_value = failing_query(api_error(hint="MATCH_LIMIT"))
+
+    with pytest.raises(LeagueRuleError) as exc_info:
+        await LeagueRepository(supabase).record_match({}, [], "r1")
+
+    assert exc_info.value.code == "MATCH_LIMIT"

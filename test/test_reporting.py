@@ -126,29 +126,38 @@ async def test_postseason_without_a_series_is_refused():
     assert err.value.code == "MATCH_NO_SERIES"
 
 
-async def test_record_regular_match_inserts_and_refreshes_standings():
+def recording_repo(match):
+    repo = series_repo(None)
+    repo.record_match.return_value = match
+    return repo
+
+
+async def test_record_regular_match_saves_with_stats_and_refreshes_standings():
     load()
     supabase = MagicMock()
+    match_entry = entry()
+    repo = recording_repo({"id": "m1", "division_id": "d1"})
     with patch.object(reporting.queries, "get_matches_between_teams", AsyncMock(return_value=[])), \
-         patch.object(reporting, "run", AsyncMock(return_value=SimpleNamespace(data=[{"id": "m1", "division_id": "d1"}]))) as run, \
+         patch.object(reporting, "LeagueRepository", return_value=repo), \
          patch.object(reporting, "refresh_after_match", AsyncMock()) as refresh:
-        match, context = await record_match(supabase, entry())
+        match, context = await record_match(supabase, match_entry, recorded_by=42)
     assert match["id"] == "m1" and context.stage == "regular"
-    payload = supabase.table.return_value.insert.call_args.args[0]
-    assert payload["division_id"] == "d1" and "series_id" not in payload
-    run.assert_awaited_once()
+    payload, stats, report_id = repo.record_match.await_args.args
+    assert payload["division_id"] == "d1" and "series_id" not in payload and payload["recorded_by"] == 42
+    assert stats == match_entry.to_supabase_player_stats.return_value
+    assert report_id == match_entry.report_id
     refresh.assert_awaited_once_with(supabase, "s1", "d1")
 
 
 async def test_record_playoff_match_sets_series_and_skips_standings():
     load(phase="postseason")
-    supabase = MagicMock()
     series = {"id": "ser1", "team1_id": "a", "team2_id": "b", "brackets": {"kind": "promotion", "division_id": "d1"}}
-    with patch.object(reporting, "LeagueRepository", return_value=series_repo(series)), \
-         patch.object(reporting, "run", AsyncMock(return_value=SimpleNamespace(data=[{"id": "m2"}]))), \
+    repo = recording_repo({"id": "m2"})
+    repo.find_ready_series.return_value = series
+    with patch.object(reporting, "LeagueRepository", return_value=repo), \
          patch.object(reporting, "refresh_after_match", AsyncMock()) as refresh:
-        _, context = await record_match(supabase, entry())
-    payload = supabase.table.return_value.insert.call_args.args[0]
+        _, context = await record_match(MagicMock(), entry())
+    payload = repo.record_match.await_args.args[0]
     assert payload["series_id"] == "ser1"
     assert context.stage == "promotion"
     refresh.assert_not_awaited()
@@ -156,11 +165,22 @@ async def test_record_playoff_match_sets_series_and_skips_standings():
 
 async def test_record_match_refuses_when_the_limit_is_reached():
     load(games=1)
+    repo = recording_repo({"id": "m3"})
     with patch.object(reporting.queries, "get_matches_between_teams", AsyncMock(return_value=[{}])), \
-         patch.object(reporting, "run", AsyncMock()) as run:
+         patch.object(reporting, "LeagueRepository", return_value=repo):
         with pytest.raises(LeagueRuleError):
             await record_match(MagicMock(), entry())
-    run.assert_not_awaited()
+    repo.record_match.assert_not_awaited()
+
+
+async def test_record_match_reports_an_unsaved_game():
+    load()
+    repo = recording_repo(None)
+    with patch.object(reporting.queries, "get_matches_between_teams", AsyncMock(return_value=[])), \
+         patch.object(reporting, "LeagueRepository", return_value=repo):
+        with pytest.raises(LeagueRuleError) as err:
+            await record_match(MagicMock(), entry())
+    assert err.value.code == "MATCH_INVALID"
 
 
 async def test_void_regular_match_refreshes_standings():
