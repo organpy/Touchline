@@ -205,3 +205,26 @@ async def test_record_match_turns_the_games_limit_into_a_rule_error():
         await LeagueRepository(supabase).record_match({}, [], "r1")
 
     assert exc_info.value.code == "MATCH_LIMIT"
+
+
+@pytest.mark.asyncio
+async def test_void_match_only_touches_final_games():
+    supabase = MagicMock()
+    chain = supabase.table.return_value.update.return_value.eq.return_value.eq.return_value
+    chain.execute.return_value = Mock(data=[{"id": "m1"}])
+
+    assert await LeagueRepository(supabase).void_match("m1", 42) is True
+
+    update = supabase.table.return_value.update
+    update.assert_called_once_with({"status": "void", "voided_by": 42})
+    update.return_value.eq.assert_called_once_with("id", "m1")
+    update.return_value.eq.return_value.eq.assert_called_once_with("status", "final")
+
+
+@pytest.mark.asyncio
+async def test_void_match_reports_when_nothing_was_voided():
+    supabase = MagicMock()
+    chain = supabase.table.return_value.update.return_value.eq.return_value.eq.return_value
+    chain.execute.return_value = Mock(data=[])
+
+    assert await LeagueRepository(supabase).void_match("m1", 42) is False
