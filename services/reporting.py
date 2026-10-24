@@ -143,7 +143,8 @@ async def record_match(supabase: Any, match_entry: Any, recorded_by: Optional[in
 async def void_match(supabase: Any, match: Dict[str, Any], voided_by: int) -> None:
     """Void a game (playoff series recount themselves) and refresh the division's standings."""
     repo = LeagueRepository(supabase)
-    await repo.void_match(match["id"], voided_by)
+    if not await repo.void_match(match["id"], voided_by):
+        raise LeagueRuleError("MATCH_ALREADY_VOID")
     if match.get("stage", "regular") == "regular":
         await refresh_after_match(supabase, match.get("season_id"), match.get("division_id"))
     board_events.league_changed()
