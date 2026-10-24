@@ -10,6 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import logging
+import uuid
 from typing import List, Tuple, Optional, Dict, Any
 from dataclasses import dataclass
 
@@ -352,7 +353,8 @@ class BulkStatsCog(commands.Cog):
         self.bot = bot
         self.supabase = get_supabase()
         self.roster_cache = RosterCache()
-        self.active_entries: Dict[int, Dict[str, Any]] = {}  # user_id -> entry state
+        self.active_entries: Dict[int, Dict[str, Any]] = {}  # user_id -> /report-stats-bulk state
+        self.active_scores: Dict[int, Dict[str, Any]] = {}  # user_id -> /report-score state
     
     @app_commands.command(
         name="report-stats-bulk",
@@ -397,6 +399,7 @@ class BulkStatsCog(commands.Cog):
                 'team2_stats': [],
                 'team1_score': 0,
                 'team2_score': 0,
+                'report_id': str(uuid.uuid4()),
             }
             
             # Where would this game count? (regular season limit, or the open playoff series)
@@ -553,6 +556,18 @@ class BulkStatsCog(commands.Cog):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     
     async def save_match(self, interaction: discord.Interaction, user_id: int):
+        """Save the pending report once: a click while it is saving, or after it saved, does nothing."""
+        entry = self.active_entries.get(user_id)
+        if not entry or entry.get('saving'):
+            await interaction.followup.send("⚠️ This match is already saved, being saved, or expired.", ephemeral=True)
+            return
+        entry['saving'] = True
+        try:
+            await self._save_match(interaction, user_id)
+        finally:
+            entry.pop('saving', None)
+
+    async def _save_match(self, interaction: discord.Interaction, user_id: int):
         """Save match and stats to database."""
         entry = self.active_entries.get(user_id)
         if not entry:
@@ -580,6 +595,8 @@ class BulkStatsCog(commands.Cog):
                     score=entry['team2_score']
                 )
             )
+            
+            match_entry.report_id = entry['report_id']  # a double click saves the same report, not a second game
             
             # Add player stats
             for stat in entry['team1_stats']:
@@ -726,17 +743,17 @@ class BulkStatsCog(commands.Cog):
                 return
             
             # Store entry state for score-only
-            self.active_entries[interaction.user.id] = {
+            self.active_scores[interaction.user.id] = {
                 'team1': team1,
                 'team2': team2,
-                'score_only': True,
+                'report_id': str(uuid.uuid4()),
             }
             
             # Where would this game count? (regular season limit, or the open playoff series)
             try:
                 context = await resolve_match_context(self.supabase, team1.team_id, team2.team_id)
             except LeagueRuleError as exc:
-                self.active_entries.pop(interaction.user.id, None)
+                self.active_scores.pop(interaction.user.id, None)
                 await teams_interaction.response.send_message(f"❌ {exc.message}", ephemeral=True)
                 return
 
@@ -770,8 +787,20 @@ class BulkStatsCog(commands.Cog):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     
     async def save_score_only(self, interaction: discord.Interaction, user_id: int, score1: int, score2: int):
+        """Save the pending score once: a submit while it is saving, or after it saved, does nothing."""
+        entry = self.active_scores.get(user_id)
+        if not entry or entry.get('saving'):
+            await interaction.response.send_message("⚠️ This score is already saved, being saved, or expired.", ephemeral=True)
+            return
+        entry['saving'] = True
+        try:
+            await self._save_score_only(interaction, user_id, score1, score2)
+        finally:
+            entry.pop('saving', None)
+
+    async def _save_score_only(self, interaction: discord.Interaction, user_id: int, score1: int, score2: int):
         """Save score-only match to database."""
-        entry = self.active_entries.get(user_id)
+        entry = self.active_scores.get(user_id)
         if not entry:
             await interaction.response.send_message("❌ Session expired.", ephemeral=True)
             return
@@ -800,6 +829,8 @@ class BulkStatsCog(commands.Cog):
                 )
             )
             
+            match_entry.report_id = entry['report_id']
+            
             # Checks the phase/limit/series, saves the game and refreshes standings
             try:
                 match_row, context = await record_match(self.supabase, match_entry, recorded_by=user_id)
@@ -825,8 +856,8 @@ class BulkStatsCog(commands.Cog):
             await interaction.followup.send(embed=embed, ephemeral=True)
             
             # Cleanup
-            if user_id in self.active_entries:
-                del self.active_entries[user_id]
+            if user_id in self.active_scores:
+                del self.active_scores[user_id]
             
             logger.info(f"✅ Score recorded: {team1.code} {score1}-{score2} {team2.code} (match_id={match_id})")
         
