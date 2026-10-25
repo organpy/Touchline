@@ -155,6 +155,17 @@ BEGIN
     ASSERT (SELECT voided_at FROM matches WHERE id = v_match) IS NOT NULL, 'voided_at set';
     ASSERT (SELECT wins FROM team_records WHERE season_id = s1 AND team_id = t[4]) = 0, 'void ignored in records';
 
+    -- A pair plays at most the division's games_per_matchup (default 2), in either order; a void frees a slot.
+    -- (Every game here is voided again so the standings used by the playoff tests below are unchanged.)
+    v_match := pg_temp.game(s1, t[6], t[5], 4, 2);
+    PERFORM pg_temp.expect_hint(format($q$SELECT pg_temp.game(%L, %L, %L, 10, 5)$q$, s1, t[5], t[6]), 'MATCH_LIMIT');
+    PERFORM pg_temp.expect_hint(format($q$SELECT pg_temp.game(%L, %L, %L, 10, 5)$q$, s1, t[6], t[5]), 'MATCH_LIMIT');
+    UPDATE matches SET status = 'void', voided_by = 1 WHERE id = v_match;
+    v_match := pg_temp.game(s1, t[5], t[6], 3, 1);
+    UPDATE matches SET status = 'void', voided_by = 1 WHERE id = v_match;
+    ASSERT (SELECT count(*) FROM matches WHERE season_id = s1 AND status = 'final'
+            AND team1_id IN (t[5], t[6]) AND team2_id IN (t[5], t[6])) = 1, 'only the original t5-t6 game still counts';
+
     -- ------------------------------------------------------------ postseason plan
     -- Championship (D1): semis 1v4, 2v3 (bo1), final bo3.
     -- Relegation (D1 bottom 2 -> loser relegated): t3 v t4, single series, loser feeds nothing.
