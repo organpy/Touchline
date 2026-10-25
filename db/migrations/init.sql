@@ -215,6 +215,7 @@ CREATE TABLE matches (
     voided_at timestamptz,
     voided_by bigint,
     metadata jsonb,
+    report_id uuid,  -- one id per report, so a repeated submit returns the saved game
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CHECK (team1_id <> team2_id),
@@ -223,6 +224,7 @@ CREATE TABLE matches (
     CHECK ((stage = 'regular') = (series_id IS NULL)),
     CHECK (stage <> 'regular' OR division_id IS NOT NULL)
 );
+CREATE UNIQUE INDEX ux_matches_report_id ON matches (report_id);
 CREATE INDEX idx_matches_season_division ON matches (season_id, division_id);
 CREATE INDEX idx_matches_series ON matches (series_id) WHERE series_id IS NOT NULL;
 CREATE INDEX idx_matches_played_at ON matches (played_at);
@@ -1322,6 +1324,60 @@ BEGIN
     RETURN v_moved;
 END;
 $$;
+
+-- ============================================================================
+-- Reporting a game: the match and its player stats in one transaction
+-- ============================================================================
+-- p_report_id identifies one report. Sending it again (a double click, a retry) returns the game saved the first
+-- time instead of saving a second one. Rule violations carry their usual HINT (MATCH_LIMIT, ...).
+
+CREATE FUNCTION record_match(p_match jsonb, p_stats jsonb DEFAULT '[]'::jsonb, p_report_id uuid DEFAULT NULL)
+RETURNS matches
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_match matches%ROWTYPE;
+    v_constraint text;
+BEGIN
+    IF p_report_id IS NOT NULL THEN
+        SELECT * INTO v_match FROM matches WHERE report_id = p_report_id;
+        IF FOUND THEN
+            RETURN v_match;
+        END IF;
+    END IF;
+
+    BEGIN
+        INSERT INTO matches (season_id, division_id, series_id, team1_id, team2_id, team1_score, team2_score,
+                             recorded_by, metadata, report_id)
+        SELECT m.season_id, m.division_id, m.series_id, m.team1_id, m.team2_id, m.team1_score, m.team2_score,
+               m.recorded_by, m.metadata, p_report_id
+        FROM jsonb_to_record(p_match) AS m(season_id uuid, division_id uuid, series_id uuid, team1_id uuid,
+                                           team2_id uuid, team1_score integer, team2_score integer,
+                                           recorded_by bigint, metadata jsonb)
+        RETURNING * INTO v_match;
+    EXCEPTION WHEN unique_violation THEN
+        -- A concurrent copy of this same report committed first.
+        GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+        IF v_constraint = 'ux_matches_report_id' THEN
+            SELECT * INTO v_match FROM matches WHERE report_id = p_report_id;
+            RETURN v_match;
+        END IF;
+        RAISE;
+    END;
+
+    INSERT INTO player_stats (match_id, player_id, team_id, goals, points, own_goals, assists, saves, blocks,
+                              powerup_plays, powerups_used)
+    SELECT v_match.id, s.player_id, s.team_id, COALESCE(s.goals, 0), COALESCE(s.points, 0), COALESCE(s.own_goals, 0),
+           COALESCE(s.assists, 0), COALESCE(s.saves, 0), COALESCE(s.blocks, 0), COALESCE(s.powerup_plays, 0),
+           COALESCE(s.powerups_used, 0)
+    FROM jsonb_to_recordset(COALESCE(p_stats, '[]'::jsonb)) AS s(player_id uuid, team_id uuid, goals integer,
+                                                                 points integer, own_goals integer, assists integer,
+                                                                 saves integer, blocks integer,
+                                                                 powerup_plays integer, powerups_used integer);
+
+    RETURN v_match;
+END;
+$$;
+
 
 -- ============================================================================
 -- Access: only the bot's service role reaches the public schema
