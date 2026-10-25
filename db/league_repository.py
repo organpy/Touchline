@@ -498,6 +498,19 @@ class LeagueRepository:
         )
         return response.data or []
 
+    async def record_match(
+        self, match: Dict[str, Any], stats: List[Dict[str, Any]], report_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Save a game and its player stats in one transaction.
+
+        Reporting the same ``report_id`` again returns the game saved the first time instead of saving another.
+        """
+        response = await run(
+            self.supabase.rpc("record_match", {"p_match": match, "p_stats": stats, "p_report_id": report_id})
+        )
+        data = response.data
+        return data[0] if isinstance(data, list) else data
+
     async def void_match(self, match_id: str, voided_by: int) -> None:
         await run(
             self.supabase.table("matches").update({"status": "void", "voided_by": voided_by}).eq("id", match_id)
