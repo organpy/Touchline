@@ -47,6 +47,9 @@ DECLARE
     r1a uuid; r1b uuid; r2 uuid;
     pr1 uuid; cr1 uuid;
     v_series series%ROWTYPE;
+    v_report uuid;
+    v_rec matches%ROWTYPE;
+    v_again matches%ROWTYPE;
     i integer;
 BEGIN
     -- ------------------------------------------------------------ divisions and tiers
@@ -165,6 +168,35 @@ BEGIN
     UPDATE matches SET status = 'void', voided_by = 1 WHERE id = v_match;
     ASSERT (SELECT count(*) FROM matches WHERE season_id = s1 AND status = 'final'
             AND team1_id IN (t[5], t[6]) AND team2_id IN (t[5], t[6])) = 1, 'only the original t5-t6 game still counts';
+
+    -- record_match saves a game with its stats in one go; sending the same report again returns the same game.
+    v_report := gen_random_uuid();
+    v_rec := record_match(
+        jsonb_build_object('season_id', s1, 'team1_id', t[5], 'team2_id', t[6], 'team1_score', 6, 'team2_score', 2,
+                           'recorded_by', 42),
+        jsonb_build_array(jsonb_build_object('player_id', p2, 'team_id', t[5], 'goals', 3, 'points', 6)),
+        v_report);
+    ASSERT v_rec.report_id = v_report AND v_rec.recorded_by = 42 AND v_rec.division_id IS NOT NULL, 'game saved and placed';
+    ASSERT (SELECT count(*) FROM player_stats WHERE match_id = v_rec.id) = 1, 'stats saved with the game';
+    v_again := record_match(
+        jsonb_build_object('season_id', s1, 'team1_id', t[5], 'team2_id', t[6], 'team1_score', 6, 'team2_score', 2),
+        '[]'::jsonb, v_report);
+    ASSERT v_again.id = v_rec.id, 'a repeated report returns the saved game';
+    ASSERT (SELECT count(*) FROM matches WHERE report_id = v_report) = 1, 'no second game';
+    ASSERT (SELECT count(*) FROM player_stats WHERE match_id = v_rec.id) = 1, 'no second set of stats';
+    -- The pair is at its limit now (2 games), also through record_match.
+    PERFORM pg_temp.expect_hint(format(
+        $q$SELECT record_match(%L::jsonb, '[]'::jsonb, gen_random_uuid())$q$,
+        jsonb_build_object('season_id', s1, 'team1_id', t[5], 'team2_id', t[6], 'team1_score', 5, 'team2_score', 1)),
+        'MATCH_LIMIT');
+    -- A bad stat row (unknown player) rolls the whole game back.
+    PERFORM pg_temp.expect_hint(format(
+        $q$SELECT record_match(%L::jsonb, %L::jsonb, gen_random_uuid())$q$,
+        jsonb_build_object('season_id', s1, 'team1_id', t[7], 'team2_id', t[8], 'team1_score', 5, 'team2_score', 1),
+        jsonb_build_array(jsonb_build_object('player_id', gen_random_uuid(), 'team_id', t[7], 'goals', 1))), NULL);
+    ASSERT (SELECT count(*) FROM matches WHERE season_id = s1 AND status = 'final'
+            AND team1_id IN (t[7], t[8]) AND team2_id IN (t[7], t[8])) = 1, 'failed save left no game behind';
+    UPDATE matches SET status = 'void', voided_by = 1 WHERE id = v_rec.id;
 
     -- ------------------------------------------------------------ postseason plan
     -- Championship (D1): semis 1v4, 2v3 (bo1), final bo3.
