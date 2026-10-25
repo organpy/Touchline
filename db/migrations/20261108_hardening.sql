@@ -135,4 +135,60 @@ BEGIN
 END;
 $$;
 
+-- ----------------------------------------------------------------------------
+-- Save a reported game and its stats in one transaction; a repeated report returns the saved game
+-- ----------------------------------------------------------------------------
+
+ALTER TABLE matches ADD COLUMN report_id uuid;
+CREATE UNIQUE INDEX ux_matches_report_id ON matches (report_id);
+
+CREATE FUNCTION record_match(p_match jsonb, p_stats jsonb DEFAULT '[]'::jsonb, p_report_id uuid DEFAULT NULL)
+RETURNS matches
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_match matches%ROWTYPE;
+    v_constraint text;
+BEGIN
+    IF p_report_id IS NOT NULL THEN
+        SELECT * INTO v_match FROM matches WHERE report_id = p_report_id;
+        IF FOUND THEN
+            RETURN v_match;
+        END IF;
+    END IF;
+
+    BEGIN
+        INSERT INTO matches (season_id, division_id, series_id, team1_id, team2_id, team1_score, team2_score,
+                             recorded_by, metadata, report_id)
+        SELECT m.season_id, m.division_id, m.series_id, m.team1_id, m.team2_id, m.team1_score, m.team2_score,
+               m.recorded_by, m.metadata, p_report_id
+        FROM jsonb_to_record(p_match) AS m(season_id uuid, division_id uuid, series_id uuid, team1_id uuid,
+                                           team2_id uuid, team1_score integer, team2_score integer,
+                                           recorded_by bigint, metadata jsonb)
+        RETURNING * INTO v_match;
+    EXCEPTION WHEN unique_violation THEN
+        -- A concurrent copy of this same report committed first.
+        GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+        IF v_constraint = 'ux_matches_report_id' THEN
+            SELECT * INTO v_match FROM matches WHERE report_id = p_report_id;
+            RETURN v_match;
+        END IF;
+        RAISE;
+    END;
+
+    INSERT INTO player_stats (match_id, player_id, team_id, goals, points, own_goals, assists, saves, blocks,
+                              powerup_plays, powerups_used)
+    SELECT v_match.id, s.player_id, s.team_id, COALESCE(s.goals, 0), COALESCE(s.points, 0), COALESCE(s.own_goals, 0),
+           COALESCE(s.assists, 0), COALESCE(s.saves, 0), COALESCE(s.blocks, 0), COALESCE(s.powerup_plays, 0),
+           COALESCE(s.powerups_used, 0)
+    FROM jsonb_to_recordset(COALESCE(p_stats, '[]'::jsonb)) AS s(player_id uuid, team_id uuid, goals integer,
+                                                                 points integer, own_goals integer, assists integer,
+                                                                 saves integer, blocks integer,
+                                                                 powerup_plays integer, powerups_used integer);
+
+    RETURN v_match;
+END;
+$$;
+REVOKE EXECUTE ON FUNCTION record_match(jsonb, jsonb, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION record_match(jsonb, jsonb, uuid) TO service_role;
+
 COMMIT;
