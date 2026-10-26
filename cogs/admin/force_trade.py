@@ -16,6 +16,7 @@ from cogs.score.roster_cache import RosterCache
 from utils.team_player_cache import TeamPlayerCache
 from utils.autocomplete_helper import AutocompleteHelper
 from utils.config_utility import ConfigUtility
+from utils.permissions import admin_only
 from cogs.transactions.trade_utils import can_trade_picks, get_available_trade_assets
 
 logger = logging.getLogger(__name__)
@@ -217,6 +218,7 @@ class ForceTradeCommand(commands.Cog):
     )
     @app_commands.autocomplete(team1=autocomplete_team_code)
     @app_commands.autocomplete(team2=autocomplete_team_code)
+    @admin_only()
     async def force_trade(
         self,
         interaction: discord.Interaction,
@@ -238,11 +240,6 @@ class ForceTradeCommand(commands.Cog):
         )
         if not channel_allowed:
             await interaction.response.send_message(embed=channel_error_embed, ephemeral=True)
-            return
-
-        has_permission = await ConfigUtility.check_admin_permissions(interaction, guild_config)
-        if not has_permission:
-            await ConfigUtility.send_permission_denied_message(interaction)
             return
 
         await interaction.response.defer(ephemeral=True)
