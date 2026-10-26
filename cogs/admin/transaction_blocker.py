@@ -12,8 +12,7 @@ from discord.ext import commands
 
 from db import get_supabase, queries
 from utils.team_player_cache import TeamPlayerCache
-from utils.config_manager import get_config_manager
-from utils.config_utility import ConfigUtility
+from utils.permissions import admin_only
 from db.db_utils import execute_async
 from utils.league_cache import LeagueCache
 
@@ -470,20 +469,10 @@ class TransactionBlockerCog(commands.Cog):
         name="transaction_blocker",
         description="[ADMIN] Block teams from doing signings/trades/releases mid-season",
     )
+    @admin_only()
     async def transaction_blocker(self, interaction: discord.Interaction) -> None:
         """Open transaction blocker management interface."""
         await interaction.response.defer(ephemeral=True)
-
-        config_mgr = get_config_manager()
-        config = await config_mgr.get_guild_config(interaction.guild_id)
-
-        # Check admin permissions
-        if not await ConfigUtility.check_admin_permissions(interaction, config):
-            await interaction.followup.send(
-                "❌ You don't have permission to access this command.",
-                ephemeral=True,
-            )
-            return
 
         # Get current blocked teams from dedicated table
         banned_teams = await queries.get_blocked_teams_for_guild(self.supabase, interaction.guild_id)
