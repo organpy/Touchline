@@ -11,7 +11,7 @@ from discord.ext import commands
 
 from db import get_supabase
 from utils.config_utility import ConfigUtility
-from utils.permissions import is_admin
+from utils.permissions import admin_only, is_admin
 
 from .core import DashboardPage, DashboardSession
 from .home import HomePage
@@ -62,6 +62,7 @@ class DashboardCog(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="dashboard", description="[ADMIN] Run the league: divisions, teams, seasons and playoffs")
+    @admin_only()
     async def dashboard(self, interaction: discord.Interaction) -> None:
         await open_dashboard(self.bot, interaction)
 
