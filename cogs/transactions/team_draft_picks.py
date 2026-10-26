@@ -20,6 +20,7 @@ from db import get_supabase, queries
 from db.db_utils import execute_async
 from db.transactions_repository import TransactionsRepository
 from utils.config_manager import get_config_manager
+from utils.permissions import admin_only
 from utils.embed_builder import EmbedBuilder
 from utils.league_cache import LeagueCache
 from utils.team_player_cache import TeamPlayerCache
@@ -221,7 +222,7 @@ class TeamDraftPicksCog(commands.Cog):
         player_name="Player display name",
         pick_number="Overall pick number (optional: auto-select next available)",
     )
-    @app_commands.checks.has_permissions(administrator=True)
+    @admin_only()
     async def admin_force_pick(
         self,
         interaction: discord.Interaction,
