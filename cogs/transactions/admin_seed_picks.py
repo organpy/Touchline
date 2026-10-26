@@ -14,6 +14,7 @@ from db import get_supabase
 from db.db_utils import execute_async
 from db.transactions_repository import TransactionsRepository
 from utils.league_cache import LeagueCache
+from utils.permissions import admin_only
 
 logger = logging.getLogger(__name__)
 
@@ -39,14 +40,14 @@ class AdminSeedPicksCog(commands.GroupCog, name="admin_seed_picks"):
 
     @app_commands.command(
         name="populate_picks",
-        description="Populate draft picks for a division in the active season (admin only)"
+        description="[ADMIN] Populate draft picks for a division in the active season"
     )
     @app_commands.describe(
         division="Division that runs a draft",
         num_rounds="Number of rounds (every team in the division gets one pick per round)",
     )
     @app_commands.autocomplete(division=draft_division_autocomplete)
-    @app_commands.checks.has_permissions(administrator=True)
+    @admin_only()
     async def populate_picks(self, interaction: discord.Interaction, division: str, num_rounds: int):
         """Seed draft picks for one division of the active season."""
         await interaction.response.defer(ephemeral=True)
