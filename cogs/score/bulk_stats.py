@@ -18,7 +18,6 @@ from .models import MatchEntry, TeamMatchEntry, PlayerStatEntry
 from .roster_cache import RosterCache
 from .access import NOT_ALLOWED_MESSAGE, NOT_YOUR_MATCH_MESSAGE, resolve_reporter_access
 from utils.team_player_cache import TeamPlayerCache
-from db.db_utils import execute_async
 from utils.league_cache import LeagueCache
 from utils.team_picker import TeamSelect, entries_from_cached_teams
 from services.reporting import STAGE_LABELS, record_match, resolve_match_context
@@ -588,21 +587,13 @@ class BulkStatsCog(commands.Cog):
             for stat in entry['team2_stats']:
                 match_entry.team2.add_player_stats(stat)
             
-            # Checks the phase/limit/series, inserts the game and refreshes standings
+            # Checks the phase/limit/series, saves the game with its stats in one transaction, refreshes standings
             try:
-                match_row, context = await record_match(self.supabase, match_entry)
+                match_row, context = await record_match(self.supabase, match_entry, recorded_by=user_id)
             except LeagueRuleError as exc:
                 await interaction.followup.send(f"❌ {exc.message}", ephemeral=True)
                 return
             match_id = match_row['id']
-            
-            # Insert player stats
-            player_stats = match_entry.to_supabase_player_stats(match_id)
-            if player_stats:
-                stats_response = await execute_async(self.supabase.table('player_stats').insert(player_stats))
-                if not stats_response.data:
-                    await interaction.followup.send("❌ Failed to insert player stats.", ephemeral=True)
-                    return
             
             # Success
             embed = discord.Embed(
@@ -809,9 +800,9 @@ class BulkStatsCog(commands.Cog):
                 )
             )
             
-            # Checks the phase/limit/series, inserts the game and refreshes standings
+            # Checks the phase/limit/series, saves the game and refreshes standings
             try:
-                match_row, context = await record_match(self.supabase, match_entry)
+                match_row, context = await record_match(self.supabase, match_entry, recorded_by=user_id)
             except LeagueRuleError as exc:
                 await interaction.followup.send(f"❌ {exc.message}", ephemeral=True)
                 return
