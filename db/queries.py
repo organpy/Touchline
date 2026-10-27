@@ -46,23 +46,22 @@ async def get_matches_between_teams(
     team2_id: str,
     stage: Optional[str] = 'regular',
 ) -> List[Dict[str, Any]]:
-    """Final matches between two teams in a season (both orders). ``stage=None`` for every stage."""
-    try:
-        query = (
-            supabase
-            .table('matches')
-            .select('*')
-            .eq('season_id', season_id)
-            .eq('status', 'final')
-            .or_(f"and(team1_id.eq.{team1_id},team2_id.eq.{team2_id}),and(team1_id.eq.{team2_id},team2_id.eq.{team1_id})")
-        )
-        if stage:
-            query = query.eq('stage', stage)
-        response = await execute_async(query.order('played_at', desc=True))
-        return response.data or []
-    except Exception as e:
-        logger.error(f"Error fetching matches between teams: {e}")
-        return []
+    """Final matches between two teams in a season (both orders). ``stage=None`` for every stage.
+
+    Errors propagate: this feeds the games-per-matchup check, which must not pass on a failed read.
+    """
+    query = (
+        supabase
+        .table('matches')
+        .select('*')
+        .eq('season_id', season_id)
+        .eq('status', 'final')
+        .or_(f"and(team1_id.eq.{team1_id},team2_id.eq.{team2_id}),and(team1_id.eq.{team2_id},team2_id.eq.{team1_id})")
+    )
+    if stage:
+        query = query.eq('stage', stage)
+    response = await execute_async(query.order('played_at', desc=True))
+    return response.data or []
 
 
 async def get_team_season_division(supabase, season_id: str, team_id: str) -> Optional[Dict[str, Any]]:
