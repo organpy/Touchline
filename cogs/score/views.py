@@ -329,13 +329,32 @@ class MatchConfirmationView(discord.ui.View):
         self.match_entry = match_entry
         self.on_confirm = on_confirm
         self.on_cancel = on_cancel
+        self._busy = False
+
+    async def _run(self, interaction: discord.Interaction, callback: Callable) -> None:
+        """Run a button action once at a time. When it reports it is finished (True), the buttons go inactive;
+        when it fails (False) they stay so the report can be retried: the database stores one game per report."""
+        await interaction.response.defer()
+        if self._busy:
+            return
+        self._busy = True
+        try:
+            finished = await callback(interaction)
+        finally:
+            self._busy = False
+        if finished:
+            for item in self.children:
+                item.disabled = True
+            try:
+                await interaction.edit_original_response(view=self)
+            except discord.HTTPException:
+                pass  # the message is gone or the token expired; the buttons are dead either way
+            self.stop()
 
     @discord.ui.button(label="✅ Confirm & Save", style=discord.ButtonStyle.success)
     async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        await self.on_confirm(interaction)
+        await self._run(interaction, self.on_confirm)
 
     @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.danger)
     async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        await self.on_cancel(interaction)
+        await self._run(interaction, self.on_cancel)
