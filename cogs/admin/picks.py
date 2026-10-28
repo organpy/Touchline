@@ -18,6 +18,7 @@ from db.transactions_repository import TransactionsRepository
 from utils.league_cache import LeagueCache, hex_to_int
 from utils.team_player_cache import TeamPlayerCache
 from utils.team_picker import team_select_for
+from utils.permissions import AdminOnlyView
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,7 @@ async def division_teams(division_id: str, season_id: str) -> List[Dict[str, Any
     return sorted((t for t in teams if t), key=lambda t: (t.get('name') or '').lower())
 
 
-class PicksActionsView(discord.ui.View):
+class PicksActionsView(AdminOnlyView):
     """Buttons for draft picks management."""
 
     def __init__(self, bot: Any, guild_id: int, supabase: Any) -> None:
@@ -200,7 +201,7 @@ class DivisionSeasonFlow(LazyInitView):
             ],
         )
         select.callback = self.select_season
-        view = discord.ui.View(timeout=300)
+        view = AdminOnlyView(timeout=300)
         view.add_item(select)
         await interaction.response.send_message(
             f"**{self.division.get('name')}** selected. Choose a season:", view=view, ephemeral=True,
@@ -281,7 +282,7 @@ class RoundsModal(discord.ui.Modal, title="Seed Draft Picks"):
         await interaction.response.send_message(embed=embed, view=ConfirmSeedView(flow, rows, rounds), ephemeral=True)
 
 
-class ConfirmSeedView(discord.ui.View):
+class ConfirmSeedView(AdminOnlyView):
     def __init__(self, flow: SeedPicksView, rows: List[Dict[str, Any]], rounds: int) -> None:
         super().__init__(timeout=60)
         self.flow = flow
@@ -338,7 +339,7 @@ class ReassignPickView(DivisionSeasonFlow):
             ],
         )
         select.callback = self.select_pick
-        view = discord.ui.View(timeout=300)
+        view = AdminOnlyView(timeout=300)
         view.add_item(select)
         note = f" (showing the first 25 of {len(picks)})" if len(picks) > 25 else ""
         await interaction.response.send_message(
@@ -362,7 +363,7 @@ class ReassignPickView(DivisionSeasonFlow):
             ],
         )
         select.callback = self.select_new_owner
-        view = discord.ui.View(timeout=300)
+        view = AdminOnlyView(timeout=300)
         view.add_item(select)
         owner = self.team_map.get(self.pick.get('current_owner_team_id'))
         embed = discord.Embed(
@@ -390,7 +391,7 @@ class ReassignPickView(DivisionSeasonFlow):
         await interaction.response.send_message(embed=embed, view=ConfirmReassignView(self, self.pick, new_team), ephemeral=True)
 
 
-class ConfirmReassignView(discord.ui.View):
+class ConfirmReassignView(AdminOnlyView):
     def __init__(self, flow: ReassignPickView, pick: Dict[str, Any], new_team: Dict[str, Any]) -> None:
         super().__init__(timeout=60)
         self.flow = flow
@@ -451,7 +452,7 @@ class ViewPicksByTeamView(DivisionSeasonFlow):
             return
         # Already one division, so this only pages when the division has more than 25 teams
         select = team_select_for(self.teams, on_pick=self.view_team_picks, placeholder="Select team...")
-        view = discord.ui.View(timeout=300)
+        view = AdminOnlyView(timeout=300)
         view.add_item(select)
         await interaction.response.send_message(f"**{self.context_label}**: choose a team:", view=view, ephemeral=True)
 
