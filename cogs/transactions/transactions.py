@@ -1222,106 +1222,118 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             color=discord.Color.orange(),
         )
 
-        class ConfirmTransferView(discord.ui.View):
-            def __init__(self, cog, team_data, new_owner_member):
-                super().__init__(timeout=60)
-                self.cog = cog
-                self.team_data = team_data
-                self.new_owner_member = new_owner_member
-                self.confirmed = False
-
-            @discord.ui.button(label="Confirm Transfer", style=discord.ButtonStyle.danger)
-            async def confirm(self, btn_interaction: discord.Interaction, button: discord.ui.Button):
-                await btn_interaction.response.defer(ephemeral=True)
-                
-                try:
-                    # Update team owner
-                    update_result = await execute_async(self.cog.supabase.table('teams').update({
-                        'owner_discord_id': self.new_owner_member.id,
-                    }).eq('id', self.team_data['id']))
-
-                    if not update_result.data:
-                        await btn_interaction.followup.send(
-                            "Failed to transfer ownership. Please try again.",
-                            ephemeral=True,
-                        )
-                        return
-
-                    # Refresh cache
-                    await TeamPlayerCache.refresh(self.cog.supabase)
-
-                    # Post announcement
-                    from utils.config_manager import get_config_manager
-                    from utils.embed_builder import EmbedBuilder
-                    
-                    config_mgr = get_config_manager()
-                    tx_config = await config_mgr.get_transactions_config(btn_interaction.guild_id)
-                    channel_id = tx_config.get('channel_id')
-
-                    # Get league code
-                    division = LeagueCache.team_division(self.team_data.get('id')) or {}
-                    league_code = (division.get('code') or '').upper()
-
-                    if channel_id:
-                        try:
-                            channel = btn_interaction.guild.get_channel(int(channel_id))
-                            if channel and isinstance(channel, discord.TextChannel):
-                                builder = EmbedBuilder(
-                                    title="Ownership Transfer",
-                                    description=f"{self.new_owner_member.mention} is now the owner of {team_label}",
-                                    team_code=self.team_data.get('code'),
-                                    division_code=league_code,
-                                )
-                                builder.add_league_field(league_code)
-                                builder.add_field("Team", team_label, inline=True)
-                                builder.add_field("New Owner", self.new_owner_member.mention, inline=True)
-                                builder.add_field("Previous Owner", btn_interaction.user.mention, inline=True)
-                                builder.add_timestamp()
-                                builder.add_team_image(self.team_data.get('code'), position="thumbnail")
-                                
-                                embed, files = builder.build_with_files()
-                                await channel.send(
-                                    content=self.new_owner_member.mention,
-                                    embed=embed,
-                                    files=files or None,
-                                    allowed_mentions=discord.AllowedMentions(users=[self.new_owner_member]),
-                                )
-                        except Exception as e:
-                            logger.warning(f"Failed to post ownership transfer announcement: {e}")
-
-                    self.confirmed = True
-                    for item in self.children:
-                        item.disabled = True
-
-                    await btn_interaction.followup.send(
-                        f"Ownership of {team_label} has been transferred to {self.new_owner_member.mention}.",
-                        ephemeral=True,
-                    )
-
-                    logger.info(
-                        "Ownership transfer: %s from %s to %s",
-                        self.team_data.get('code'),
-                        btn_interaction.user.id,
-                        self.new_owner_member.id
-                    )
-
-                except Exception as e:
-                    logger.error(f"Error transferring ownership: {e}", exc_info=True)
-                    await btn_interaction.followup.send(
-                        friendly_error(e, "Failed to transfer ownership. Please try again."),
-                        ephemeral=True,
-                    )
-
-            @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
-            async def cancel(self, btn_interaction: discord.Interaction, button: discord.ui.Button):
-                await btn_interaction.response.defer(ephemeral=True)
-                for item in self.children:
-                    item.disabled = True
-                await btn_interaction.followup.send("Ownership transfer cancelled.", ephemeral=True)
-                self.stop()
-
-        view = ConfirmTransferView(self, team, new_owner)
+        view = ConfirmTransferView(self, team, new_owner, team_label)
         await interaction.followup.send(embed=confirm_embed, view=view, ephemeral=True)
+
+
+class ConfirmTransferView(discord.ui.View):
+    """Asks a team owner to confirm handing their team to another member."""
+
+    def __init__(self, cog, team_data, new_owner_member, team_label):
+        super().__init__(timeout=60)
+        self.cog = cog
+        self.team_data = team_data
+        self.new_owner_member = new_owner_member
+        self.team_label = team_label
+        self.confirmed = False
+
+    @discord.ui.button(label="Confirm Transfer", style=discord.ButtonStyle.danger)
+    async def confirm(self, btn_interaction: discord.Interaction, button: discord.ui.Button):
+        await btn_interaction.response.defer(ephemeral=True)
+        if self.confirmed:
+            return  # a second click while (or after) the transfer ran
+        self.confirmed = True
+
+        try:
+            # Update team owner, only while the person clicking still owns the team (an admin may have changed it)
+            update_result = await execute_async(self.cog.supabase.table('teams').update({
+                'owner_discord_id': self.new_owner_member.id,
+            }).eq('id', self.team_data['id']).eq('owner_discord_id', btn_interaction.user.id))
+
+            if not update_result.data:
+                self.confirmed = False
+                await btn_interaction.followup.send(
+                    "Ownership was not transferred: you no longer own this team, or the update failed.",
+                    ephemeral=True,
+                )
+                return
+
+            # Refresh cache
+            await TeamPlayerCache.refresh(self.cog.supabase)
+
+            # Post announcement
+            from utils.config_manager import get_config_manager
+            from utils.embed_builder import EmbedBuilder
+
+            config_mgr = get_config_manager()
+            tx_config = await config_mgr.get_transactions_config(btn_interaction.guild_id)
+            channel_id = tx_config.get('channel_id')
+
+            # Get league code
+            division = LeagueCache.team_division(self.team_data.get('id')) or {}
+            league_code = (division.get('code') or '').upper()
+
+            if channel_id:
+                try:
+                    channel = btn_interaction.guild.get_channel(int(channel_id))
+                    if channel and isinstance(channel, discord.TextChannel):
+                        builder = EmbedBuilder(
+                            title="Ownership Transfer",
+                            description=f"{self.new_owner_member.mention} is now the owner of {self.team_label}",
+                            team_code=self.team_data.get('code'),
+                            division_code=league_code,
+                        )
+                        builder.add_league_field(league_code)
+                        builder.add_field("Team", self.team_label, inline=True)
+                        builder.add_field("New Owner", self.new_owner_member.mention, inline=True)
+                        builder.add_field("Previous Owner", btn_interaction.user.mention, inline=True)
+                        builder.add_timestamp()
+                        builder.add_team_image(self.team_data.get('code'), position="thumbnail")
+
+                        embed, files = builder.build_with_files()
+                        await channel.send(
+                            content=self.new_owner_member.mention,
+                            embed=embed,
+                            files=files or None,
+                            allowed_mentions=discord.AllowedMentions(users=[self.new_owner_member]),
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to post ownership transfer announcement: {e}")
+
+            for item in self.children:
+                item.disabled = True
+            try:
+                await btn_interaction.edit_original_response(view=self)
+            except discord.HTTPException:
+                pass  # the message is gone; the buttons are dead either way
+
+            await btn_interaction.followup.send(
+                f"Ownership of {self.team_label} has been transferred to {self.new_owner_member.mention}.",
+                ephemeral=True,
+            )
+
+            logger.info(
+                "Ownership transfer: %s from %s to %s",
+                self.team_data.get('code'),
+                btn_interaction.user.id,
+                self.new_owner_member.id
+            )
+
+        except Exception as e:
+            self.confirmed = False
+            logger.error(f"Error transferring ownership: {e}", exc_info=True)
+            await btn_interaction.followup.send(
+                friendly_error(e, "Failed to transfer ownership. Please try again."),
+                ephemeral=True,
+            )
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, btn_interaction: discord.Interaction, button: discord.ui.Button):
+        await btn_interaction.response.defer(ephemeral=True)
+        for item in self.children:
+            item.disabled = True
+        await btn_interaction.followup.send("Ownership transfer cancelled.", ephemeral=True)
+        self.stop()
 
 
 async def setup(bot: commands.Bot):
