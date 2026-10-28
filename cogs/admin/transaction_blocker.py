@@ -12,7 +12,7 @@ from discord.ext import commands
 
 from db import get_supabase, queries
 from utils.team_player_cache import TeamPlayerCache
-from utils.permissions import admin_only
+from utils.permissions import AdminOnlyView, admin_only
 from db.db_utils import execute_async
 from utils.league_cache import LeagueCache
 
@@ -22,7 +22,7 @@ if TYPE_CHECKING:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
-class TransactionBlockerPaginatedView(discord.ui.View):
+class TransactionBlockerPaginatedView(AdminOnlyView):
     """Paginated view to manage transaction blocks for all teams."""
 
     def __init__(
@@ -427,7 +427,7 @@ class TransactionBlockerPaginatedView(discord.ui.View):
                 pass
 
 
-class TransactionBlockerSummaryView(discord.ui.View):
+class TransactionBlockerSummaryView(AdminOnlyView):
     """Summary view for transaction blocker with manage button."""
 
     def __init__(self, guild_id: int, supabase: Any, current_blocks: Any):  # Can be dict or list
