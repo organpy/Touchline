@@ -177,7 +177,7 @@ class AdminHelpView(discord.ui.View):
             value="**🏢 Team Management** - Add/edit/delete teams, set owners\n"
                   "**👤 Player Management** - Register players, link Discord IDs\n"
                   "**🏀 Roster Management** - Force sign/release/transfer players\n"
-                  "**🏆 Draft Picks** - Seed picks, reassign ownership\n"
+                  "**🏆 Draft Picks (NBL only)** - Seed picks, reassign ownership\n"
                   "**📝 Transactions** - Void/edit/resend announcements\n"
                   "**📅 Season Management** - Create/activate seasons\n"
                   "**⏰ Offers** - Manage signing offers\n"
@@ -255,7 +255,7 @@ class AdminHelpView(discord.ui.View):
             value="1. `/admin` → Season Management → Create Season\n"
                   "2. Enter season name (e.g., 'S11')\n"
                   "3. Mark as active\n"
-                  "4. `/admin-seed-picks` to generate draft picks\n"
+                  "4. `/admin-seed-picks` to generate NBL draft picks\n"
                   "5. Season ready for play!",
             inline=False
         )
