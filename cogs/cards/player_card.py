@@ -108,8 +108,8 @@ class PlayerCardCog(commands.Cog):
                 # Get active season for division
                 season_row = await queries.get_active_season(self.supabase, division_id=division_id)
             
-            if not season_row:
-                # Fallback to any active season
+            if not season_row and not division_id:
+                # Fallback to any active season only when the player has no team/division
                 season_row = await queries.get_active_season(self.supabase)
 
             # If player isn't currently on a team, fall back to season league_type for card styling
