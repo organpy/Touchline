@@ -182,13 +182,14 @@ class StatRegistrationCog(commands.Cog):
         embed.add_field(name=match_entry.team1.team_name, value=team1_str, inline=False)
         embed.add_field(name=match_entry.team2.team_name, value=team2_str, inline=False)
 
-        async def on_confirm(confirm_interaction: discord.Interaction):
-            await self.save_match_to_database(confirm_interaction, match_entry, interaction.user.id)
+        async def on_confirm(confirm_interaction: discord.Interaction) -> bool:
+            return await self.save_match_to_database(confirm_interaction, match_entry, interaction.user.id)
 
-        async def on_cancel(confirm_interaction: discord.Interaction):
+        async def on_cancel(confirm_interaction: discord.Interaction) -> bool:
             await confirm_interaction.followup.send("❌ Match recording cancelled.", ephemeral=True)
             if interaction.user.id in self.active_matches:
                 del self.active_matches[interaction.user.id]
+            return True
 
         confirmation_view = MatchConfirmationView(match_entry, on_confirm, on_cancel)
         await self._send_interaction_response(interaction, embed=embed, view=confirmation_view, ephemeral=True)
@@ -198,8 +199,8 @@ class StatRegistrationCog(commands.Cog):
         interaction: discord.Interaction,
         match_entry: MatchEntry,
         user_id: int
-    ):
-        """Save match + all player_stats to Supabase"""
+    ) -> bool:
+        """Save match + all player_stats to Supabase. Returns True once the game is saved."""
 
         try:
             # Checks the phase, games limit or playoff series again (things may have changed while
@@ -209,7 +210,7 @@ class StatRegistrationCog(commands.Cog):
                 match_row, context = await record_match(self.supabase, match_entry, recorded_by=user_id)
             except LeagueRuleError as exc:
                 await interaction.followup.send(f"❌ {exc.message}", ephemeral=True)
-                return
+                return False
 
             match_id = match_row['id']
             logger.info(f"✅ Match inserted: {match_id} ({context.stage})")
@@ -241,10 +242,12 @@ class StatRegistrationCog(commands.Cog):
                 f"✅ Match complete: {match_entry.team1.team_code} ({match_entry.team1.score}) vs "
                 f"{match_entry.team2.team_code} ({match_entry.team2.score})"
             )
+            return True
 
         except Exception as e:
             logger.error(f"❌ Error saving match: {e}", exc_info=True)
             await interaction.followup.send(f"❌ {friendly_error(e, 'Something went wrong. The error was logged; please try again.')}", ephemeral=True)
+            return False
 
 
 async def setup(bot: commands.Bot):
