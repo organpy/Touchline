@@ -22,6 +22,7 @@ from .views import (
 from .roster_cache import RosterCache
 from .access import NOT_ALLOWED_MESSAGE, NOT_YOUR_MATCH_MESSAGE, resolve_reporter_access
 from services.reporting import STAGE_LABELS, record_match, resolve_match_context
+from utils.command_limits import HEAVY
 from db.league_repository import LeagueRuleError, friendly_error
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,8 @@ class StatRegistrationCog(commands.Cog):
 
     @app_commands.command(
         name="report-stats",
-        description="[TEAM OWNER] Start recording a match with individual player statistics"
+        description="[TEAM OWNER] Start recording a match with individual player statistics",
+        extras=HEAVY,
     )
     async def report_stats(self, interaction: discord.Interaction):
         """Main command to initiate stat registration flow"""

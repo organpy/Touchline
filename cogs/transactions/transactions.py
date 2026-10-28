@@ -17,6 +17,7 @@ from db import get_supabase, queries
 from db.transactions_repository import TransactionsRepository
 from utils.config_manager import get_config_manager
 from utils.permissions import admin_only
+from utils.command_limits import HEAVY
 from utils.team_player_cache import TeamPlayerCache
 from utils.autocomplete_helper import AutocompleteHelper
 from utils.embed_builder import EmbedBuilder
@@ -1006,7 +1007,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     # ------------------------------------------------------------------
     # Transaction history
     # ------------------------------------------------------------------
-    @app_commands.command(name="history", description="[MEMBERS] View transaction history with optional filters")
+    @app_commands.command(name="history", description="[MEMBERS] View transaction history with optional filters", extras=HEAVY)
     @app_commands.describe(
         league="Optional division code to filter by (e.g. 'D1')",
         team_code="Optional team code to filter by (e.g., 'pandas')",
