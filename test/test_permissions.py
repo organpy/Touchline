@@ -104,3 +104,53 @@ async def test_dashboard_access_still_enforces_the_admin_channel_for_admins(conf
     with patch.object(dashboard.ConfigUtility, "check_admin_channel_restriction", AsyncMock(return_value=wrong_channel)):
         assert await dashboard.check_dashboard_access(Mock(), interaction) is False
     assert interaction.response.send_message.await_args.kwargs["embed"].title == "Wrong Channel"
+
+
+# ---------------------------------------------------------------------------- admin views
+
+
+def _click(member):
+    interaction = _interaction(member)
+    interaction.response.send_message = AsyncMock()
+    return interaction
+
+
+@pytest.mark.asyncio
+async def test_admin_only_view_lets_admins_click(config):
+    view = permissions.AdminOnlyView()
+
+    assert await view.interaction_check(_click(_member(administrator=True))) is True
+
+
+@pytest.mark.asyncio
+async def test_admin_only_view_refuses_someone_who_lost_admin_rights(config):
+    view = permissions.AdminOnlyView()
+    interaction = _click(_member(role_ids=[1]))
+
+    assert await view.interaction_check(interaction) is False
+    assert "admin" in interaction.response.send_message.await_args.args[0]
+    assert interaction.response.send_message.await_args.kwargs["ephemeral"] is True
+
+
+@pytest.mark.asyncio
+async def test_dashboard_page_needs_the_owner_and_admin_rights(config):
+    from cogs.dashboard.core import DashboardPage
+
+    class Page(DashboardPage):
+        async def render(self):
+            return discord.Embed()
+
+    session = Mock(user_id=10)
+    page = Page(session)
+
+    owner = _click(_member(administrator=True))
+    owner.user.id = 10
+    assert await page.interaction_check(owner) is True
+
+    other_admin = _click(_member(administrator=True))
+    other_admin.user.id = 11
+    assert await page.interaction_check(other_admin) is False  # someone else's dashboard
+
+    demoted_owner = _click(_member(role_ids=[1]))
+    demoted_owner.user.id = 10
+    assert await page.interaction_check(demoted_owner) is False  # no longer an admin
