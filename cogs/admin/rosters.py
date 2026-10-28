@@ -29,6 +29,7 @@ from db.db_utils import execute_async
 from utils.league_cache import LeagueCache
 from utils.team_picker import team_select_for
 from utils.validation import sanitize_player_name
+from utils.permissions import AdminOnlyView
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -36,7 +37,7 @@ if TYPE_CHECKING:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
-class RosterActionsView(discord.ui.View):
+class RosterActionsView(AdminOnlyView):
     """Buttons for roster management actions."""
 
     def __init__(self, bot: Any, guild_id: int, supabase: Any) -> None:
@@ -143,7 +144,7 @@ class RosterActionsView(discord.ui.View):
         self.stop()
 
 
-class ForceSignView(discord.ui.View):
+class ForceSignView(AdminOnlyView):
     """Simple force sign: Select team → Select Discord member → Confirm sign."""
 
     def __init__(self, bot: Any, guild_id: int, supabase: Any, repo: TransactionsRepository, parent_view: RosterActionsView) -> None:
@@ -229,7 +230,7 @@ class ForceSignView(discord.ui.View):
             )
             member_select.callback = self.select_member
             
-            view = discord.ui.View()
+            view = AdminOnlyView()
             view.add_item(member_select)
 
             await interaction.followup.send(
@@ -276,7 +277,7 @@ class ForceSignView(discord.ui.View):
             embed.add_field(name="Team", value=f"**{self._selected_team.get('name')}**", inline=False)
             embed.add_field(name="Member", value=f"**{self._selected_member.display_name}** (<@{member_id}>)", inline=False)
 
-            confirm_view = discord.ui.View()
+            confirm_view = AdminOnlyView()
             confirm_view.add_item(
                 discord.ui.Button(
                     label="Confirm Sign",
@@ -509,7 +510,7 @@ class ForceReleaseView(LazyInitView):
                 team_name = roster_entry['teams'].get('name', 'Unknown')
 
                 # Confirmation
-                class ConfirmReleaseView(discord.ui.View):
+                class ConfirmReleaseView(AdminOnlyView):
                     def __init__(self) -> None:
                         super().__init__(timeout=60)
 
@@ -707,7 +708,7 @@ class ForceTransferView(LazyInitView):
                     placeholder="Select destination team...",
                     row=0,
                 )
-                view = discord.ui.View()
+                view = AdminOnlyView()
                 view.add_item(team_select)
 
                 await interaction.followup.send(
@@ -736,7 +737,7 @@ class ForceTransferView(LazyInitView):
                 dest_code = dest_team_data.get('code', '?')
 
                 # Confirmation
-                class ConfirmTransferView(discord.ui.View):
+                class ConfirmTransferView(AdminOnlyView):
                     def __init__(self) -> None:
                         super().__init__(timeout=60)
 
@@ -866,7 +867,7 @@ class ForceTransferView(LazyInitView):
 
 
 
-class BlacklistView(discord.ui.View):
+class BlacklistView(AdminOnlyView):
     """Blacklist management: Add/Remove players from team blacklists."""
 
     def __init__(self, bot: Any, guild_id: int, supabase: Any, parent_view: RosterActionsView) -> None:
@@ -912,7 +913,7 @@ class BlacklistView(discord.ui.View):
             return
 
         # Build action buttons
-        action_view = discord.ui.View()
+        action_view = AdminOnlyView()
         
         add_btn = discord.ui.Button(
             label="Add to Blacklist",
@@ -1017,7 +1018,7 @@ class BlacklistView(discord.ui.View):
                     await member_interaction.followup.send("❌ Invalid member ID.", ephemeral=True)
 
             member_select.callback = select_member_callback
-            view = discord.ui.View()
+            view = AdminOnlyView()
             view.add_item(member_select)
 
             action_text = "add to blacklist" if action == "add" else "remove from blacklist"
