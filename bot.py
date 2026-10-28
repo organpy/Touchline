@@ -28,6 +28,7 @@ from utils.league_cache import LeagueCache
 from cogs.score.roster_cache import RosterCache
 from utils.health_check import HealthCheckServer
 from utils.error_embeds import error_embed, permission_error_embed, rate_limit_embed, send_error
+from utils.command_limits import LimitedCommandTree
 from utils.error_alerts import install_error_alerts
 
 # ============================================================================
@@ -60,6 +61,7 @@ class TouchlineBot(commands.Bot):
         super().__init__(
             command_prefix="!",
             intents=intents,
+            tree_cls=LimitedCommandTree,
             # Ping nobody unless a send names the users to ping, so names like "@everyone" in league data stay inert.
             allowed_mentions=discord.AllowedMentions.none(),
             # League commands only make sense inside a server; hide them from DMs and group DMs.
