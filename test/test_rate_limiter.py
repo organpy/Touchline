@@ -76,6 +76,14 @@ class TestRateLimiter:
         retry_after = limiter.get_retry_after("key1")
         assert retry_after == 0.0
 
+    def test_get_retry_after_counts_the_cost_of_the_request(self):
+        """A costlier request has to wait for more tokens."""
+        limiter = RateLimiter(max_tokens=4, refill_rate=1.0)
+        limiter.allow("key1", cost=3)  # 1 token left
+
+        assert limiter.get_retry_after("key1") == 0.0
+        assert 1.9 < limiter.get_retry_after("key1", cost=3) < 2.1
+
     def test_reset_bucket(self):
         """Test resetting rate limit for a key."""
         limiter = RateLimiter(max_tokens=1, refill_rate=0.0)
