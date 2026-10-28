@@ -34,6 +34,7 @@ RULE_MESSAGES: Dict[str, str] = {
     "MATCH_NO_SERIES": "These teams don't have an open playoff series right now.",
     "MATCH_WRONG_PHASE": "Games can only be reported during the regular season or the playoffs.",
     "MATCH_LIMIT": "Every game between these teams has already been recorded.",
+    "MATCH_ALREADY_VOID": "That game is already void.",
     "SERIES_DOWNSTREAM_PLAYED": "A later playoff series already has results. Void those games first.",
     "SEASON_BAD_TRANSITION": "The season cannot move to that phase from where it is now.",
     "SEASON_WRONG_PHASE": "The season is not in the right phase for that.",
@@ -511,7 +512,12 @@ class LeagueRepository:
         data = response.data
         return data[0] if isinstance(data, list) else data
 
-    async def void_match(self, match_id: str, voided_by: int) -> None:
-        await run(
-            self.supabase.table("matches").update({"status": "void", "voided_by": voided_by}).eq("id", match_id)
+    async def void_match(self, match_id: str, voided_by: int) -> bool:
+        """Void a final game. False when it was not final (already void), so who voided it is never overwritten."""
+        response = await run(
+            self.supabase.table("matches")
+            .update({"status": "void", "voided_by": voided_by})
+            .eq("id", match_id)
+            .eq("status", "final")
         )
+        return bool(response.data)
