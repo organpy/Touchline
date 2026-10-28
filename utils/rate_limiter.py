@@ -110,22 +110,23 @@ class RateLimiter:
         now = time.time()
         self._buckets[key] = _Bucket(tokens=float(self.max_tokens), last_refill=now, last_access=now)
 
-    def get_retry_after(self, key: str) -> float:
+    def get_retry_after(self, key: str, cost: int = 1) -> float:
         """
-        Get seconds to wait before next request is allowed.
+        Get seconds to wait before a request of ``cost`` tokens is allowed.
 
         Args:
             key: Rate limit key
+            cost: Token cost of the request (default 1)
 
         Returns:
             Seconds to wait (0 if immediately available)
         """
         bucket = self._refill(key)
 
-        if bucket.tokens >= 1:
+        if bucket.tokens >= cost:
             return 0.0
 
-        # Calculate time needed to get 1 token
-        tokens_needed = 1 - bucket.tokens
+        # Calculate time needed to earn the missing tokens
+        tokens_needed = cost - bucket.tokens
         return tokens_needed / self.refill_rate
 
