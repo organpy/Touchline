@@ -5,7 +5,10 @@ Wraps slow Supabase queries in asyncio.to_thread() when appropriate.
 
 import asyncio
 import logging
+import time
 from typing import Any, Callable, Optional, TypeVar
+
+from utils.metrics import MetricsCollector
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +33,24 @@ async def execute_async(query: Any) -> Any:
             .select('*')
         )
     """
-    return await asyncio.to_thread(query.execute)
+    name = _query_name(query)
+    started = time.perf_counter()
+    try:
+        response = await asyncio.to_thread(query.execute)
+    except Exception:
+        MetricsCollector.record_query(name, (time.perf_counter() - started) * 1000, error=True)
+        raise
+    MetricsCollector.record_query(name, (time.perf_counter() - started) * 1000)
+    return response
+
+
+def _query_name(query: Any) -> str:
+    """Metric key for a Supabase query, such as ``GET matches`` or ``POST rpc/record_match``."""
+    try:
+        request = query.request
+        return f"{request.http_method} {str(request.path).split('/rest/v1/', 1)[-1]}"
+    except Exception:
+        return "unknown"
 
 
 async def run_query_in_thread(
