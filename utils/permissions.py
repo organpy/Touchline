@@ -33,3 +33,17 @@ def admin_only():
         return await is_admin(interaction)
 
     return app_commands.check(predicate)
+
+
+class AdminOnlyView(discord.ui.View):
+    """A view whose buttons and menus only work for admins, checked on every click.
+
+    Admin panels are ephemeral, so only the admin who opened one can click it; this also stops someone whose admin
+    rights were removed afterwards from carrying on with a panel that is still open.
+    """
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if await is_admin(interaction):
+            return True
+        await interaction.response.send_message("❌ You need to be an admin to use this.", ephemeral=True)
+        return False
