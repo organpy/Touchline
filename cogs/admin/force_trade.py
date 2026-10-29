@@ -16,7 +16,7 @@ from cogs.score.roster_cache import RosterCache
 from utils.team_player_cache import TeamPlayerCache
 from utils.autocomplete_helper import AutocompleteHelper
 from utils.config_utility import ConfigUtility
-from utils.permissions import admin_only
+from utils.permissions import AdminOnlyView, admin_only
 from cogs.transactions.trade_utils import can_trade_picks, get_available_trade_assets
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ class ForceTradeAssetSelect(discord.ui.Select):
         await interaction.response.defer()
 
 
-class ForceTradeSelectionView(discord.ui.View):
+class ForceTradeSelectionView(AdminOnlyView):
     """View for selecting and executing force trade assets."""
 
     def __init__(
