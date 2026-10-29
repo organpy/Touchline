@@ -5,7 +5,6 @@ Shows all games (played and scheduled) in a grid image format.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Optional
 
@@ -20,6 +19,7 @@ from cogs.stats.autocomplete import (
     _season_autocomplete,
 )
 from utils.match_table_image_generator import generate_match_table_image
+from utils.render.limit import render_in_thread
 from utils.command_limits import HEAVY
 from utils.league_cache import LeagueCache
 from utils.team_player_cache import TeamPlayerCache
@@ -86,7 +86,7 @@ class MatchTableCog(StatsCogBase):
         games_per_matchup = LeagueCache.settings(league_meta['id']).games_per_matchup
 
         # Generate the match table image (CPU-bound rendering runs in a worker thread)
-        match_table_image = await asyncio.to_thread(
+        match_table_image = await render_in_thread(
             generate_match_table_image,
             matches,
             teams,
