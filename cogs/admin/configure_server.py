@@ -10,6 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from utils.config_utility import ConfigUtility
+from utils.permissions import admin_only
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class ServerConfigCog(commands.Cog):
         name="configure-server",
         description="[ADMIN] Admin role, channels and league name (opens the dashboard)",
     )
+    @admin_only()
     async def configure_server(self, interaction: discord.Interaction) -> None:
         from cogs.dashboard.dashboard import open_dashboard
         from cogs.dashboard.settings import SettingsPage
