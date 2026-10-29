@@ -4,7 +4,6 @@ Standings cog: /standings and /standings-simple commands
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -21,6 +20,7 @@ from cogs.stats.autocomplete import (
 from services.standings import ZONE_EMOJI, ZONE_LABELS
 from utils.league_cache import LeagueCache
 from utils.standings_image_generator import generate_simple_standings_image
+from utils.render.limit import render_in_thread
 from utils.command_limits import HEAVY
 
 logger = logging.getLogger(__name__)
@@ -83,7 +83,7 @@ class StandingsCog(StatsCogBase):
         for division_id, rows in by_division.items():
             division = LeagueCache.division(division_id) or {}
             division_display = self._format_league_display(division)
-            image = await asyncio.to_thread(
+            image = await render_in_thread(
                 generate_simple_standings_image,
                 rows,
                 season_row.get('name', 'Unknown'),
