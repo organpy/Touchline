@@ -6,6 +6,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from utils.permissions import admin_only
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,6 +21,7 @@ class AdminTransactionsCog(commands.Cog):
         name="admin-transactions",
         description="[ADMIN] Rosters, picks, trades and offers (opens the dashboard)",
     )
+    @admin_only()
     async def admin_transactions(self, interaction: discord.Interaction) -> None:
         from cogs.dashboard.dashboard import open_dashboard
         from cogs.dashboard.transactions import TransactionsPage
