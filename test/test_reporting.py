@@ -200,6 +200,19 @@ async def test_void_playoff_match_leaves_standings_alone():
     refresh.assert_not_awaited()
 
 
+async def test_voiding_an_already_void_match_is_refused_without_refreshing():
+    repo = AsyncMock()
+    repo.void_match.return_value = False
+    with patch.object(reporting, "LeagueRepository", return_value=repo), \
+         patch.object(reporting, "refresh_after_match", AsyncMock()) as refresh, \
+         patch.object(reporting.board_events, "league_changed") as changed:
+        with pytest.raises(LeagueRuleError) as err:
+            await void_match("sb", {"id": "m1", "stage": "regular", "season_id": "s1", "division_id": "d1"}, 42)
+    assert err.value.code == "MATCH_ALREADY_VOID"
+    refresh.assert_not_awaited()
+    changed.assert_not_called()
+
+
 def test_context_without_limit_is_never_full():
     context = MatchContext(season={"id": "s1"}, stage="regular", division_id="d1", games_limit=None, played=[{}] * 9)
     assert not context.at_limit
