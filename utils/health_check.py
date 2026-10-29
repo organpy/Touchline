@@ -78,6 +78,7 @@ class HealthCheckServer:
             'commands_synced': len(self.bot.tree.get_commands()),
             'cache_stats': summary.get('cache_stats', {}),
             'query_stats': summary.get('query_stats', {}),
+            'total_queries': summary.get('total_queries', 0),
             'timestamp': datetime.now(timezone.utc).isoformat()
         })
     
