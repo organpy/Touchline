@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
-import asyncio
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional
 
 import discord
 from discord import app_commands, utils
@@ -77,10 +76,6 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         self.supabase = get_supabase()
         self.repo = TransactionsRepository(self.supabase)
         self.config = get_config_manager()
-
-        # Lock + tracking for preventing duplicate game recording (matches inspiration/cogs/score/report_score.py)
-        self._recording_lock: asyncio.Lock = asyncio.Lock()
-        self.active_recordings: Set[str] = set()  # Set of "team1_vs_team2" keys to prevent double-recording
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -162,30 +157,6 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                     logger.error(f"❌ Error recovering offer {offer.get('id')}: {exc}", exc_info=True)
         except Exception as exc:  # pragma: no cover - network path
             logger.error(f"❌ Failed to recover pending offers: {exc}", exc_info=True)
-
-    def _get_matchup_key(self, team1_code: str, team2_code: str) -> str:
-        """Generate a unique, order-independent key for a matchup (prevents duplicate recording)."""
-        teams = sorted([team1_code.lower(), team2_code.lower()])
-        key = f"{teams[0]}_vs_{teams[1]}"
-        logger.debug(f"Generated matchup key: {key} from teams {team1_code} and {team2_code}")
-        return key
-
-    async def acquire_recording_lock(self, team1: str, team2: str) -> Optional[str]:
-        """Attempt to acquire recording lock for a matchup. Returns matchup_key if successful, None if already recording."""
-        matchup_key = self._get_matchup_key(team1, team2)
-        async with self._recording_lock:
-            if matchup_key in self.active_recordings:
-                logger.warning(f"Recording already in progress for matchup {matchup_key}")
-                return None
-            self.active_recordings.add(matchup_key)
-            logger.info(f"✅ Acquired recording lock for matchup {matchup_key}. Active: {self.active_recordings}")
-            return matchup_key
-
-    async def release_recording_lock(self, matchup_key: str) -> None:
-        """Release recording lock for a matchup."""
-        async with self._recording_lock:
-            self.active_recordings.discard(matchup_key)
-            logger.info(f"✅ Released recording lock for matchup {matchup_key}. Remaining active: {self.active_recordings}")
 
     async def _check_transaction_rules(self, interaction: discord.Interaction, action_type: str, team_id: Optional[str] = None) -> bool:
         """
