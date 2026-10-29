@@ -16,6 +16,7 @@ from discord.ext import commands
 from db import get_supabase, queries
 from db.transactions_repository import TransactionsRepository
 from utils.config_manager import get_config_manager
+from utils.permissions import admin_only
 from utils.team_player_cache import TeamPlayerCache
 from utils.autocomplete_helper import AutocompleteHelper
 from utils.embed_builder import EmbedBuilder
@@ -477,7 +478,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         player="Discord member to sign"
     )
     @app_commands.autocomplete(team_code=autocomplete_team_code)
-    @app_commands.checks.has_permissions(administrator=True)
+    @admin_only()
     async def admin_force_sign(
         self,
         interaction: discord.Interaction,
@@ -627,7 +628,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
     @app_commands.describe(
         player="Discord member to release"
     )
-    @app_commands.checks.has_permissions(administrator=True)
+    @admin_only()
     async def admin_force_release(
         self,
         interaction: discord.Interaction,
@@ -1140,7 +1141,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
         await interaction.followup.send(embed=embed, ephemeral=True, files=files or None)
 
     @app_commands.command(name="config-set-channel", description="[ADMIN] Set the channel used for transaction offers")
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @admin_only()
     async def config_set_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         await interaction.response.defer(ephemeral=True)
 
@@ -1154,7 +1155,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
 
     @app_commands.command(name="config-set-expiry", description="[ADMIN] Set default expiry (minutes) for signing offers")
     @app_commands.describe(minutes="Offer expiry in minutes (1-1440)")
-    @app_commands.checks.has_permissions(manage_guild=True)
+    @admin_only()
     async def config_set_expiry(self, interaction: discord.Interaction, minutes: int):
         await interaction.response.defer(ephemeral=True)
 
