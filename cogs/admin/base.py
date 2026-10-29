@@ -10,6 +10,7 @@ from discord.ext import commands
 
 from db import get_supabase, queries
 from utils.league_cache import LeagueCache, enrich_team
+from utils.permissions import AdminOnlyView
 from utils.team_player_cache import TeamPlayerCache
 from utils.config_manager import get_config_manager
 from db.db_utils import execute_async
@@ -193,7 +194,7 @@ class AdminBaseManager:
         return "❌ Player is not on any roster in this season."
 
 
-class AdminUIView(discord.ui.View):
+class AdminUIView(AdminOnlyView):
     """Base view for admin UI with shared initialization."""
 
     def __init__(self, manager: AdminBaseManager, guild_id: int, *, timeout: Optional[float] = 300):

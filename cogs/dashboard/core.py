@@ -17,6 +17,7 @@ import discord
 
 from db.league_repository import LeagueRepository, LeagueRuleError, friendly_error
 from utils import board_events
+from utils.permissions import AdminOnlyView
 from utils.league_cache import LeagueCache
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ async def refresh_caches(*, rosters: bool = False) -> None:
         RosterCache().invalidate()
 
 
-class DashboardPage(discord.ui.View):
+class DashboardPage(AdminOnlyView):
     """One dashboard screen."""
 
     title = "Dashboard"
@@ -188,7 +189,7 @@ class DashboardPage(discord.ui.View):
         if interaction.user.id != self.session.user_id:
             await interaction.response.send_message("❌ This dashboard belongs to someone else. Open your own with `/dashboard`.", ephemeral=True)
             return False
-        return True
+        return await super().interaction_check(interaction)
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
         logger.error("Dashboard error in %s: %s", type(self).__name__, error, exc_info=error)
