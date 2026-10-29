@@ -125,6 +125,12 @@ class SettingsPage(DashboardPage):
         await self.apply(interaction, change, success)
 
     async def _set_role(self, interaction: discord.Interaction, select: discord.ui.RoleSelect) -> None:
+        # Only real server administrators may change who the admins are: a holder of the admin role could
+        # otherwise hand admin to any other role (or lock the real administrators' colleagues out).
+        if not interaction.user.guild_permissions.administrator:
+            self.notice = "❌ Only server administrators can change the admin role."
+            await self.show(interaction)
+            return
         role = select.values[0] if select.values else None
         self.config["admin_role_id"] = str(role.id) if role else ""
         await self._save(interaction, f"Admin role set to {role.mention}." if role else "Admin role cleared.")
