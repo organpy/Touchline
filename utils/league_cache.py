@@ -11,6 +11,7 @@ fixed leagues keep working with any division.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -46,8 +47,12 @@ class LeagueCache:
     _groups: Dict[str, Dict[str, Any]] = {}
     _assignments: Dict[str, Dict[str, Dict[str, Any]]] = {}  # season_id -> team_id -> row
     _last_refresh: Optional[datetime] = None
+    _last_failure: Optional[datetime] = None
+    _reload_lock: Optional[asyncio.Lock] = None
+    _reload_lock_loop = None
 
     CACHE_TTL_SECONDS = 300
+    RETRY_AFTER_FAILURE_SECONDS = 15
 
     # ------------------------------------------------------------------ lifecycle
     @classmethod
@@ -61,17 +66,45 @@ class LeagueCache:
         return datetime.now(timezone.utc) - cls._last_refresh > timedelta(seconds=cls.CACHE_TTL_SECONDS)
 
     @classmethod
+    def _lock(cls) -> asyncio.Lock:
+        """The reload lock for the running event loop (a lock is tied to the loop it is first contended on)."""
+        loop = asyncio.get_running_loop()
+        if cls._reload_lock is None or cls._reload_lock_loop is not loop:
+            cls._reload_lock = asyncio.Lock()
+            cls._reload_lock_loop = loop
+        return cls._reload_lock
+
+    @classmethod
+    def _failed_recently(cls) -> bool:
+        if cls._last_failure is None:
+            return False
+        return datetime.now(timezone.utc) - cls._last_failure < timedelta(seconds=cls.RETRY_AFTER_FAILURE_SECONDS)
+
+    @classmethod
     async def ensure_ready(cls) -> None:
-        if cls.is_stale():
-            await cls.refresh()
+        """Reload when stale. Callers that arrive during a reload wait for it instead of starting their own, and a
+        failed reload is not retried for a few seconds so an outage does not slow every command."""
+        if not cls.is_stale() or cls._failed_recently():
+            return
+        async with cls._lock():
+            if cls.is_stale() and not cls._failed_recently():  # another caller may have reloaded while we waited
+                await cls._reload()
 
     @classmethod
     async def refresh(cls, supabase=None) -> None:
-        """Reload seasons, divisions, groups and the active season's assignments."""
+        """Reload seasons, divisions, groups and the active season's assignments now."""
         if supabase is not None:
             cls._supabase = supabase
         if not cls._supabase:
             logger.warning("LeagueCache refresh requested before Supabase client was set")
+            return
+        async with cls._lock():
+            await cls._reload()
+
+    @classmethod
+    async def _reload(cls) -> None:
+        """Fetch everything, then swap it in with no await in between, so readers never see a half-loaded cache."""
+        if not cls._supabase:
             return
         try:
             seasons = await execute_async(
@@ -81,20 +114,32 @@ class LeagueCache:
             groups = await execute_async(
                 cls._supabase.table("division_groups").select("*").order("sort_order")
             )
-            cls._seasons = seasons.data or []
-            cls._divisions = {d["id"]: _enrich_division(d) for d in (divisions.data or [])}
-            cls._groups = {g["id"]: g for g in (groups.data or [])}
-            cls._assignments = {}
-            active = cls.active_season()
+            season_rows = seasons.data or []
+            assignments: Dict[str, Dict[str, Dict[str, Any]]] = {}
+            active = next((s for s in season_rows if s.get("active")), None)
             if active:
-                await cls.load_season_teams(active["id"])
-            cls._last_refresh = datetime.now(timezone.utc)
-            logger.info(
-                "✅ LeagueCache refreshed: %d seasons, %d divisions, %d groups",
-                len(cls._seasons), len(cls._divisions), len(cls._groups),
-            )
-        except Exception as exc:  # pragma: no cover - network failure path
+                assignments[active["id"]] = await cls._fetch_season_teams(active["id"])
+        except Exception as exc:
+            cls._last_failure = datetime.now(timezone.utc)
             logger.error("Failed to refresh LeagueCache: %s", exc, exc_info=True)
+            return
+        cls._seasons = season_rows
+        cls._divisions = {d["id"]: _enrich_division(d) for d in (divisions.data or [])}
+        cls._groups = {g["id"]: g for g in (groups.data or [])}
+        cls._assignments = assignments
+        cls._last_refresh = datetime.now(timezone.utc)
+        cls._last_failure = None
+        logger.info(
+            "✅ LeagueCache refreshed: %d seasons, %d divisions, %d groups",
+            len(cls._seasons), len(cls._divisions), len(cls._groups),
+        )
+
+    @classmethod
+    async def _fetch_season_teams(cls, season_id: str) -> Dict[str, Dict[str, Any]]:
+        response = await execute_async(
+            cls._supabase.table("season_teams").select("team_id, division_id, group_id").eq("season_id", season_id)
+        )
+        return {row["team_id"]: row for row in (response.data or [])}
 
     @classmethod
     async def load_season_teams(cls, season_id: str) -> Dict[str, Dict[str, Any]]:
@@ -103,10 +148,7 @@ class LeagueCache:
             return cls._assignments[season_id]
         if not cls._supabase:
             return {}
-        response = await execute_async(
-            cls._supabase.table("season_teams").select("team_id, division_id, group_id").eq("season_id", season_id)
-        )
-        mapping = {row["team_id"]: row for row in (response.data or [])}
+        mapping = await cls._fetch_season_teams(season_id)
         cls._assignments[season_id] = mapping
         return mapping
 
@@ -117,6 +159,7 @@ class LeagueCache:
         cls._groups = {}
         cls._assignments = {}
         cls._last_refresh = None
+        cls._last_failure = None
 
     @classmethod
     def load_snapshot(
