@@ -103,6 +103,22 @@ def _score(match: Mapping[str, Any], team_id: str) -> Optional[Tuple[int, int]]:
     return None
 
 
+def recent_form(
+    matches: Sequence[Mapping[str, Any]], team_ids: Iterable[str], n: int = 5
+) -> Dict[str, List[str]]:
+    """Each team's last ``n`` results as 'W'/'L', newest first, padded with 'N' where it has played fewer games."""
+    form: Dict[str, List[str]] = {str(team_id): [] for team_id in team_ids}
+    for match in sorted(matches, key=lambda m: str(m.get("played_at") or ""), reverse=True):
+        score1, score2 = match.get("team1_score"), match.get("team2_score")
+        if score1 is None or score2 is None:
+            continue
+        for team_id, own, other in ((match.get("team1_id"), score1, score2), (match.get("team2_id"), score2, score1)):
+            results = form.get(str(team_id))
+            if results is not None and len(results) < n:
+                results.append("W" if own > other else "L")
+    return {team_id: (results + ["N"] * n)[:n] for team_id, results in form.items()}
+
+
 def build_rows(
     teams: Iterable[Mapping[str, Any]],
     matches: Iterable[Mapping[str, Any]],
