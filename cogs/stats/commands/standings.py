@@ -17,7 +17,8 @@ from cogs.stats.autocomplete import (
     _league_autocomplete,
     _season_autocomplete,
 )
-from services.standings import ZONE_EMOJI, ZONE_LABELS
+from db.league_repository import LeagueRepository
+from services.standings import ZONE_EMOJI, ZONE_LABELS, recent_form
 from utils.league_cache import LeagueCache
 from utils.standings_image_generator import generate_simple_standings_image
 from utils.render.limit import render_in_thread
@@ -77,7 +78,7 @@ class StandingsCog(StatsCogBase):
         for row in standings_data:
             by_division.setdefault(row['division_id'], []).append(row)
 
-        recent_map = await self._recent_results(season_row['id'], standings_data)
+        recent_map = await self._recent_results(season_row['id'], standings_data, (league_meta or {}).get('id'))
         files: List[discord.File] = []
         text_blocks: List[str] = []
         for division_id, rows in by_division.items():
@@ -104,26 +105,12 @@ class StandingsCog(StatsCogBase):
         for block in text_blocks:
             await interaction.followup.send(block)
 
-    async def _recent_results(self, season_id: str, rows: List[Dict[str, Any]]) -> Dict[str, List[str]]:
-        """Last five regular-season results per team as 'W'/'L' markers, padded with 'N'."""
-        results: Dict[str, List[str]] = {}
-        for row in rows:
-            team_id = row.get('team_id')
-            if not team_id:
-                continue
-            recent = await queries.get_team_recent_matches(self.supabase, season_id, team_id, limit=5)
-            markers = []
-            for match in recent:
-                if match.get('stage', 'regular') != 'regular':
-                    continue
-                own, other = (
-                    (match.get('team1_score', 0), match.get('team2_score', 0))
-                    if match.get('team1_id') == team_id
-                    else (match.get('team2_score', 0), match.get('team1_score', 0))
-                )
-                markers.append('W' if own > other else 'L')
-            results[team_id] = (markers + ['N'] * 5)[:5]
-        return results
+    async def _recent_results(
+        self, season_id: str, rows: List[Dict[str, Any]], division_id: Optional[str] = None
+    ) -> Dict[str, List[str]]:
+        """Last five regular-season results per team as 'W'/'L' markers, padded with 'N' (one query for all teams)."""
+        matches = await LeagueRepository(self.supabase).list_regular_matches(season_id, division_id)
+        return recent_form(matches, [row['team_id'] for row in rows if row.get('team_id')])
 
     @staticmethod
     def _text_table(rows: List[Dict[str, Any]], division_display: str, season_row: Dict[str, Any]) -> str:
