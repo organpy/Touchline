@@ -29,7 +29,14 @@ def _season_with_division(season: Optional[Dict[str, Any]], division_id: Optiona
 
 async def get_active_season(supabase, division_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """The league's active season. ``division_id`` is only attached to the returned dict for
-    callers that display it; seasons themselves span every division."""
+    callers that display it; seasons themselves span every division.
+
+    Served from ``LeagueCache``; the database is only asked when the cache has no active season.
+    """
+    await LeagueCache.ensure_ready()
+    cached = LeagueCache.active_season()
+    if cached is not None:
+        return _season_with_division(dict(cached), division_id)
     try:
         response = await execute_async(supabase.table('seasons').select('*').eq('active', True).limit(1))
         season = response.data[0] if response.data else None
