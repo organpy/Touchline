@@ -88,30 +88,6 @@ async def get_team_season_division(supabase, season_id: str, team_id: str) -> Op
         return None
 
 
-async def get_team_recent_matches(
-    supabase,
-    season_id: str,
-    team_id: str,
-    limit: int = 5,
-) -> List[Dict[str, Any]]:
-    """Get recent matches for a team in a season, most recent first."""
-    try:
-        response = await execute_async(
-            supabase
-            .table('matches')
-            .select('id, team1_id, team2_id, team1_score, team2_score, status, stage, played_at')
-            .eq('season_id', season_id)
-            .eq('status', 'final')
-            .or_(f"team1_id.eq.{team_id},team2_id.eq.{team_id}")
-            .order('played_at', desc=True)
-            .limit(limit)
-        )
-        return response.data or []
-    except Exception as e:
-        logger.error(f"Error fetching team recent matches: {e}")
-        return []
-
-
 async def get_all_active_seasons(supabase) -> List[Dict[str, Any]]:
     """The active season as a list (there is at most one)."""
     season = await get_active_season(supabase)
