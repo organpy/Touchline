@@ -46,3 +46,69 @@ async def test_event_loop_keeps_running_during_slow_query():
     assert not task.done()  # the loop got control back while the query is in flight
     release.set()
     await task
+
+
+class TestQueryMetrics:
+    """Every database call is counted so changes to query volume can be measured."""
+
+    def setup_method(self):
+        from utils.metrics import MetricsCollector
+        MetricsCollector.reset()
+
+    @staticmethod
+    def _query(method="GET", path="https://x.supabase.co/rest/v1/matches", result=None, error=None):
+        from unittest.mock import Mock
+        query = Mock()
+        query.request = Mock(http_method=method, path=path)
+        if error:
+            query.execute.side_effect = error
+        else:
+            query.execute.return_value = result
+        return query
+
+    @pytest.mark.asyncio
+    async def test_queries_are_counted_by_method_and_table(self):
+        from db.db_utils import execute_async
+        from utils.metrics import MetricsCollector
+
+        await execute_async(self._query(result="a"))
+        await execute_async(self._query(result="b"))
+        await execute_async(self._query("POST", "https://x.supabase.co/rest/v1/rpc/record_match", result="c"))
+
+        summary = MetricsCollector.get_summary()
+        assert summary["total_queries"] == 3
+        assert summary["query_stats"]["GET matches"]["count"] == 2
+        assert summary["query_stats"]["POST rpc/record_match"]["count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_failed_queries_are_counted_and_still_raise(self):
+        from db.db_utils import execute_async
+        from utils.metrics import MetricsCollector
+
+        with pytest.raises(ConnectionError):
+            await execute_async(self._query(error=ConnectionError("down")))
+
+        stats = MetricsCollector.get_summary()["query_stats"]["GET matches"]
+        assert stats["count"] == 1 and stats["errors"] == 1
+
+    @pytest.mark.asyncio
+    async def test_the_count_keeps_growing_past_the_timing_window(self):
+        from db.db_utils import execute_async
+        from utils.metrics import MetricsCollector
+
+        for _ in range(1005):
+            await execute_async(self._query(result="x"))
+
+        assert MetricsCollector.get_summary()["query_stats"]["GET matches"]["count"] == 1005
+
+    @pytest.mark.asyncio
+    async def test_unnameable_queries_are_still_counted(self):
+        from unittest.mock import Mock
+        from db.db_utils import execute_async
+        from utils.metrics import MetricsCollector
+
+        query = Mock(spec=["execute"])
+        query.execute.return_value = "x"
+        await execute_async(query)
+
+        assert MetricsCollector.get_summary()["query_stats"]["unknown"]["count"] == 1
