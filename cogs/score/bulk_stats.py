@@ -20,6 +20,7 @@ from .roster_cache import RosterCache
 from .access import NOT_ALLOWED_MESSAGE, NOT_YOUR_MATCH_MESSAGE, resolve_reporter_access
 from utils.team_player_cache import TeamPlayerCache
 from utils.league_cache import LeagueCache
+from utils.command_limits import HEAVY
 from utils.team_picker import TeamSelect, entries_from_cached_teams
 from services.reporting import STAGE_LABELS, record_match, resolve_match_context
 from db.league_repository import LeagueRuleError, friendly_error
@@ -358,7 +359,8 @@ class BulkStatsCog(commands.Cog):
     
     @app_commands.command(
         name="report-stats-bulk",
-        description="[TEAM OWNER] Report match with bulk player stats (single text input)"
+        description="[TEAM OWNER] Report match with bulk player stats (single text input)",
+        extras=HEAVY,
     )
     async def report_stats_bulk(self, interaction: discord.Interaction):
         """Start bulk stats entry flow."""
@@ -709,7 +711,8 @@ class BulkStatsCog(commands.Cog):
     
     @app_commands.command(
         name="report-score",
-        description="[TEAM OWNER] Report match score only (no player stats)"
+        description="[TEAM OWNER] Report match score only (no player stats)",
+        extras=HEAVY,
     )
     async def report_score(self, interaction: discord.Interaction):
         """Report just the match score without player stats."""

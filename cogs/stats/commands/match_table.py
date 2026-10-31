@@ -20,6 +20,7 @@ from cogs.stats.autocomplete import (
     _season_autocomplete,
 )
 from utils.match_table_image_generator import generate_match_table_image
+from utils.command_limits import HEAVY
 from utils.league_cache import LeagueCache
 from utils.team_player_cache import TeamPlayerCache
 
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 class MatchTableCog(StatsCogBase):
     """Match Table command: /match-table"""
 
-    @app_commands.command(name="match-table", description="[STATS] Show all games (played and scheduled) in a grid")
+    @app_commands.command(name="match-table", description="[STATS] Show all games (played and scheduled) in a grid", extras=HEAVY)
     @app_commands.describe(
         league="Division code or name (defaults to your team's division)",
         season="Season name or number. Defaults to the active season",

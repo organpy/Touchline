@@ -15,6 +15,7 @@ from discord.ext import commands
 
 from db import get_supabase, queries
 from db.league_repository import friendly_error
+from utils.command_limits import HEAVY
 from utils.player_card_image_generator import generate_player_card
 from utils.team_player_cache import TeamPlayerCache
 from utils.league_cache import LeagueCache
@@ -57,7 +58,7 @@ class PlayerCardCog(commands.Cog):
             logger.error(f"Autocomplete error: {e}")
             return []
 
-    @app_commands.command(name="player-card", description="[STATS] Show a player's stats card with rating")
+    @app_commands.command(name="player-card", description="[STATS] Show a player's stats card with rating", extras=HEAVY)
     @app_commands.describe(
         player="Player name or ID",
         season="Season name (e.g., S10). Defaults to active season",

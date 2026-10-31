@@ -21,6 +21,7 @@ from cogs.stats.autocomplete import (
 from services.standings import ZONE_EMOJI, ZONE_LABELS
 from utils.league_cache import LeagueCache
 from utils.standings_image_generator import generate_simple_standings_image
+from utils.command_limits import HEAVY
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ def zone_legend(rows: List[Dict[str, Any]]) -> str:
 class StandingsCog(StatsCogBase):
     """Standings command: /standings (uses compact standings view with recent results)"""
 
-    @app_commands.command(name="standings", description="[STATS] Show season standings for a division")
+    @app_commands.command(name="standings", description="[STATS] Show season standings for a division", extras=HEAVY)
     @app_commands.describe(
         league="Division code or name (defaults to every division)",
         season="Season name or number. Defaults to the active season",
