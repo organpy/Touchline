@@ -10,6 +10,7 @@ import logging
 from typing import Optional, Dict, List, Any
 
 from utils.league_cache import LeagueCache, enrich_team
+from utils.team_player_cache import TeamPlayerCache
 from .db_utils import execute_async
 from utils.validation import sanitize_player_name
 
@@ -214,9 +215,12 @@ async def get_active_rosters(supabase, season_id: str) -> List[Dict[str, Any]]:
 
 
 async def get_team_by_code(supabase, code: str) -> Optional[Dict[str, Any]]:
-    """Team by code (codes are lowercase slugs)."""
+    """Team by code (codes are lowercase slugs). Served from ``TeamPlayerCache`` once it is loaded."""
     if not code:
         return None
+    if TeamPlayerCache.is_loaded():
+        team = TeamPlayerCache.get_team_by_code(code.strip())
+        return dict(team) if team else None
     try:
         response = await execute_async(
             supabase.table('teams').select('*').eq('code', code.strip().lower()).limit(1)
@@ -228,7 +232,13 @@ async def get_team_by_code(supabase, code: str) -> Optional[Dict[str, Any]]:
 
 
 async def get_team_by_owner(supabase, owner_discord_id: int) -> Optional[Dict[str, Any]]:
-    """The active team managed by a Discord user (an owner runs at most one team)."""
+    """The active team managed by a Discord user (an owner runs at most one team).
+
+    Served from ``TeamPlayerCache`` once it is loaded; every place that changes an owner refreshes that cache.
+    """
+    if TeamPlayerCache.is_loaded():
+        team = TeamPlayerCache.get_team_by_owner(owner_discord_id)
+        return dict(team) if team else None
     try:
         response = await execute_async(
             supabase
