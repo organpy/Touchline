@@ -227,6 +227,11 @@ class TeamPlayerCache:
     # ==================== TEAMS ====================
 
     @classmethod
+    def is_loaded(cls) -> bool:
+        """True once teams have been loaded, so a missing team really is missing (not just not loaded yet)."""
+        return bool(cls._teams)
+
+    @classmethod
     def get_team(cls, team_id: str) -> Optional[dict]:
         return cls._teams.get(team_id)
 
