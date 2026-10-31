@@ -10,13 +10,13 @@ The stat fields displayed are aligned with the Supabase schema (db/migrations/in
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import io
 import json
 import logging
 import re
 from functools import lru_cache
+from utils.render.limit import render_in_thread
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -705,7 +705,7 @@ async def generate_player_card(
     """
     try:
         # CPU-bound rendering runs in a worker thread so the event loop stays responsive
-        buffer = await asyncio.to_thread(
+        buffer = await render_in_thread(
             generate_player_card_image,
             player_id=_normalize_key(player_name),
             player_name=player_name,
