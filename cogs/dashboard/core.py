@@ -161,9 +161,13 @@ class DashboardPage(AdminOnlyView):
         success: str,
         *,
         rosters: bool = False,
+        refresh: bool = True,
         page: Optional["DashboardPage"] = None,
     ) -> bool:
-        """Run a change, refresh caches and re-render ``page`` (default: this page) with a notice."""
+        """Run a change, refresh caches and re-render ``page`` (default: this page) with a notice.
+
+        Pass ``refresh=False`` for changes that touch no league data (server settings), so they cost no reload.
+        """
         target = page or self
         if not interaction.response.is_done():
             await interaction.response.defer()
@@ -178,7 +182,8 @@ class DashboardPage(AdminOnlyView):
             target.notice = f"❌ {friendly_error(exc, 'Something went wrong. Check the bot logs.')}"
             await target.show(interaction)
             return False
-        await refresh_caches(rosters=rosters)
+        if refresh:
+            await refresh_caches(rosters=rosters)
         board_events.league_changed()
         target.notice = f"✅ {success}"
         await target.show(interaction)
