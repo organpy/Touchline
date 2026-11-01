@@ -43,7 +43,7 @@ def repo():
     )
     with patch.object(persistent_views, "get_supabase", return_value=supabase), patch.object(
         persistent_views, "TransactionsRepository", return_value=repo
-    ), patch.object(persistent_views, "RosterCache"), patch.object(persistent_views, "TeamPlayerCache") as cache:
+    ), patch.object(persistent_views, "TeamPlayerCache") as cache:
         cache.return_value.invalidate_team = AsyncMock()
         yield repo
 

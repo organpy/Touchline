@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import discord
 
-from cogs.score.roster_cache import RosterCache
 from db import queries
 from cogs.transactions.pick_trading import (
     get_available_picks_for_team,
