@@ -12,7 +12,6 @@ from discord.ext import commands
 from db import get_supabase, queries
 from db.league_repository import friendly_error
 from db.transactions_repository import TradeExecutionError, TransactionsRepository
-from cogs.score.roster_cache import RosterCache
 from utils.team_player_cache import TeamPlayerCache
 from utils.autocomplete_helper import AutocompleteHelper
 from utils.config_utility import ConfigUtility
@@ -165,7 +164,6 @@ class ForceTradeSelectionView(AdminOnlyView):
                 await interaction.followup.send(f"❌ {exc.user_message}", ephemeral=True)
                 return
 
-            RosterCache().invalidate()
             await TeamPlayerCache.refresh(self.supabase)
 
             # Build result embed

@@ -16,7 +16,6 @@ from db.transactions_repository import TransactionsRepository
 from cogs.admin.common import LazyInitView
 from cogs.admin.base import AdminBaseManager
 from utils.team_player_cache import TeamPlayerCache
-from cogs.score.roster_cache import RosterCache
 from utils.config_manager import get_config_manager
 from utils.embed_assets import (
     apply_league_badge,
@@ -542,7 +541,6 @@ class ForceReleaseView(LazyInitView):
                                 team_code,
                                 confirm_interaction.user.id,
                             )
-                            RosterCache().invalidate()
                             await TeamPlayerCache.refresh(self.supabase)
                             
                             # Post to transactions channel
@@ -771,7 +769,6 @@ class ForceTransferView(LazyInitView):
                                 dest_code,
                                 confirm_interaction.user.id,
                             )
-                            RosterCache().invalidate()
                             await TeamPlayerCache.refresh(self.supabase)
                             
                             # Post to transactions channel

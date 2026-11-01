@@ -112,8 +112,8 @@ class TestForceTradeExecution:
         interaction = _make_interaction(administrator=True)
 
         with patch.object(force_trade_module, "TransactionsRepository", return_value=repo), patch.object(
-            force_trade_module, "RosterCache"
-        ), patch.object(force_trade_module.TeamPlayerCache, "refresh", AsyncMock()):
+            force_trade_module.TeamPlayerCache, "refresh", AsyncMock()
+        ):
             await view.execute_trade.callback(interaction)
 
         assert repo.create_trade_proposal.call_args.args[0]['status'] == 'pending'

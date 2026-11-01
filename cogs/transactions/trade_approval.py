@@ -16,7 +16,6 @@ from typing import Any, Dict, List, Optional
 import discord
 from discord import ui
 
-from cogs.score.roster_cache import RosterCache
 from db import get_supabase
 from db.transactions_repository import TradeExecutionError, TransactionsRepository
 from utils.team_player_cache import TeamPlayerCache
@@ -242,7 +241,6 @@ async def _edit_trade_message(interaction: discord.Interaction, ctx: TradeContex
 
 
 async def _invalidate_trade_caches(ctx: TradeContext) -> None:
-    RosterCache().invalidate()
     cache = TeamPlayerCache()
     await cache.invalidate_team(ctx.initiating_team['id'])
     await cache.invalidate_team(ctx.counterparty_team['id'])
