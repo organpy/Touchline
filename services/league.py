@@ -121,13 +121,22 @@ def empty_plan(season_id: str, standings_by_division: Dict[str, List[Dict[str, A
     return {"brackets": []}
 
 
+async def current_standings(repo: Any, season_id: str) -> Dict[str, List[Dict[str, Any]]]:
+    """Stored standings of every division, keyed by division id (rank order). Read-only, one query.
+
+    Reported and voided games keep these up to date, so previews can read them instead of recomputing.
+    """
+    result: Dict[str, List[Dict[str, Any]]] = {division["id"]: [] for division in LeagueCache.divisions()}
+    for row in sorted(await repo.get_standings(season_id), key=lambda r: r["rank"]):
+        result.setdefault(row["division_id"], []).append(row)
+    return result
+
+
 async def final_standings(repo: Any, season_id: str) -> Dict[str, List[Dict[str, Any]]]:
-    """Recompute and return every division's standings, keyed by division id (rank order)."""
-    result: Dict[str, List[Dict[str, Any]]] = {}
+    """Recompute every division's standings, then return them keyed by division id (rank order)."""
     for division in LeagueCache.divisions():
         await recompute_division(repo, season_id, division["id"])
-        result[division["id"]] = sorted(await repo.get_standings(season_id, division["id"]), key=lambda r: r["rank"])
-    return result
+    return await current_standings(repo, season_id)
 
 
 async def end_regular_season(repo: Any, season: Dict[str, Any], plan_builder: Optional[PlanBuilder] = None) -> int:
@@ -180,9 +189,7 @@ class SeasonOutcome:
 
 async def season_outcome(repo: Any, season_id: str) -> SeasonOutcome:
     """Champion and promotions/relegations the season produced (playoffs included when present)."""
-    standings: Dict[str, List[Dict[str, Any]]] = {}
-    for division in LeagueCache.divisions():
-        standings[division["id"]] = sorted(await repo.get_standings(season_id, division["id"]), key=lambda r: r["rank"])
+    standings = await current_standings(repo, season_id)
     brackets = await repo.list_brackets(season_id)
     unfinished = sum(1 for b in brackets if b.get("status") != "completed")
 
