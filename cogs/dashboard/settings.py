@@ -122,7 +122,8 @@ class SettingsPage(DashboardPage):
                 config["server_configured"] = True
             await ConfigUtility.save_guild_config(self.session.bot, self.session.guild_id, config)
 
-        await self.apply(interaction, change, success)
+        # Server settings live in the guild config, not in the league tables the caches mirror.
+        await self.apply(interaction, change, success, refresh=False)
 
     async def _set_role(self, interaction: discord.Interaction, select: discord.ui.RoleSelect) -> None:
         # Only real server administrators may change who the admins are: a holder of the admin role could
