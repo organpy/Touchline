@@ -25,7 +25,6 @@ from db import get_supabase
 from utils.config_manager import init_config_manager
 from utils.team_player_cache import TeamPlayerCache
 from utils.league_cache import LeagueCache
-from cogs.score.roster_cache import RosterCache
 from utils.health_check import HealthCheckServer
 from utils.error_embeds import error_embed, permission_error_embed, rate_limit_embed, send_error
 from utils.command_limits import LimitedCommandTree
@@ -140,14 +139,6 @@ class TouchlineBot(commands.Bot):
         except Exception as e:
             logger.error(f"❌ Failed to initialize league/team caches: {e}", exc_info=True)
         
-        logger.info("🔄 Initializing RosterCache...")
-        try:
-            roster_cache = RosterCache()
-            await roster_cache.load_cache(self.supabase)
-            logger.info("✅ RosterCache initialized")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize RosterCache: {e}", exc_info=True)
-
         try:
             from utils.logo_store import sync_team_logos
 
