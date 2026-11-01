@@ -16,7 +16,7 @@ from services.league import (
     Movement,
     default_plan_builder,
     end_regular_season,
-    final_standings,
+    current_standings,
     finish_postseason,
     regular_season_readiness,
     season_outcome,
@@ -158,7 +158,7 @@ class SeasonPage(DashboardPage):
                 lines.insert(0, "Games can be reported once it starts. Teams that haven't played can still change division.")
             return {"title": NEXT_STEP[phase], "text": "\n".join(lines), "blocked": not readiness.ok, "phase": phase}
         if phase == "regular":
-            standings = await final_standings(self.repo, season_id)
+            standings = await current_standings(self.repo, season_id)  # a preview must not rewrite anything
             plan = default_plan_builder()(season_id, standings)
             lines = ["Standings lock for good."]
             brackets = plan.get("brackets") or []
