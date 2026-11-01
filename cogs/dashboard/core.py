@@ -42,15 +42,11 @@ class DashboardSession:
         return self.bot.get_guild(self.guild_id) if self.bot else None
 
 
-async def refresh_caches(*, rosters: bool = False) -> None:
-    """Reload league structure after a change (and the score-report roster cache when asked)."""
+async def refresh_caches() -> None:
+    """Reload league structure after a change (the team cache also reloads the league cache)."""
     from utils.team_player_cache import TeamPlayerCache
 
-    await TeamPlayerCache.refresh()  # also refreshes LeagueCache
-    if rosters:
-        from cogs.score.roster_cache import RosterCache
-
-        RosterCache().invalidate()
+    await TeamPlayerCache.refresh()
 
 
 class DashboardPage(AdminOnlyView):
@@ -160,7 +156,6 @@ class DashboardPage(AdminOnlyView):
         change: Callable[[], Awaitable[Any]],
         success: str,
         *,
-        rosters: bool = False,
         refresh: bool = True,
         page: Optional["DashboardPage"] = None,
     ) -> bool:
@@ -183,7 +178,7 @@ class DashboardPage(AdminOnlyView):
             await target.show(interaction)
             return False
         if refresh:
-            await refresh_caches(rosters=rosters)
+            await refresh_caches()
         board_events.league_changed()
         target.notice = f"✅ {success}"
         await target.show(interaction)
