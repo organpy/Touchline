@@ -1,15 +1,13 @@
-"""
-Roster cache - loaded at bot startup for instant lookups
-Singleton pattern to ensure only one cache in memory
-Imported independently to avoid circular imports
+"""The teams and rosters score reporting works with, as a read-only view of ``TeamPlayerCache``.
+
+It keeps no data and runs no queries of its own: ``TeamPlayerCache`` is reloaded whenever a team or roster
+changes, so this view is always current. Imported independently to avoid circular imports.
 """
 
-from typing import Dict, List, Optional
 from dataclasses import dataclass
-import logging
-from db.db_utils import execute_async
+from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
+from utils.team_player_cache import TeamPlayerCache
 
 
 @dataclass
@@ -35,134 +33,70 @@ class CachedTeam:
             self.active_players = []
 
 
+def _player(raw: Dict[str, Any]) -> CachedPlayer:
+    return CachedPlayer(player_id=raw["id"], display_name=raw["display_name"], discord_id=raw.get("discord_id"))
+
+
+def _team(raw: Dict[str, Any]) -> CachedTeam:
+    return CachedTeam(
+        team_id=raw["id"],
+        code=raw["code"],
+        name=raw["name"],
+        emoji=raw.get("emoji"),
+        division_id=raw.get("division_id"),
+        active_players=[_player(p) for p in TeamPlayerCache.get_team_players(raw["id"])],
+    )
+
+
 class RosterCache:
-    """Singleton cache of teams & players loaded at bot startup"""
-    _instance: Optional['RosterCache'] = None
-    teams: Dict[str, CachedTeam]
-    players: Dict[str, CachedPlayer]
-    loaded: bool
+    """Teams (not archived) with the players on their roster in the active season."""
 
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance.teams = {}
-            cls._instance.players = {}
-            cls._instance.loaded = False
-        return cls._instance
+    @property
+    def loaded(self) -> bool:
+        return TeamPlayerCache.is_loaded()
 
-    async def load_cache(self, supabase_client):
-        """Load active teams and the active season's rosters (a player is on at most one team)."""
-        logger.info("🔄 Loading roster cache...")
-        try:
-            self.teams = {}
-            self.players = {}
-            season_response = await execute_async(
-                supabase_client.table('seasons').select('id').eq('active', True).limit(1)
-            )
-            season_id = season_response.data[0]['id'] if season_response.data else None
-
-            divisions: Dict[str, Optional[str]] = {}
-            if season_id:
-                assignments = await execute_async(
-                    supabase_client.table('season_teams').select('team_id, division_id').eq('season_id', season_id)
-                )
-                divisions = {row['team_id']: row['division_id'] for row in (assignments.data or [])}
-
-            teams_response = await execute_async(
-                supabase_client.table('teams').select('id, code, name, emoji').is_('archived_at', 'null')
-            )
-            for team_row in teams_response.data or []:
-                self.teams[team_row['code']] = CachedTeam(
-                    team_id=team_row['id'],
-                    code=team_row['code'],
-                    name=team_row['name'],
-                    emoji=team_row.get('emoji'),
-                    division_id=divisions.get(team_row['id']),
-                )
-
-            roster_count = 0
-            if season_id:
-                rosters_response = await execute_async(supabase_client.table('rosters').select(
-                    'player_id, team_id, players(id, display_name, discord_id), teams(code)'
-                ).eq('season_id', season_id).is_('left_at', 'null'))
-                for roster_row in rosters_response.data or []:
-                    player_data = roster_row.get('players') or {}
-                    team_code = (roster_row.get('teams') or {}).get('code')
-                    if not player_data or team_code not in self.teams:
-                        continue
-                    player = CachedPlayer(
-                        player_id=player_data['id'],
-                        display_name=player_data['display_name'],
-                        discord_id=player_data.get('discord_id'),
-                    )
-                    self.players[player.player_id] = player
-                    self.teams[team_code].active_players.append(player)
-                    roster_count += 1
-
-            self.loaded = True
-            logger.info(
-                f"✅ Roster cache loaded: {len(self.teams)} teams, {roster_count} active players"
-            )
-
-        except Exception as e:
-            logger.error(f"❌ Failed to load roster cache: {e}", exc_info=True)
-            self.loaded = False
+    async def load_cache(self, supabase_client) -> None:
+        """Load the team cache when it is not loaded yet (it normally is, from startup)."""
+        if not TeamPlayerCache.is_loaded():
+            await TeamPlayerCache.refresh(supabase_client)
 
     def get_team_by_code(self, code: str) -> Optional[CachedTeam]:
         """Get team by code (codes are lowercase slugs)"""
         if not code:
             return None
-        return self.teams.get(code) or self.teams.get(code.strip().lower())
+        raw = TeamPlayerCache.get_team_by_code(code.strip())
+        return _team(raw) if raw and not raw.get("archived_at") else None
 
     def teams_in_same_league(self, team_code1: str, team_code2: str) -> bool:
         """Check if two teams are in the same league (division)"""
         team1 = self.get_team_by_code(team_code1)
         team2 = self.get_team_by_code(team_code2)
-        
+
         if not team1 or not team2:
             return False
-        
+
         if not team1.division_id or not team2.division_id:
             return False
-        
+
         return team1.division_id == team2.division_id
 
     def get_all_teams(self) -> List[CachedTeam]:
         """Get all cached teams"""
-        return list(self.teams.values())
+        return [_team(raw) for raw in TeamPlayerCache.get_all_teams()]
 
     def get_team_players(self, team_code: str) -> List[CachedPlayer]:
         """Get active players for a team"""
-        team = self.teams.get(team_code)
+        team = self.get_team_by_code(team_code)
         return team.active_players if team else []
 
     def get_player_by_id(self, player_id: str) -> Optional[CachedPlayer]:
-        """Get player by ID"""
-        return self.players.get(player_id)
+        """Get a player who is on a team's roster this season, by ID"""
+        raw = TeamPlayerCache.get_player_by_id(player_id)
+        if not raw or not TeamPlayerCache.get_team_by_player_id(player_id):
+            return None
+        return _player(raw)
 
     def search_players(self, team_code: str, query: str) -> List[CachedPlayer]:
         """Search players on a team by name (for autocomplete)"""
-        team = self.teams.get(team_code)
-        if not team:
-            return []
-
         query_lower = query.lower()
-        return [p for p in team.active_players if query_lower in p.display_name.lower()]
-
-    @classmethod
-    def reset(cls):
-        """Reset cache (for testing)"""
-        cls._instance = None
-
-    def invalidate(self):
-        """Clear cache - NOTE: Call reload() after to repopulate"""
-        self.teams.clear()
-        self.players.clear()
-        self.loaded = False
-        logger.info("🔄 RosterCache invalidated (loaded=False)")
-
-    async def reload(self, supabase_client):
-        """Invalidate and reload cache from database"""
-        self.invalidate()
-        await self.load_cache(supabase_client)
-        logger.info("✅ RosterCache reloaded")
+        return [p for p in self.get_team_players(team_code) if query_lower in p.display_name.lower()]
