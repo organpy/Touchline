@@ -174,13 +174,13 @@ class TeamPage(DashboardPage):
         if value == REMOVE:
             await self.apply(
                 interaction, lambda: self.repo.remove_team_from_season(season_id, self.team_id),
-                "Removed from this season.", rosters=True,
+                "Removed from this season.",
             )
             return
         division = LeagueCache.division(value)
         await self.apply(
             interaction, lambda: self.repo.assign_team(season_id, self.team_id, value, None),
-            f"Moved to **{division_label(division)}**.", rosters=True,
+            f"Moved to **{division_label(division)}**.",
         )
 
     async def _set_group(self, interaction: discord.Interaction, value: str) -> None:
@@ -213,7 +213,7 @@ class TeamPage(DashboardPage):
                 color=parse_color(modal.color.value),
             )
 
-        if await self.apply(interaction, change, "Team updated.", rosters=True):
+        if await self.apply(interaction, change, "Team updated."):
             updated = await self.repo.get_team(self.team_id) or {}
             if updated.get("code") != old_code:
                 remove_cached_logo(old_code)  # re-downloaded under the new code on next sync
@@ -283,7 +283,7 @@ class TeamPage(DashboardPage):
         season_id = (self.season or {}).get("id")
         name = self.team.get("name")
         ok = await self.apply(
-            interaction, lambda: self.repo.archive_team(self.team_id, season_id), f"**{name}** archived.", rosters=True,
+            interaction, lambda: self.repo.archive_team(self.team_id, season_id), f"**{name}** archived.",
         )
         if ok and len(self.session.stack) > 1:
             self.session.stack.pop()

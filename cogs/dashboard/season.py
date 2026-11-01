@@ -191,7 +191,7 @@ class SeasonPage(DashboardPage):
             "postseason": (lambda: finish_postseason(self.repo, season), "Season finished. Review the moves, then start the next season."),
         }
         change, success = actions[preview["phase"]]
-        await self.apply(interaction, change, success, rosters=True)
+        await self.apply(interaction, change, success)
 
     async def _recalculate(self, interaction: discord.Interaction) -> None:
         await self.apply(interaction, lambda: recompute_season(self.repo, self.season["id"]), "Standings recalculated.")
@@ -206,7 +206,6 @@ class SeasonPage(DashboardPage):
             interaction,
             lambda: start_next_season(self.repo, self.season, name),
             f"**{name}** started in setup. Teams moved divisions and rosters carried over.",
-            rosters=True,
         )
 
     async def _create(self, interaction: discord.Interaction) -> None:
