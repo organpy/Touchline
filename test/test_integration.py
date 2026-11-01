@@ -237,17 +237,6 @@ class TestAdminWorkflow:
         # - Cache refreshed
         
         pass
-    
-    @pytest.mark.asyncio
-    async def test_admin_bypass_rate_limit(self, mock_interaction, mock_supabase):
-        """Test that admins bypass rate limits."""
-        # Make 10 rapid requests as admin
-        
-        # Verify:
-        # - All requests succeed
-        # - No rate limit errors
-        
-        pass
 
 
 class TestHealthCheck:
