@@ -24,7 +24,17 @@ async def enrich_trade_assets(
     
     enriched = []
     cache = TeamPlayerCache()
-    
+
+    # One query for every pick in the trade instead of one per pick.
+    pick_ids = [a['draft_pick_id'] for a in assets if a.get('asset_type') == 'pick' and a.get('draft_pick_id')]
+    picks_by_id: Dict[str, Dict[str, Any]] = {}
+    if pick_ids:
+        try:
+            response = await execute_async(supabase.table('draft_picks').select('*').in_('id', pick_ids))
+            picks_by_id = {pick['id']: pick for pick in (response.data or [])}
+        except Exception as e:
+            logger.warning(f"Failed to load picks for trade assets: {e}")
+
     for asset in assets:
         enriched_asset = asset.copy()
         
@@ -43,9 +53,8 @@ async def enrich_trade_assets(
         elif asset.get('asset_type') == 'pick' and asset.get('draft_pick_id'):
             # Look up pick info
             try:
-                response = await execute_async(supabase.table('draft_picks').select('*').eq('id', asset['draft_pick_id']))
-                if response.data and len(response.data) > 0:
-                    pick = response.data[0]
+                pick = picks_by_id.get(asset['draft_pick_id'])
+                if pick:
                     enriched_asset['label'] = f"R{pick.get('round', '?')}P{pick.get('overall', '?'):02d}"
                 else:
                     enriched_asset['label'] = 'Unknown Pick'
