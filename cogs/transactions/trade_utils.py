@@ -96,8 +96,7 @@ async def get_available_trade_assets(
     
     try:
         # Get active rosters for this team
-        rosters = await queries.get_active_rosters(supabase, season_id)
-        players = [r for r in rosters if r.get('team_id') == team_id]
+        players = await queries.get_team_roster(supabase, season_id, team_id)
         
         result['players'] = [
             {

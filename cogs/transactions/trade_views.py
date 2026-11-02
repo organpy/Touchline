@@ -109,18 +109,14 @@ class TradeAssetModal(discord.ui.Modal):
         from cogs.transactions.trade_utils import can_trade_picks
 
         # Fetch available rosters for initiating team (from their season)
-        initiating_rosters = await queries.get_active_rosters(self.supabase, self.season['id'])
-        initiating_players = [
-            r for r in initiating_rosters
-            if r.get('team_id') == self.initiating_team['id']
-        ]
+        initiating_players = await queries.get_team_roster(
+            self.supabase, self.season['id'], self.initiating_team['id']
+        )
 
         # Fetch available rosters for counterparty
-        counterparty_rosters = await queries.get_active_rosters(self.supabase, self.counterparty_season['id'])
-        counterparty_players = [
-            r for r in counterparty_rosters
-            if r.get('team_id') == self.counterparty_team['id']
-        ]
+        counterparty_players = await queries.get_team_roster(
+            self.supabase, self.counterparty_season['id'], self.counterparty_team['id']
+        )
 
         # Check if picks can be traded between these teams
         allow_picks = await can_trade_picks(
