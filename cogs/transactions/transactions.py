@@ -37,7 +37,7 @@ from utils.team_display import (
 
 from .views import PendingSigningView, ReleaseConfirmationModal
 from .trade_views import TradeAssetModal
-from .history import fetch_filtered_transactions, build_history_embed
+from .history import fetch_filtered_transactions, build_history_embed, load_history_names
 from .pick_trading import picks_enabled_for_division
 from utils.league_cache import LeagueCache
 from db.db_utils import execute_async
@@ -960,8 +960,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             return
 
         # Get active rosters for this team in this season
-        rosters = await queries.get_active_rosters(self.supabase, season['id'])
-        team_rosters = [r for r in rosters if r.get('team_id') == team['id']]
+        team_rosters = await queries.get_team_roster(self.supabase, season['id'], team['id'])
 
         # Build roster list with player details
         roster_lines = []
@@ -1098,12 +1097,8 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
             await interaction.followup.send("ℹ️ No transactions match the filters.", ephemeral=True)
             return
 
-        # Load teams and players for display
-        teams = await queries.get_all_teams(self.supabase)
-        team_by_id = {team['id']: team for team in teams}
-
-        players = (await execute_async(self.supabase.table('players').select('id, display_name'))).data or []
-        player_by_id = {p['id']: p for p in players}
+        # Names for display, only for the teams and players in these transactions
+        team_by_id, player_by_id = await load_history_names(self.supabase, transactions)
 
         embed = build_history_embed(transactions, team_by_id, player_by_id)
         _, league_code = await self._get_league_display(season)
