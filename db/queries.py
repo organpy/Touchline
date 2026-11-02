@@ -176,17 +176,33 @@ async def get_all_teams(supabase, division_id: Optional[str] = None) -> List[Dic
         return []
 
 
-async def get_active_rosters(supabase, season_id: str) -> List[Dict[str, Any]]:
-    """Get all active rosters for a season (left_at IS NULL)"""
+async def get_team_roster(supabase, season_id: str, team_id: str) -> List[Dict[str, Any]]:
+    """One team's active roster (left_at IS NULL) as roster rows: ``team_id``, ``player_id`` and ``players``.
+
+    The active season is answered from ``TeamPlayerCache``; any other season asks the database for this one team.
+    """
+    active = LeagueCache.active_season()
+    if TeamPlayerCache.is_loaded() and active and active.get('id') == season_id:
+        return [
+            {
+                'team_id': team_id,
+                'player_id': player['id'],
+                'season_id': season_id,
+                'players': {
+                    'id': player['id'],
+                    'display_name': player.get('display_name'),
+                    'discord_id': player.get('discord_id'),
+                },
+            }
+            for player in TeamPlayerCache.get_team_players(team_id)
+        ]
     try:
         response = await execute_async(supabase.table('rosters').select(
-            'id, player_id, team_id, season_id, joined_at, '
-            'players(id, display_name, discord_id), '
-            'teams(id, code, name, emoji)'
-        ).eq('season_id', season_id).is_('left_at', 'null'))
+            'id, player_id, team_id, season_id, joined_at, players(id, display_name, discord_id)'
+        ).eq('season_id', season_id).eq('team_id', team_id).is_('left_at', 'null'))
         return response.data if response.data else []
     except Exception as e:
-        logger.error(f"Error fetching active rosters: {e}")
+        logger.error(f"Error fetching roster for team {team_id}: {e}")
         return []
 
 
