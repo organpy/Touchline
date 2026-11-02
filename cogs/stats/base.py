@@ -204,19 +204,17 @@ class StatsCogBase(commands.Cog):
             logger.error("Failed to look up team for player %s: %s", player_id, exc)
             return None
 
-    async def _resolve_player_division(self, player: Dict[str, Any], season: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Division of the team the player played for in that season (for display)."""
-        team_id = await self._player_team_in_season(player.get('id'), season.get('id'))
-        if not team_id:
-            return None
-        await LeagueCache.load_season_teams(season['id'])
-        return LeagueCache.team_division(team_id, season['id'])
-
-    async def _validate_player_in_season(self, player: Dict[str, Any], season: Dict[str, Any]) -> bool:
-        """Check if the player has a roster entry in this season."""
+    async def _player_in_season(
+        self, player: Optional[Dict[str, Any]], season: Optional[Dict[str, Any]]
+    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
+        """(was the player on a roster that season, division of the team they played for), from one roster lookup."""
         if not player or not season or not player.get('id') or not season.get('id'):
-            return False
-        return bool(await self._player_team_in_season(player['id'], season['id']))
+            return False, None
+        team_id = await self._player_team_in_season(player['id'], season['id'])
+        if not team_id:
+            return False, None
+        await LeagueCache.load_season_teams(season['id'])
+        return True, LeagueCache.team_division(team_id, season['id'])
 
     async def _validate_team_in_season(self, team: Dict[str, Any], season: Dict[str, Any]) -> bool:
         """Check the team played in the season (and in the season's division, when one is set)."""
