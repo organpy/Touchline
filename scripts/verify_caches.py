@@ -209,51 +209,6 @@ async def test_team_player_cache():
     status = TeamPlayerCache.get_status()
     print_result("Status has all fields", all(k in status for k in ['teams', 'players', 'team_rosters', 'last_refresh', 'is_fresh']))
 
-async def test_roster_cache():
-    """Test RosterCache functionality."""
-    print_section("RosterCache (cogs/score/roster_cache.py)")
-    
-    from cogs.score.roster_cache import RosterCache
-    
-    try:
-        from db import get_supabase
-        supabase = get_supabase()
-    except (ValueError, Exception) as e:
-        print(f"  ⚠️ SKIPPED: Supabase not configured ({e})")
-        return
-    
-    # Test 1: Singleton pattern
-    cache1 = RosterCache()
-    cache2 = RosterCache()
-    print_result("Singleton pattern", cache1 is cache2)
-    
-    # Test 2: Initial state
-    RosterCache.reset()  # Reset for fresh test
-    cache = RosterCache()
-    print_result("Initial loaded=False", not cache.loaded)
-    
-    # Test 3: Load cache
-    await cache.load_cache(supabase)
-    print_result("Cache loads successfully", cache.loaded)
-    print_result("Teams loaded", len(cache.teams) > 0, f"Loaded {len(cache.teams)} teams")
-    print_result("Players loaded", len(cache.players) > 0, f"Loaded {len(cache.players)} players")
-    
-    # Test 4: Get team by code
-    if cache.teams:
-        first_code = list(cache.teams.keys())[0]
-        team = cache.get_team_by_code(first_code)
-        print_result("Get team by code", team is not None and team.code == first_code)
-    
-    # Test 5: Teams in same league check
-    team_codes = list(cache.teams.keys())
-    if len(team_codes) >= 2:
-        same_league = cache.teams_in_same_league(team_codes[0], team_codes[1])
-        print_result("teams_in_same_league works", isinstance(same_league, bool))
-    
-    # Test 6: Invalidate
-    cache.invalidate()
-    print_result("Invalidate clears data", not cache.loaded and len(cache.teams) == 0)
-
 async def test_standings_image_cache():
     """Test standings image TTL cache."""
     print_section("Standings Image Cache (utils/standings_image_generator.py)")
@@ -286,18 +241,15 @@ async def test_cache_integration():
     
     from utils.team_player_cache import TeamPlayerCache
     from utils.season_cache import SeasonCache
-    from cogs.score.roster_cache import RosterCache
     from utils.cache_manager import CacheManager
     
     # Ensure all caches can coexist
     tp_status = TeamPlayerCache.get_status()
     sc_stale = SeasonCache.is_stale()
-    rc = RosterCache()
     cm_sizes = CacheManager.all_sizes()
     
     print_result("TeamPlayerCache accessible", isinstance(tp_status, dict))
     print_result("SeasonCache accessible", isinstance(sc_stale, bool))
-    print_result("RosterCache accessible", rc is not None)
     print_result("CacheManager accessible", isinstance(cm_sizes, dict))
     
     # Verify no data corruption between caches
@@ -314,7 +266,6 @@ async def main():
         await test_cache_manager()
         await test_season_cache()
         await test_team_player_cache()
-        await test_roster_cache()
         await test_standings_image_cache()
         await test_cache_integration()
         
