@@ -81,9 +81,3 @@ class TTLCache:
     def size(self) -> int:
         """Return current cache size."""
         return len(self._cache)
-
-
-# Global caches for common data
-season_cache = TTLCache(ttl_seconds=300, max_size=100)  # 5 minute TTL
-division_cache = TTLCache(ttl_seconds=300, max_size=50)  # 5 minute TTL
-team_cache = TTLCache(ttl_seconds=600, max_size=500)  # 10 minute TTL
