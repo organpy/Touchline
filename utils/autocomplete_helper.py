@@ -1,7 +1,8 @@
 """
 AutocompleteHelper: Centralized, reusable autocomplete functions for stats and transactions.
 Provides single source of truth for metric choices, team choices, player choices.
-Uses autocomplete_data.json and TeamDataProvider for consistency.
+Metrics and limits come from autocomplete_data.json; teams, divisions and seasons from the
+database caches.
 """
 
 import logging
@@ -15,6 +16,7 @@ from utils.team_player_cache import TeamPlayerCache
 from utils.autocomplete_loader import load_autocomplete_data, get_league_entries
 from utils.team_data_provider import TeamDataProvider
 from utils.season_cache import SeasonCache
+from utils.league_cache import LeagueCache
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +81,7 @@ class AutocompleteHelper:
     @staticmethod
     async def team_code_choices(current: str) -> List[app_commands.Choice[str]]:
         """
-        Get team code choices with display names.
-        Example: "Frost Falcons (FROST-FALCONS)"
+        Get team code choices with display names, e.g. "Frost Falcons".
         """
         provider = TeamDataProvider()
         all_teams = provider.get_all_teams()
@@ -102,7 +103,7 @@ class AutocompleteHelper:
 
     @staticmethod
     async def team_region_choices(current: str) -> List[app_commands.Choice[str]]:
-        """Get league/region choices (NBL, MBL, NCBA, etc.)."""
+        """Get division code choices."""
         provider = TeamDataProvider()
         regions = provider.get_regions()
 
@@ -171,7 +172,7 @@ class AutocompleteHelper:
         supabase = get_supabase()
 
         # Get user's team
-        team = await queries.get_team_by_owner(supabase, interaction.user.id)
+        team = cache.get_team_by_owner(interaction.user.id) or await queries.get_team_by_owner(supabase, interaction.user.id)
         if not team:
             return []
 
@@ -194,62 +195,33 @@ class AutocompleteHelper:
 
     @staticmethod
     async def season_name_choices(current: str) -> List[app_commands.Choice[str]]:
-        """Get season name choices (S10, S11, etc.)."""
+        """Season choices, newest first (🟢 = active)."""
         try:
             seasons = await SeasonCache.ensure_ready()
         except Exception as exc:
             logger.error("Failed to load seasons for autocomplete: %s", exc, exc_info=True)
             seasons = []
 
-        if not seasons:
-            return []
-
         current_lower = current.lower()
-        filtered = []
+        choices: List[app_commands.Choice[str]] = []
         for season in seasons:
-            name = season.get("name", "")
-            if not name:
+            name = season.get("name") or f"Season {season.get('number')}"
+            phase = (season.get("phase") or "").replace("_", " ")
+            blob = f"{name} s{season.get('number')} {phase}".lower()
+            if current_lower and current_lower not in blob:
                 continue
-
-            division = season.get("division") or {}
-            league_code = (season.get("league_type") or division.get("league_type") or "").upper()
-            division_name = division.get("name") or season.get("division_name") or ""
-            search_blob = " ".join(filter(None, [name, league_code, division_name])).lower()
-            if current_lower and current_lower not in search_blob:
-                continue
-
-            filtered.append({
-                "name": name,
-                "league_code": league_code,
-                "division_name": division_name,
-                "active": season.get("active"),
-            })
-
-        if not filtered:
-            filtered = [
-                {
-                    "name": season.get("name", ""),
-                    "league_code": (season.get("league_type") or "").upper(),
-                    "division_name": (season.get("division") or {}).get("name", ""),
-                    "active": season.get("active"),
-                }
-                for season in seasons
-                if season.get("name")
-            ]
-
-        return [
-            app_commands.Choice(
-                name=f"{'🟢' if s.get('active') else '⚪'} {s['name']} — {(s.get('division_name') or s.get('league_code') or 'League')}"[:100],
-                value=s["name"],
-            )
-            for s in filtered[:25]
-        ]
+            label = f"{'🟢' if season.get('active') else '⚪'} {name} — {phase.title() or 'Season'}"
+            choices.append(app_commands.Choice(name=label[:100], value=name))
+            if len(choices) >= 25:
+                break
+        return choices
 
     # ==================== LEAGUES ====================
 
     @staticmethod
     async def league_choices(current: str) -> List[app_commands.Choice[str]]:
-        """Get league/division choices."""
+        """Division choices in tier order."""
+        await LeagueCache.ensure_ready()
         league_entries = get_league_entries()
         if not league_entries:
             return []

@@ -45,17 +45,13 @@ class TransactionsRepository:
     # ------------------------------------------------------------------
     # Draft picks
     # ------------------------------------------------------------------
-    async def list_draft_picks(self, season_id: str) -> List[Dict[str, Any]]:
-        """Return all draft picks for a season."""
+    async def list_draft_picks(self, season_id: str, division_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Return the draft picks for a season, optionally only one division's."""
         try:
-            response = await execute_async(
-                self.supabase
-                .table('draft_picks')
-                .select('*')
-                .eq('season_id', season_id)
-                .order('round')
-                .order('overall')
-            )
+            query = self.supabase.table('draft_picks').select('*').eq('season_id', season_id)
+            if division_id:
+                query = query.eq('division_id', division_id)
+            response = await execute_async(query.order('round').order('overall'))
             return response.data or []
         except Exception as exc:  # pragma: no cover - network failure path
             logger.error("Error fetching draft picks for %s: %s", season_id, exc)

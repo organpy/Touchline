@@ -74,15 +74,15 @@ class TestDivisionQueries:
 
         mock_execute = Mock()
         mock_execute.data = [
-            {'id': 'div-1', 'name': 'National Bobble League', 'league_type': 'NBL'},
-            {'id': 'div-2', 'name': 'Minor Bobble League', 'league_type': 'MBL'},
+            {'id': 'div-1', 'name': 'Premier', 'code': 'D1', 'tier': 1},
+            {'id': 'div-2', 'name': 'Championship', 'code': 'D2', 'tier': 2},
         ]
 
-        mock_supabase.table.return_value.select.return_value.execute.return_value = mock_execute
+        mock_supabase.table.return_value.select.return_value.is_.return_value.order.return_value.execute.return_value = mock_execute
 
         result = await queries.get_all_divisions(mock_supabase)
 
-        assert len(result) == 2
+        assert [d['league_type'] for d in result] == ['D1', 'D2']
         mock_supabase.table.assert_called_with('divisions')
 
 

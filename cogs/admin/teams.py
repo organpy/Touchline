@@ -14,6 +14,8 @@ from cogs.admin.common import LazyInitView
 from cogs.admin.base import AdminBaseManager
 from utils.team_player_cache import TeamPlayerCache
 from db.db_utils import execute_async
+from db.league_repository import LeagueRepository, LeagueRuleError
+from utils.league_cache import LeagueCache
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -123,7 +125,7 @@ class TeamActionsView(discord.ui.View):
                 owner_mention = f"<@{team['owner_discord_id']}>" if team.get('owner_discord_id') else "Unassigned"
                 embed_builder.add_field(
                     name=f"{team.get('emoji', '🏀')} {team.get('name', 'Unknown')} (`{team.get('code', '?')}`)",
-                    value=f"Owner: {owner_mention} | Division: {team.get('division_id', '?')}",
+                    value=f"Owner: {owner_mention} | Division: {team.get('league_type') or 'Unassigned'}",
                     inline=False,
                 )
             await interaction.followup.send(embed=embed_builder.build(), ephemeral=True)
@@ -150,14 +152,16 @@ class AddTeamModal(discord.ui.Modal, title="Add New Team"):
         max_length=100,
     )
     team_code = discord.ui.TextInput(
-        label="Team Code",
-        placeholder="e.g., PANDAS (max 10 chars, uppercase)",
-        max_length=10,
+        label="Team Code (optional)",
+        placeholder="e.g. golden-pandas (made from the name if blank)",
+        required=False,
+        max_length=32,
     )
     division = discord.ui.TextInput(
-        label="Division",
-        placeholder="NBL, MBL, or NCBA",
-        max_length=10,
+        label="Division (optional)",
+        placeholder="Division code, e.g. D1 (assigns it for the active season)",
+        required=False,
+        max_length=16,
     )
 
     def __init__(self, supabase: Any, view: TeamActionsView) -> None:
@@ -169,61 +173,43 @@ class AddTeamModal(discord.ui.Modal, title="Add New Team"):
         await interaction.response.defer(ephemeral=True)
 
         team_name = self.team_name.value.strip()
-        team_code = self.team_code.value.strip().upper()
-        division_code = self.division.value.strip().upper()
+        division_code = self.division.value.strip()
+        repo = LeagueRepository(self.supabase)
 
-        # Validation
-        if not team_name or not team_code or not division_code:
-            await interaction.followup.send(
-                "❌ Team name, code, and division are required.",
-                ephemeral=True,
-            )
-            return
-
-        if len(team_code) < 2:
-            await interaction.followup.send("❌ Team code must be at least 2 characters.", ephemeral=True)
-            return
-
-        # Check if code already exists (globally unique)
-        existing = await queries.get_team_by_code(self.supabase, team_code)
-        if existing:
-            await interaction.followup.send(f"❌ Team code `{team_code}` already exists.", ephemeral=True)
-            return
-
-        try:
-            division = await queries.get_division_by_type(self.supabase, division_code)
+        division = None
+        if division_code:
+            await LeagueCache.ensure_ready()
+            division = LeagueCache.find_division(division_code)
             if not division:
-                await interaction.followup.send(
-                    f"❌ Unknown division `{division_code}`. Use NBL, MBL, or NCBA.",
-                    ephemeral=True,
-                )
+                await interaction.followup.send(f"❌ Unknown division `{division_code}`.", ephemeral=True)
                 return
 
-            # Insert team into the selected division
-            result = await execute_async(self.supabase.table('teams').insert({
-                'name': team_name,
-                'code': team_code,
-                'division_id': division['id'],
-                'owner_discord_id': None,  # Can be set later
-            }))
-
-            if result.data:
-                logger.info("✅ Team created: %s (%s) by %s in division %s", 
-                           team_name, team_code, interaction.user.id, division['id'])
-                await TeamPlayerCache.refresh(self.supabase)
-                await interaction.followup.send(
-                    f"✅ Team **{team_name}** (`{team_code}`) created successfully in {division_code}!",
-                    ephemeral=True,
-                )
-                await self.view.update_display()
-            else:
-                raise Exception("No data returned from insert")
+        try:
+            team = await repo.create_team(code=self.team_code.value, name=team_name)
+            note = ""
+            season = LeagueCache.active_season()
+            if division and season:
+                try:
+                    await repo.assign_team(season['id'], team['id'], division['id'])
+                    await LeagueCache.refresh()
+                    note = f" and placed in **{division['name']}** for {season['name']}"
+                except LeagueRuleError as exc:
+                    note = f", but it couldn't be placed in {division['code']}: {exc.message}"
+        except LeagueRuleError as exc:
+            await interaction.followup.send(f"❌ {exc.message}", ephemeral=True)
+            return
         except Exception as exc:  # pragma: no cover
             logger.error("Failed to create team: %s", exc)
-            await interaction.followup.send(
-                "❌ Failed to create team. Check server logs.",
-                ephemeral=True,
-            )
+            await interaction.followup.send("❌ Failed to create team. Check server logs.", ephemeral=True)
+            return
+
+        logger.info("✅ Team created: %s (%s) by %s", team_name, team['code'], interaction.user.id)
+        await TeamPlayerCache.refresh(self.supabase)
+        await interaction.followup.send(
+            f"✅ Team **{team_name}** (`{team['code']}`) created{note}.",
+            ephemeral=True,
+        )
+        await self.view.update_display()
 
 
 class SetTeamOwnerView(LazyInitView):
@@ -328,15 +314,7 @@ class SetTeamOwnerView(LazyInitView):
                                 if channel and isinstance(channel, discord.TextChannel):
                                     # Get league info for styling
                                     team_code = self.selected_team.get('code', '')
-                                    league_code = ''
-                                    division_id = self.selected_team.get('division_id')
-                                    if division_id:
-                                        try:
-                                            div_resp = await execute_async(self.supabase.table('divisions').select('league_type').eq('id', division_id).limit(1))
-                                            if div_resp.data:
-                                                league_code = div_resp.data[0].get('league_type', '').upper()
-                                        except Exception:
-                                            pass
+                                    league_code = (self.selected_team.get('league_type') or '').upper()
                                     
                                     team_label = format_team_label_from_record(self.selected_team)
                                     

@@ -271,7 +271,7 @@ class ForceTradeCommand(commands.Cog):
             )
             return
 
-        if team1_record["division_id"] != team2_record["division_id"]:
+        if not team1_record.get("division_id") or team1_record.get("division_id") != team2_record.get("division_id"):
             await interaction.followup.send(
                 "❌ Force trades require both teams to be in the same division.",
                 ephemeral=True,
@@ -281,7 +281,7 @@ class ForceTradeCommand(commands.Cog):
         # Get the active season for the teams' division
         season = await queries.get_active_season(
             supabase,
-            division_id=team1_record["division_id"],
+            division_id=team1_record.get("division_id"),
         )
         if not season:
             await interaction.followup.send(
@@ -292,8 +292,8 @@ class ForceTradeCommand(commands.Cog):
 
         # Check if picks can be traded
         allow_picks = await can_trade_picks(
-            team1_record['division_id'],
-            team2_record['division_id'],
+            team1_record.get('division_id'),
+            team2_record.get('division_id'),
             supabase
         )
 

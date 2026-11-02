@@ -62,11 +62,13 @@ class PlayerStatsCog(StatsCogBase):
             league_input=league,
             season_input=season,
             default_season_id=(membership_hint or {}).get('season_id'),
-            default_league_code=(membership_hint or {}).get('league_type'),
         )
         if not season_row:
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
+        division_filter = (league_meta or {}).get('id') if league else None
+        if not league_meta:
+            league_meta = await self._resolve_player_division(player, season_row)
 
         league_season_display = self._format_league_season_display(league_meta, season_row)
 
@@ -85,6 +87,7 @@ class PlayerStatsCog(StatsCogBase):
                 self.supabase,
                 player['id'],
                 season_row['id'],
+                division_id=division_filter,
             )
         except Exception as exc:
             logger.error(
@@ -107,7 +110,7 @@ class PlayerStatsCog(StatsCogBase):
             league_meta = membership_league_meta or league_meta
         player_league_display = self._format_league_display(membership_league_meta)
         season_league_display = self._format_league_display(league_meta)
-        league_code = ((league_meta or {}).get('code') or (league_meta or {}).get('league_type') or '').upper()
+        league_code = ((league_meta or {}).get('code') or '').upper()
         team_code = (membership or {}).get('team_code') or ''
         team_display = (membership or {}).get('team_name') or averages.get('team_name', 'Free Agent')
 
@@ -178,11 +181,13 @@ class PlayerStatsCog(StatsCogBase):
             league_input=league,
             season_input=season,
             default_season_id=(membership_hint or {}).get('season_id'),
-            default_league_code=(membership_hint or {}).get('league_type'),
         )
         if not season_row:
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
+        division_filter = (league_meta or {}).get('id') if league else None
+        if not league_meta:
+            league_meta = await self._resolve_player_division(player, season_row)
 
         league_season_display = self._format_league_season_display(league_meta, season_row)
 
@@ -201,6 +206,7 @@ class PlayerStatsCog(StatsCogBase):
                 self.supabase,
                 player['id'],
                 season_row['id'],
+                division_id=division_filter,
             )
         except Exception as exc:
             logger.error(
@@ -225,7 +231,7 @@ class PlayerStatsCog(StatsCogBase):
         season_league_display = self._format_league_display(league_meta)
         team_display = (membership or {}).get('team_name') or totals.get('team_name', 'Free Agent')
         team_code = (membership or {}).get('team_code') or ''
-        league_code = ((league_meta or {}).get('code') or (league_meta or {}).get('league_type') or '').upper()
+        league_code = ((league_meta or {}).get('code') or '').upper()
 
         builder = EmbedBuilder(
             title=f"📈 Season Totals — {player.get('display_name', player_name)}",
@@ -296,11 +302,13 @@ class PlayerStatsCog(StatsCogBase):
             league_input=league,
             season_input=season,
             default_season_id=(membership_hint or {}).get('season_id'),
-            default_league_code=(membership_hint or {}).get('league_type'),
         )
         if not season_row:
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
+        division_filter = (league_meta or {}).get('id') if league else None
+        if not league_meta:
+            league_meta = await self._resolve_player_division(player, season_row)
 
         league_season_display = self._format_league_season_display(league_meta, season_row)
 
@@ -339,7 +347,7 @@ class PlayerStatsCog(StatsCogBase):
         season_league_display = self._format_league_display(league_meta)
         team_display = (membership or {}).get('team_name')
         team_code = (membership or {}).get('team_code') or ''
-        league_code = ((league_meta or {}).get('code') or (league_meta or {}).get('league_type') or '').upper()
+        league_code = ((league_meta or {}).get('code') or '').upper()
 
         builder = EmbedBuilder(
             title=f"📋 Match History — {player.get('display_name', player_name)}",

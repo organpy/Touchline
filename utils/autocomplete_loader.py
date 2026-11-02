@@ -1,6 +1,8 @@
 """
 Autocomplete data loader and helper utilities.
-Static data for autocomplete suggestions that rarely change.
+
+Static choices (metrics, limits, stat labels) come from data/autocomplete_data.json; teams and
+divisions come from the database caches.
 """
 
 import json
@@ -84,9 +86,6 @@ def get_default_autocomplete_data() -> Dict[str, Any]:
             {"name": "20", "value": "20"},
             {"name": "25", "value": "25"},
         ],
-        "special_options": {
-            "all_leagues": {"name": "all", "value": "all"}
-        },
         "stat_fields": {
             "points": "Points",
             "assists": "Assists",
@@ -124,38 +123,17 @@ def get_stat_field_display(metric: str) -> str:
 
 
 def get_team_codes() -> List[str]:
-    """Get list of all valid team codes (flat list)."""
-    data = load_autocomplete_data()
-    team_codes_by_division = data.get("team_codes", {})
-    all_codes = []
-    for division_codes in team_codes_by_division.values():
-        all_codes.extend(division_codes)
-    return sorted(all_codes)
+    """All active team codes (from the team cache)."""
+    from utils.team_player_cache import TeamPlayerCache
+
+    return sorted(TeamPlayerCache.get_team_codes())
 
 
 def get_league_entries() -> List[Dict[str, str]]:
-    """Get league codes/names from autocomplete data."""
-    data = load_autocomplete_data()
-    codes_map = data.get("leagues_codes", {}) or {}
-    full_names = data.get("leagues_full_names", {}) or {}
+    """Divisions in tier order as ``{"code", "name"}`` (from the league cache)."""
+    from utils.league_cache import LeagueCache
 
-    entries: List[Dict[str, str]] = []
-    seen_codes = set()
-
-    for key, raw_code in codes_map.items():
-        code = (raw_code or key).upper()
-        seen_codes.add(code)
-        entries.append({
-            "code": code,
-            "name": full_names.get(key) or full_names.get(code) or code,
-        })
-
-    for key, name in full_names.items():
-        code = codes_map.get(key) or key
-        normalized = (code or key).upper()
-        if normalized in seen_codes:
-            continue
-        seen_codes.add(normalized)
-        entries.append({"code": normalized, "name": name})
-
-    return entries
+    return [
+        {"code": (d.get("code") or "").upper(), "name": d.get("name") or d.get("code") or ""}
+        for d in LeagueCache.divisions()
+    ]

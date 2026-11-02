@@ -12,6 +12,7 @@ from utils.team_player_cache import TeamPlayerCache
 from utils.embed_builder import EmbedBuilder
 from cogs.score.roster_cache import RosterCache
 from db.db_utils import execute_async
+from utils.league_cache import LeagueCache
 
 logger = logging.getLogger(__name__)
 
@@ -115,15 +116,8 @@ class SigningAcceptButton(ui.DynamicItem[ui.Button], template=r'signing:accept:(
             team = (await execute_async(supabase.table('teams').select('*').eq('id', signing['team_id']).single())).data
             
             # Get league info for styling
-            league_code = ''
-            division_id = team.get('division_id')
-            if division_id:
-                try:
-                    div_resp = await execute_async(supabase.table('divisions').select('league_type').eq('id', division_id).limit(1))
-                    if div_resp.data:
-                        league_code = div_resp.data[0].get('league_type', '').upper()
-                except Exception:
-                    pass
+            division = LeagueCache.team_division(signing['team_id'], signing.get('season_id')) or {}
+            league_code = (division.get('code') or '').upper()
             
             # Get season name
             season_name = 'Unknown Season'

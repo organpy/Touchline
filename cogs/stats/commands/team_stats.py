@@ -52,20 +52,16 @@ class TeamStatsCog(StatsCogBase):
             await interaction.followup.send(f"❌ Team `{team}` was not found.")
             return
 
-        # When only team is given, use its division's active season
-        default_league_code = team_row.get('league_type') if not league else None
+        # The division is the one the team played in that season
         season_row, league_meta = await self._resolve_season_context(
             league_input=league,
             season_input=season,
-            default_season_id=None,
-            default_league_code=default_league_code,
+            team_id=team_row['id'],
         )
         if not season_row:
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
-        if not league_meta and team_row.get('league_code'):
-            league_meta = await self._fetch_league_metadata(team_row['league_code'])
 
         league_season_display = self._format_league_season_display(league_meta, season_row)
 
@@ -97,7 +93,7 @@ class TeamStatsCog(StatsCogBase):
 
         # Build embed with styling
         season_league_display = self._format_league_display(league_meta)
-        league_code = ((league_meta or {}).get('code') or team_row.get('league_code') or '').upper()
+        league_code = ((league_meta or {}).get('code') or '').upper()
         team_code = team_row.get('code', '')
         team_display = team_row.get('display_name') or team_row.get('name', team)
 
@@ -152,20 +148,16 @@ class TeamStatsCog(StatsCogBase):
             await interaction.followup.send(f"❌ Team `{team}` was not found.")
             return
 
-        # When only team is given, use its division's active season
-        default_league_code = team_row.get('league_type') if not league else None
+        # The division is the one the team played in that season
         season_row, league_meta = await self._resolve_season_context(
             league_input=league,
             season_input=season,
-            default_season_id=None,
-            default_league_code=default_league_code,
+            team_id=team_row['id'],
         )
         if not season_row:
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
 
-        if not league_meta and team_row.get('league_code'):
-            league_meta = await self._fetch_league_metadata(team_row['league_code'])
 
         league_season_display = self._format_league_season_display(league_meta, season_row)
 
@@ -197,7 +189,7 @@ class TeamStatsCog(StatsCogBase):
 
         # Build embed with styling
         season_league_display = self._format_league_display(league_meta)
-        league_code = ((league_meta or {}).get('code') or team_row.get('league_code') or '').upper()
+        league_code = ((league_meta or {}).get('code') or '').upper()
         team_code = team_row.get('code', '')
         team_display = team_row.get('display_name') or team_row.get('name', team)
 

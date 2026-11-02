@@ -25,6 +25,7 @@ from utils.embed_assets import (
 )
 from utils.team_colors import get_team_color
 from db.db_utils import execute_async
+from utils.league_cache import LeagueCache
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -346,20 +347,14 @@ class ForceSignView(discord.ui.View):
                     await interaction.followup.send("❌ Failed to create player record.", ephemeral=True)
                     return
 
-            # Get active season for team's division
-            team_division_id = self._selected_team.get('division_id')
-            season_response = await execute_async(
-                self.supabase
-                .table('seasons')
-                .select('*')
-                .eq('division_id', team_division_id)
-                .eq('active', True)
-                .limit(1)
-            )
-            season = season_response.data[0] if season_response.data else None
+            # Signings go into the active season; the team must be in a division this season
+            season = await queries.get_active_season(self.supabase)
             if not season:
+                await interaction.followup.send("❌ No active season. Cannot sign player.", ephemeral=True)
+                return
+            if not LeagueCache.assignment(self._selected_team['id'], season['id']):
                 await interaction.followup.send(
-                    f"❌ No active season found for division {team_division_id}. Cannot sign player.",
+                    f"❌ **{self._selected_team.get('name')}** isn't in a division for {season['name']}.",
                     ephemeral=True,
                 )
                 return
@@ -372,7 +367,7 @@ class ForceSignView(discord.ui.View):
                 .eq('season_id', season['id'])
                 .eq('team_id', self._selected_team['id'])
                 .eq('player_id', player['id'])
-                .is_('left_at', None)
+                .is_('left_at', 'null')
             )
             if existing_roster.data:
                 await interaction.followup.send(
@@ -402,15 +397,7 @@ class ForceSignView(discord.ui.View):
                 from utils.team_colors import get_division_color
                 
                 # Get league code from division
-                league_code = ''
-                division_id = self._selected_team.get('division_id')
-                if division_id:
-                    try:
-                        div_resp = await execute_async(self.supabase.table('divisions').select('league_type').eq('id', division_id).limit(1))
-                        if div_resp.data:
-                            league_code = div_resp.data[0].get('league_type', '').upper()
-                    except Exception:
-                        pass
+                league_code = ((LeagueCache.team_division(self._selected_team['id']) or {}).get('code') or '').upper()
                 
                 team_code = self._selected_team.get('code', '')
                 team_label = format_team_label_from_record(self._selected_team)
@@ -585,7 +572,7 @@ class ForceReleaseView(LazyInitView):
                                         
                                         cache = TeamPlayerCache()
                                         team_info = cache.get_team_by_code(team_code) or {}
-                                        league_code = team_info.get('league_type', '').upper()
+                                        league_code = (team_info.get('league_type') or '').upper()
                                         team_label = format_team_label_by_code(team_code)
                                         
                                         # Build unified embed
@@ -823,7 +810,7 @@ class ForceTransferView(LazyInitView):
                                         cache = TeamPlayerCache()
                                         source_team = cache.get_team_by_code(current_code) or {}
                                         dest_team_info = cache.get_team_by_code(dest_code) or {}
-                                        league_code = dest_team_info.get('league_type', '').upper()
+                                        league_code = (dest_team_info.get('league_type') or '').upper()
                                         
                                         from_team_label = format_team_label_by_code(current_code)
                                         to_team_label = format_team_label_by_code(dest_code)

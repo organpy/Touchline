@@ -18,8 +18,8 @@ from .models import MatchEntry, TeamMatchEntry, PlayerStatEntry
 from .roster_cache import RosterCache
 from .access import NOT_ALLOWED_MESSAGE, NOT_YOUR_MATCH_MESSAGE, resolve_reporter_access
 from utils.team_player_cache import TeamPlayerCache
-from utils.config_manager import get_config_manager
 from db.db_utils import execute_async
+from utils.league_cache import LeagueCache
 
 logger = logging.getLogger(__name__)
 
@@ -417,31 +417,18 @@ class BulkStatsCog(commands.Cog):
             # Resolve active season for division
             season = await queries.get_active_season(self.supabase, division_id=team1.division_id)
             if not season:
-                await teams_interaction.response.send_message("❌ No active season for this division.", ephemeral=True)
+                await teams_interaction.response.send_message("❌ There is no active season.", ephemeral=True)
                 return
 
             matches = await queries.get_matches_between_teams(self.supabase, season['id'], team1.team_id, team2.team_id)
-            schedules = await queries.get_schedules_between_teams(self.supabase, season['id'], team1.team_id, team2.team_id)
-
             played = len(matches)
-            scheduled = len(schedules)
-
-            # Get configured games limit for this division
-            division = await queries.get_division_by_id(self.supabase, team1.division_id)
-            league_type = (division.get('league_type') or '').upper() if division else ''
-            config_mgr = get_config_manager()
-            games_limit = await config_mgr.get_division_games_limit(teams_interaction.guild_id, league_type)
-            
-            # Use configured limit if schedules not set, otherwise use scheduled count
-            max_games = scheduled if scheduled > 0 else games_limit
+            # Games per pairing is a division rule (Dashboard → Divisions → Rules)
+            max_games = LeagueCache.settings(team1.division_id).games_per_matchup if team1.division_id else None
 
             desc_lines = [
                 f"**{team1.name}** vs **{team2.name}**",
             ]
-            if max_games:
-                desc_lines.append(f"Limit: **{max_games}** • Played: **{played}**")
-            else:
-                desc_lines.append(f"Scheduled: **{scheduled}** • Played: **{played}**")
+            desc_lines.append(f"Limit: **{max_games or '—'}** • Played: **{played}**")
             if matches:
                 for m in matches[:10]:
                     t1 = m.get('team1_score', 0)
@@ -799,30 +786,18 @@ class BulkStatsCog(commands.Cog):
             # Show head-to-head preview and block if all scheduled played
             season = await queries.get_active_season(self.supabase, division_id=team1.division_id)
             if not season:
-                await teams_interaction.response.send_message("❌ No active season for this division.", ephemeral=True)
+                await teams_interaction.response.send_message("❌ There is no active season.", ephemeral=True)
                 return
 
             matches = await queries.get_matches_between_teams(self.supabase, season['id'], team1.team_id, team2.team_id)
-            schedules = await queries.get_schedules_between_teams(self.supabase, season['id'], team1.team_id, team2.team_id)
             played = len(matches)
-            scheduled = len(schedules)
-
-            # Get configured games limit for this division
-            division = await queries.get_division_by_id(self.supabase, team1.division_id)
-            league_type = (division.get('league_type') or '').upper() if division else ''
-            config_mgr = get_config_manager()
-            games_limit = await config_mgr.get_division_games_limit(teams_interaction.guild_id, league_type)
-            
-            # Use configured limit if schedules not set, otherwise use scheduled count
-            max_games = scheduled if scheduled > 0 else games_limit
+            # Games per pairing is a division rule (Dashboard → Divisions → Rules)
+            max_games = LeagueCache.settings(team1.division_id).games_per_matchup if team1.division_id else None
 
             lines = [
                 f"**{team1.name}** vs **{team2.name}**",
             ]
-            if max_games:
-                lines.append(f"Limit: **{max_games}** • Played: **{played}**")
-            else:
-                lines.append(f"Scheduled: **{scheduled}** • Played: **{played}**")
+            lines.append(f"Limit: **{max_games or '—'}** • Played: **{played}**")
             for m in matches[:10]:
                 t1 = m.get('team1_score', 0)
                 t2 = m.get('team2_score', 0)

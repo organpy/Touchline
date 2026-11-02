@@ -1,6 +1,6 @@
 """
-Unified cache manager for all TTL-based caching (seasons, divisions, teams, standings).
-Consolidates SeasonCache and TTLCache logic into a single configuration point.
+Unified cache manager for TTL-based caching (seasons, divisions, teams, standings).
+The league structure itself (seasons, divisions, assignments) lives in utils.league_cache.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 class CacheManager:
     """
     Unified TTL-based cache manager.
-    Replaces SeasonCache (singleton) and TTLCache (generic).
     """
 
     # Configuration (tunable for different data types)
@@ -122,93 +121,3 @@ class CacheManager:
     def all_sizes(cls) -> Dict[str, int]:
         """Return sizes of all caches."""
         return {name: len(cache) for name, cache in cls._caches.items()}
-
-    # Backward-compatible season cache methods for SeasonCache migration
-    _seasons: List[Dict[str, Any]] = []
-    _division_map: Dict[str, Dict[str, Any]] = {}
-    _last_refresh: Optional[datetime] = None
-
-    CACHE_TTL_SECONDS = 300
-
-    @classmethod
-    def is_stale(cls) -> bool:
-        """Check if season cache is stale (backward compatibility)."""
-        if cls._last_refresh is None:
-            return True
-        return datetime.now(timezone.utc) - cls._last_refresh > timedelta(seconds=cls.CACHE_TTL_SECONDS)
-
-    @classmethod
-    async def ensure_ready(cls) -> List[Dict[str, Any]]:
-        """Ensure season cache is populated (backward compatibility)."""
-        if not cls._seasons or cls.is_stale():
-            await cls.refresh_seasons()
-        return cls._seasons
-
-    @classmethod
-    async def refresh_seasons(cls, supabase=None) -> List[Dict[str, Any]]:
-        """Reload seasons from Supabase (backward compatibility with SeasonCache)."""
-        if supabase is not None:
-            cls._supabase = supabase
-
-        if not cls._supabase:
-            logger.warning("CacheManager refresh requested before Supabase client was set")
-            cls._seasons = []
-            cls._division_map = {}
-            cls._last_refresh = None
-            return cls._seasons
-
-        try:
-            logger.info("🔄 Refreshing season cache...")
-            seasons_response = await execute_async(
-                cls._supabase
-                .table("seasons")
-                .select("id,name,active,division_id,created_at,start_date,end_date")
-                .order("created_at", desc=True)
-            )
-            seasons = seasons_response.data or []
-
-            division_ids = {s.get("division_id") for s in seasons if s.get("division_id")}
-            division_map: Dict[str, Dict[str, Any]] = {}
-            if division_ids:
-                division_response = await execute_async(
-                    cls._supabase
-                    .table("divisions")
-                    .select("id,name,league_type")
-                    .in_("id", list(division_ids))
-                )
-                division_map = {d["id"]: d for d in (division_response.data or []) if d.get("id")}
-
-            for season in seasons:
-                division = division_map.get(season.get("division_id"))
-                if division:
-                    season["division"] = division
-                    season.setdefault("league_type", division.get("league_type"))
-                    season.setdefault("division_name", division.get("name"))
-
-            cls._seasons = seasons
-            cls._division_map = division_map
-            cls._last_refresh = datetime.now(timezone.utc)
-            logger.info("✅ Season cache refreshed (%d seasons)", len(cls._seasons))
-        except Exception as exc:
-            logger.error("Failed to refresh season cache: %s", exc, exc_info=True)
-            cls._seasons = []
-
-        return cls._seasons
-
-    @classmethod
-    def get_cached_seasons(cls) -> List[Dict[str, Any]]:
-        """Get cached seasons (backward compatibility)."""
-        return cls._seasons
-
-    @classmethod
-    def get_season_by_id(cls, season_id: str) -> Optional[Dict[str, Any]]:
-        """Get season by ID from cache (backward compatibility)."""
-        return next((s for s in cls._seasons if s.get("id") == season_id), None)
-
-    @classmethod
-    def get_active_season_for_division(cls, division_id: str) -> Optional[Dict[str, Any]]:
-        """Get active season for a division (backward compatibility)."""
-        return next(
-            (s for s in cls._seasons if s.get("division_id") == division_id and s.get("active")),
-            None,
-        )

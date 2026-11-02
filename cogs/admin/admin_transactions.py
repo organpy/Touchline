@@ -20,6 +20,7 @@ from cogs.admin.transaction_blocker import TransactionBlockerSummaryView
 from cogs.admin.trades import TradeManagementView
 from utils.config_utility import ConfigUtility
 from utils.dashboard_metrics import DashboardMetricsView
+from utils.league_cache import LeagueCache
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +184,8 @@ class AdminDashboardView(discord.ui.View):
         if not await self._safe_defer(interaction):
             return
         view = SeasonActionsView(self.bot, interaction.guild.id, self.bot.supabase)
+        await LeagueCache.ensure_ready()
+        view._sync_buttons()
         embed = view.create_embed()
         message = await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         try:

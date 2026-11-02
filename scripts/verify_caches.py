@@ -126,9 +126,9 @@ async def test_season_cache():
     cached = SeasonCache.get_cached_seasons()
     print_result("get_cached_seasons works", isinstance(cached, list) and len(cached) == len(seasons))
     
-    # Test 5: Division enrichment
-    has_division = any(s.get("division") or s.get("league_type") for s in seasons)
-    print_result("Seasons have division metadata", has_division)
+    # Test 5: League-wide seasons carry a phase; at most one is active
+    print_result("Seasons have a phase", all(s.get("phase") for s in seasons))
+    print_result("At most one active season", sum(1 for s in seasons if s.get("active")) <= 1)
     
     # Test 6: ensure_ready doesn't re-fetch when fresh
     seasons2 = await SeasonCache.ensure_ready()
@@ -175,7 +175,7 @@ async def test_team_player_cache():
     # Test 4: Teams have league metadata
     if teams:
         has_league = any(t.get('league_type') for t in teams)
-        print_result("Teams have league_type", has_league)
+        print_result("Teams have a division this season", has_league, "Assign teams in Dashboard → Teams")
         has_season = any(t.get('active_season_id') for t in teams)
         print_result("Teams have active_season_id", has_season)
     
