@@ -8,6 +8,7 @@ class FakeQuery:
     def __init__(self, data):
         self._data = [dict(row) for row in data]
         self._filters = []
+        self._range = None
 
     def select(self, *_args):
         return self
@@ -16,6 +17,10 @@ class FakeQuery:
         return self
 
     def limit(self, *_args, **_kwargs):
+        return self
+
+    def range(self, start, end):
+        self._range = (start, end)
         return self
 
     def eq(self, column, value):
@@ -42,7 +47,10 @@ class FakeQuery:
                     rows = [row for row in rows if row.get(column) == value]
             elif kind == "in":
                 rows = [row for row in rows if row.get(column) in value]
-        return SimpleNamespace(data=rows)
+        if self._range:
+            rows = rows[self._range[0]:self._range[1] + 1]
+        # Like the real API, never more than 1000 rows in one response.
+        return SimpleNamespace(data=rows[:1000])
 
 
 class FakeSupabase:
@@ -123,3 +131,17 @@ def test_is_fresh_after_refresh():
         assert TeamPlayerCache.is_fresh() is False
     finally:
         TeamPlayerCache.invalidate()
+
+
+def test_cache_refresh_loads_more_than_one_page_of_players():
+    """Supabase returns at most 1000 rows a request; players beyond that must still reach the cache."""
+    players = [{"id": f"p{i}", "display_name": f"Player {i}", "discord_id": 1000 + i} for i in range(2500)]
+    fake_supabase = FakeSupabase({"players": players, "teams": [], "divisions": [], "seasons": [], "rosters": []})
+
+    TeamPlayerCache.invalidate()
+    TeamPlayerCache.set_supabase(fake_supabase)
+    asyncio.run(TeamPlayerCache.refresh())
+
+    assert len(TeamPlayerCache.get_all_players()) == 2500
+    assert TeamPlayerCache.get_player_by_name("Player 2499") is not None
+    TeamPlayerCache.invalidate()

@@ -23,6 +23,7 @@ class FakeTable:
     def __init__(self, data):
         self.data = data
         self.filters = {}
+        self._range = None
     
     def select(self, *args, **kwargs):
         return self
@@ -41,6 +42,10 @@ class FakeTable:
     
     def order(self, field, desc=False):
         return self
+
+    def range(self, start, end):
+        self._range = (start, end)
+        return self
     
     def execute(self):
         # Filter data based on accumulated filters
@@ -53,6 +58,8 @@ class FakeTable:
             else:
                 result = [d for d in result if d.get(field) == value]
         
+        if self._range:
+            result = result[self._range[0]:self._range[1] + 1]
         response = Mock()
         response.data = result
         return response

@@ -112,3 +112,63 @@ class TestQueryMetrics:
         await execute_async(query)
 
         assert MetricsCollector.get_summary()["query_stats"]["unknown"]["count"] == 1
+
+
+class TestFetchAll:
+    """Supabase returns at most 1000 rows per request, so large reads must be paged."""
+
+    @staticmethod
+    def _table(total):
+        from types import SimpleNamespace
+        requests = []
+        rows = [{"id": i} for i in range(total)]
+
+        class Query:
+            def __init__(self):
+                self._range = None
+
+            def range(self, start, end):
+                self._range = (start, end)
+                return self
+
+            def execute(self):
+                start, end = self._range
+                requests.append((start, end))
+                return SimpleNamespace(data=rows[start:end + 1])
+
+        return Query, requests
+
+    @pytest.mark.asyncio
+    async def test_reads_every_row_across_pages(self):
+        from db.db_utils import fetch_all
+        query, requests = self._table(25)
+
+        rows = await fetch_all(query, page_size=10)
+
+        assert [r["id"] for r in rows] == list(range(25))
+        assert requests == [(0, 9), (10, 19), (20, 29)]
+
+    @pytest.mark.asyncio
+    async def test_a_full_last_page_costs_one_extra_empty_request(self):
+        from db.db_utils import fetch_all
+        query, requests = self._table(20)
+
+        rows = await fetch_all(query, page_size=10)
+
+        assert len(rows) == 20
+        assert requests == [(0, 9), (10, 19), (20, 29)]
+
+    @pytest.mark.asyncio
+    async def test_a_small_table_is_one_request(self):
+        from db.db_utils import fetch_all
+        query, requests = self._table(3)
+
+        assert len(await fetch_all(query, page_size=10)) == 3
+        assert requests == [(0, 9)]
+
+    @pytest.mark.asyncio
+    async def test_an_empty_table_returns_nothing(self):
+        from db.db_utils import fetch_all
+        query, _ = self._table(0)
+
+        assert await fetch_all(query, page_size=10) == []
