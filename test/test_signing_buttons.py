@@ -35,6 +35,7 @@ def repo():
     }
     repo.get_active_roster_entry.return_value = None
     repo.insert_transaction.return_value = {'id': 'tx-1'}
+    repo.last_error = None
 
     supabase = MagicMock()
     supabase.table.return_value.select.return_value.eq.return_value.single.return_value.execute.return_value = Mock(
@@ -75,6 +76,19 @@ class TestAccept:
         await SigningAcceptButton('sign-1').callback(_interaction())
 
         repo.update_pending_signing_status.assert_called_once_with('sign-1', 'pending')
+
+    @pytest.mark.asyncio
+    async def test_rule_refusal_closes_offer_with_reason(self, repo):
+        repo.claim_pending_signing.return_value = True
+        repo.insert_transaction.return_value = None
+        repo.last_error = "That player is already on another team this season. Release or transfer them first."
+        interaction = _interaction()
+
+        await SigningAcceptButton('sign-1').callback(interaction)
+
+        repo.update_pending_signing_status.assert_called_once_with('sign-1', 'declined')
+        sent = interaction.followup.send.call_args.args[0]
+        assert "already on another team" in sent
 
 
 class TestDecline:

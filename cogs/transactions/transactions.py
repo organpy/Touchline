@@ -40,6 +40,7 @@ from .history import fetch_filtered_transactions, build_history_embed
 from .pick_trading import picks_enabled_for_division
 from utils.league_cache import LeagueCache
 from db.db_utils import execute_async
+from db.league_repository import friendly_error
 
 logger = logging.getLogger(__name__)
 
@@ -1335,7 +1336,7 @@ class TransactionsCog(commands.GroupCog, name="transactions"):
                 except Exception as e:
                     logger.error(f"Error transferring ownership: {e}", exc_info=True)
                     await btn_interaction.followup.send(
-                        f"Error transferring ownership: {str(e)[:100]}",
+                        friendly_error(e, "Failed to transfer ownership. Please try again."),
                         ephemeral=True,
                     )
 

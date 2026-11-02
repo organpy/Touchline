@@ -1,6 +1,7 @@
 """
 Access control for reporting match results.
 Only admins and team owners may report; owners only for matches involving their own team.
+Each owner has at most one team (enforced by ux_teams_owner).
 """
 
 from __future__ import annotations
@@ -43,8 +44,7 @@ async def resolve_reporter_access(
     if await ConfigUtility.check_admin_permissions(interaction, guild_config):
         return ReporterAccess(is_admin=True)
 
-    teams = await queries.get_teams_by_owner(supabase, interaction.user.id)
-    owned_team_ids = frozenset(str(team['id']) for team in teams if team.get('id'))
-    if not owned_team_ids:
+    team = await queries.get_team_by_owner(supabase, interaction.user.id)
+    if not team or not team.get('id'):
         return None
-    return ReporterAccess(is_admin=False, owned_team_ids=owned_team_ids)
+    return ReporterAccess(is_admin=False, owned_team_ids=frozenset({str(team['id'])}))

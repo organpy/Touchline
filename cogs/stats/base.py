@@ -177,30 +177,19 @@ class StatsCogBase(commands.Cog):
 
     @staticmethod
     def _select_player_membership(player: Optional[Dict[str, Any]], season_id: Optional[str]) -> Optional[Dict[str, Any]]:
-        """The player's team in the season (or their current team)."""
+        """The player's team in the active season, when that is the season asked for (or none given).
+
+        A player is on at most one team per season, so the cache keeps a single membership.
+        Other seasons are looked up from rosters with ``_player_team_in_season``.
+        """
         if not player:
             return None
-
-        memberships_by_season = player.get('memberships_by_season') or {}
-        if season_id and season_id in memberships_by_season:
-            return memberships_by_season[season_id]
-
-        active_memberships = player.get('active_memberships') or []
-        if active_memberships:
-            return active_memberships[0]
-
-        current_membership = {
-            'team_id': player.get('current_team_id'),
-            'team_code': player.get('current_team_code'),
-            'team_name': player.get('current_team_name'),
-            'season_id': player.get('current_season_id'),
-            'season_name': player.get('current_season_name'),
-            'league_type': player.get('current_league_type'),
-            'league_name': player.get('current_league_name'),
-        }
-        if any(current_membership.values()):
-            return current_membership
-        return None
+        membership = player.get('membership')
+        if not membership:
+            return None
+        if season_id and membership.get('season_id') != season_id:
+            return None
+        return membership
 
     async def _player_team_in_season(self, player_id: str, season_id: str) -> Optional[str]:
         """Team id the player was (last) rostered on in a season."""

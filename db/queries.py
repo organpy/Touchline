@@ -238,12 +238,6 @@ async def get_team_by_owner(supabase, owner_discord_id: int) -> Optional[Dict[st
         return None
 
 
-async def get_teams_by_owner(supabase, owner_discord_id: int) -> List[Dict[str, Any]]:
-    """The owner's team as a list (empty or one item), kept for callers that loop."""
-    team = await get_team_by_owner(supabase, owner_discord_id)
-    return [team] if team else []
-
-
 async def get_player_by_discord_id(supabase, discord_id: int) -> Optional[Dict[str, Any]]:
     """Fetch a player row by Discord account id."""
     try:
