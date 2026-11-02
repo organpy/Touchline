@@ -44,6 +44,27 @@ async def execute_async(query: Any) -> Any:
     return response
 
 
+# Supabase returns at most this many rows per request, silently dropping the rest.
+PAGE_SIZE = 1000
+
+
+async def fetch_all(build_query: Callable[[], Any], page_size: int = PAGE_SIZE) -> list:
+    """Every row of a query, fetched page by page.
+
+    ``build_query`` returns a fresh query each time (a query can only be used once) and should order by a unique
+    column such as ``id`` so pages never overlap or skip rows.
+    """
+    rows: list = []
+    start = 0
+    while True:
+        response = await execute_async(build_query().range(start, start + page_size - 1))
+        batch = response.data or []
+        rows.extend(batch)
+        if len(batch) < page_size:
+            return rows
+        start += page_size
+
+
 def _query_name(query: Any) -> str:
     """Metric key for a Supabase query, such as ``GET matches`` or ``POST rpc/record_match``."""
     try:
