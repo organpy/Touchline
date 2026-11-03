@@ -1,483 +1,301 @@
+"""``/help`` (browse and search commands) and ``/admin-help`` (how to run a league).
+
+Commands are grouped by the ``[TAG]`` at the start of their description, so new commands show up in
+the right category without touching this file.
 """
-Enhanced help command system with category browsing and search.
-Provides structured command discovery with pagination and admin-only help.
-"""
+
+from __future__ import annotations
+
+import logging
+from enum import Enum
+from typing import Dict, List, Optional, Tuple
 
 import discord
 from discord import app_commands
 from discord.ext import commands
-import logging
-from typing import List, Optional, Dict, Tuple
-from enum import Enum
+
+from utils.branding import get_league_name
 
 logger = logging.getLogger(__name__)
 
+PAGE_SIZE = 8
+
 
 class CommandCategory(Enum):
-    """Formal command categories."""
-    STATS = ("📊 Stats", "Statistics, leaderboards, and standings")
-    TEAM_OWNER = ("👔 Team Owner", "Player recruitment and roster management")
-    MEMBERS = ("👥 Members", "Public league information and commands")
+    """Command categories: (title, description)."""
+
+    STATS = ("📊 Stats", "Standings, leaderboards, player and team stats")
+    TEAM_OWNER = ("👔 Team Owner", "Signings, releases, trades and draft picks for your team")
+    MEMBERS = ("👥 Members", "League information for everyone")
     SEARCH = ("🔍 Search", "Find players and teams")
-    SCORE = ("🏀 Score", "Recording match results and stats")
-    ADMIN = ("⚙️ Admin", "Server and league administration")
-    HELP = ("❓ Help", "Help and documentation")
-    OTHER = ("📌 Other", "Miscellaneous commands")
+    SCORE = ("🏀 Score", "Report game results and player stats")
+    ADMIN = ("⚙️ Admin", "Running the league (most of it lives in /dashboard)")
+    HELP = ("❓ Help", "Help and guides")
+    OTHER = ("📌 Other", "Everything else")
+
+
+TAG_CATEGORIES = {
+    "STATS": CommandCategory.STATS,
+    "TEAM OWNER": CommandCategory.TEAM_OWNER,
+    "OWNER": CommandCategory.TEAM_OWNER,
+    "MEMBERS": CommandCategory.MEMBERS,
+    "SEARCH": CommandCategory.SEARCH,
+    "SCORE": CommandCategory.SCORE,
+    "ADMIN": CommandCategory.ADMIN,
+    "HELP": CommandCategory.HELP,
+}
+
+
+def strip_tag(description: str) -> str:
+    if description.startswith("[") and "]" in description:
+        return description[description.index("]") + 1:].strip()
+    return description
+
+
+def category_for(name: str, description: str) -> CommandCategory:
+    if description.startswith("[") and "]" in description:
+        tag = description[1:description.index("]")].upper()
+        if tag in TAG_CATEGORIES:
+            return TAG_CATEGORIES[tag]
+    if name.startswith("report-"):
+        return CommandCategory.SCORE
+    if name in ("help", "admin-help"):
+        return CommandCategory.HELP
+    return CommandCategory.OTHER
+
+
+def categorize(tree: app_commands.CommandTree) -> Dict[CommandCategory, List[Tuple[str, str]]]:
+    categories: Dict[CommandCategory, List[Tuple[str, str]]] = {cat: [] for cat in CommandCategory}
+    for cmd in tree.walk_commands():
+        description = cmd.description or "No description"
+        categories[category_for(cmd.qualified_name, description)].append((cmd.qualified_name, strip_tag(description)))
+    for entries in categories.values():
+        entries.sort()
+    return categories
+
+
+def overview_embed(categories: Dict[CommandCategory, List[Tuple[str, str]]]) -> discord.Embed:
+    embed = discord.Embed(
+        title=f"📚 {get_league_name()} Commands",
+        description="Pick a category below. `/help command:<name>` explains one command; `/help search:<word>` finds commands.",
+        color=discord.Color.blurple(),
+    )
+    for category in CommandCategory:
+        entries = categories.get(category) or []
+        if entries:
+            name, description = category.value
+            embed.add_field(name=f"{name} ({len(entries)})", value=description, inline=False)
+    return embed
 
 
 class HelpView(discord.ui.View):
-    """Main help view with category selection."""
-    
+    """Category browser that edits the help message in place."""
+
     def __init__(self, bot: commands.Bot, categories: Dict, timeout: float = 180.0):
         super().__init__(timeout=timeout)
         self.bot = bot
         self.categories = categories
         self.current_category: Optional[CommandCategory] = None
         self.current_page = 0
-    
+        self._build()
+
+    def _pages(self) -> int:
+        entries = self.categories.get(self.current_category) or []
+        return max(1, -(-len(entries) // PAGE_SIZE))
+
+    def _build(self) -> None:
+        self.clear_items()
+        options = [
+            discord.SelectOption(
+                label=category.value[0][2:].strip()[:100],
+                emoji=category.value[0].split()[0],
+                value=category.name,
+                description=f"{len(self.categories[category])} commands",
+                default=category is self.current_category,
+            )
+            for category in CommandCategory
+            if self.categories.get(category)
+        ]
+        if options:
+            select = discord.ui.Select(placeholder="Choose a category...", options=options, row=0)
+            select.callback = self._choose
+            self.add_item(select)
+        if self.current_category is not None:
+            previous_page = discord.ui.Button(label="◀", row=1, disabled=self.current_page == 0)
+            next_page = discord.ui.Button(label="▶", row=1, disabled=self.current_page >= self._pages() - 1)
+            overview = discord.ui.Button(label="All categories", row=1)
+            previous_page.callback = self._previous
+            next_page.callback = self._next
+            overview.callback = self._overview
+            for item in (previous_page, next_page, overview):
+                self.add_item(item)
+
     def get_category_embed(self, category: CommandCategory) -> discord.Embed:
-        """Get embed for a specific category."""
-        if category not in self.categories:
-            embed = discord.Embed(
-                title="❌ Category Not Found",
-                description="This category has no commands.",
-                color=discord.Color.red()
-            )
-            return embed
-        
-        commands_list = self.categories[category]
-        page_size = 8
-        total_pages = (len(commands_list) + page_size - 1) // page_size
-        
-        start_idx = self.current_page * page_size
-        end_idx = start_idx + page_size
-        page_commands = commands_list[start_idx:end_idx]
-        
-        category_name, category_desc = category.value
-        embed = discord.Embed(
-            title=f"{category_name} Commands",
-            description=category_desc,
-            color=discord.Color.blue()
-        )
-        
-        for cmd_name, cmd_desc in page_commands:
-            # Clean description (remove category tag if present)
-            clean_desc = cmd_desc
-            if clean_desc.startswith('[') and ']' in clean_desc:
-                clean_desc = clean_desc[clean_desc.index(']') + 1:].strip()
-            
-            embed.add_field(
-                name=f"`/{cmd_name}`",
-                value=clean_desc[:100] + "..." if len(clean_desc) > 100 else clean_desc,
-                inline=False
-            )
-        
-        embed.set_footer(
-            text=f"Page {self.current_page + 1}/{total_pages if total_pages > 0 else 1} • Use `/help command:<name>` for details"
-        )
-        
+        entries = self.categories.get(category) or []
+        name, description = category.value
+        embed = discord.Embed(title=f"{name} Commands", description=description, color=discord.Color.blue())
+        start = self.current_page * PAGE_SIZE
+        for cmd_name, cmd_description in entries[start:start + PAGE_SIZE]:
+            text = cmd_description if len(cmd_description) <= 100 else cmd_description[:97] + "..."
+            embed.add_field(name=f"`/{cmd_name}`", value=text or "No description", inline=False)
+        embed.set_footer(text=f"Page {self.current_page + 1}/{self._pages()} · /help command:<name> for details")
         return embed
-    
-    async def update_view(self, interaction: discord.Interaction):
-        """Update the view with current category and page."""
+
+    def current_embed(self) -> discord.Embed:
         if self.current_category is None:
-            # Show category selection
-            embed = discord.Embed(
-                title="📚 Touchline Command Categories",
-                description="Select a category to view commands. Use `/help search:<keyword>` to find specific commands.",
-                color=discord.Color.blurple()
-            )
-            
-            for category in CommandCategory:
-                if category in self.categories and self.categories[category]:
-                    name, desc = category.value
-                    count = len(self.categories[category])
-                    embed.add_field(
-                        name=f"{name}",
-                        value=f"{desc}\n└ *{count} command{'s' if count != 1 else ''}*",
-                        inline=False
-                    )
-            
-            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
-        else:
-            # Show specific category
-            embed = self.get_category_embed(self.current_category)
-            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
-    
-    @discord.ui.button(label="📊 Stats", style=discord.ButtonStyle.primary)
-    async def stats_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        self.current_category = CommandCategory.STATS
+            return overview_embed(self.categories)
+        return self.get_category_embed(self.current_category)
+
+    async def _redraw(self, interaction: discord.Interaction) -> None:
+        self._build()
+        await interaction.response.edit_message(embed=self.current_embed(), view=self)
+
+    async def _choose(self, interaction: discord.Interaction) -> None:
+        self.current_category = CommandCategory[interaction.data["values"][0]]
         self.current_page = 0
-        await self.update_view(interaction)
-    
-    @discord.ui.button(label="👔 Team Owner", style=discord.ButtonStyle.primary)
-    async def owner_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        self.current_category = CommandCategory.TEAM_OWNER
-        self.current_page = 0
-        await self.update_view(interaction)
-    
-    @discord.ui.button(label="👥 Members", style=discord.ButtonStyle.primary)
-    async def members_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        self.current_category = CommandCategory.MEMBERS
-        self.current_page = 0
-        await self.update_view(interaction)
-    
-    @discord.ui.button(label="🔍 Search", style=discord.ButtonStyle.primary)
-    async def search_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message(
-            "Enter search query (or say 'cancel' to exit):",
-            ephemeral=True,
-        )
-    
-    @discord.ui.button(label="⬅️ Previous", style=discord.ButtonStyle.secondary, row=1)
-    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._redraw(interaction)
+
+    async def _previous(self, interaction: discord.Interaction) -> None:
+        self.current_page = max(0, self.current_page - 1)
+        await self._redraw(interaction)
+
+    async def _next(self, interaction: discord.Interaction) -> None:
+        self.current_page = min(self._pages() - 1, self.current_page + 1)
+        await self._redraw(interaction)
+
+    async def _overview(self, interaction: discord.Interaction) -> None:
         self.current_category = None
         self.current_page = 0
-        await self.update_view(interaction)
-    
-    @discord.ui.button(label="⬅️ Previous", style=discord.ButtonStyle.secondary, row=1)
-    async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.current_category:
-            self.current_page = max(0, self.current_page - 1)
-            await self.update_view(interaction)
+        await self._redraw(interaction)
 
 
-class AdminHelpView(discord.ui.View):
-    """Admin help view with admin category selection."""
-    
-    def __init__(self, timeout: float = 180.0):
-        super().__init__(timeout=timeout)
-        self.current_section: Optional[str] = None
-    
-    def get_admin_embed(self) -> discord.Embed:
-        """Get main admin help embed."""
-        embed = discord.Embed(
-            title="⚙️ Admin Command Reference",
-            description="Administrative commands for managing leagues, teams, and players.",
-            color=discord.Color.blue()
-        )
-        
-        # Quick commands section
-        embed.add_field(
-            name="⚡ Quick Commands",
-            value="`/admin-force-sign` - Force sign a player\n"
-                  "`/admin-force-release` - Force release a player\n"
-                  "`/admin-force-pick` - Assign a draft pick\n"
-                  "`/config-set-channel` - Set offer channel\n"
-                  "`/config-set-expiry` - Set offer expiry (minutes)",
-            inline=False
-        )
-        
-        # Dashboard section
-        embed.add_field(
-            name="📊 Dashboard (`/admin` main command)",
-            value="**🏢 Team Management** - Add/edit/delete teams, set owners\n"
-                  "**👤 Player Management** - Register players, link Discord IDs\n"
-                  "**🏀 Roster Management** - Force sign/release/transfer players\n"
-                  "**🏆 Draft Picks (divisions with a draft)** - Seed picks, reassign ownership\n"
-                  "**📝 Transactions** - Void/edit/resend announcements\n"
-                  "**📅 Season Management** - Create/activate seasons\n"
-                  "**⏰ Offers** - Manage signing offers\n"
-                  "**📊 Audit** - View logs and exports",
-            inline=False
-        )
-        
-        # Server config section
-        embed.add_field(
-            name="🔧 Server Configuration",
-            value="`/configure-server` - Interactive server config panel\n"
-                  "Configure: roles, channels, transaction settings, notifications",
-            inline=False
-        )
-        
-        embed.set_footer(text="Use `/admin-help` for detailed workflow guides")
-        return embed
-    
-    @discord.ui.button(label="⚡ Quick Reference", style=discord.ButtonStyle.primary)
-    async def quick_ref_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        embed = self.get_admin_embed()
-        await interaction.followup.edit_message(interaction.message.id, embed=embed)
-    
-    @discord.ui.button(label="📊 Dashboard Guide", style=discord.ButtonStyle.primary)
-    async def dashboard_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        embed = discord.Embed(
-            title="📊 Admin Dashboard Guide",
-            description="The main dashboard (`/admin`) provides unified control over league operations.",
-            color=discord.Color.blue()
-        )
-        
-        embed.add_field(
-            name="🏢 Team Management",
-            value="Create teams, assign owners, manage division affiliation\n"
-                  "• Add new teams for the league\n"
-                  "• Assign Discord user as team owner\n"
-                  "• Edit team details (name, code, emoji)",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="👤 Player Management",
-            value="Register players and link Discord accounts\n"
-                  "• Register new player with display name\n"
-                  "• Link Discord ID to player account\n"
-                  "• Update player information",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="🏀 Roster Management",
-            value="Control team rosters directly\n"
-                  "• Force sign player to team\n"
-                  "• Release player from team\n"
-                  "• Transfer player between teams",
-            inline=False
-        )
-        
-        embed.set_footer(text="Use buttons to navigate dashboard sections")
-        await interaction.followup.edit_message(interaction.message.id, embed=embed)
-    
-    @discord.ui.button(label="🏆 Workflows", style=discord.ButtonStyle.primary)
-    async def workflows_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        embed = discord.Embed(
-            title="🔄 Common Admin Workflows",
-            description="Step-by-step guides for frequent admin tasks.",
-            color=discord.Color.blue()
-        )
-        
-        embed.add_field(
-            name="New Season Setup",
-            value="1. `/admin` → Season Management → Create Season\n"
-                  "2. Enter season name (e.g., 'S11')\n"
-                  "3. Mark as active\n"
-                  "4. `/admin-seed-picks` to generate draft picks\n"
-                  "5. Season ready for play!",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="Emergency Player Signing",
-            value="1. `/admin-force-sign` player:Name team:Code\n"
-                  "2. Bypasses confirmation flow\n"
-                  "3. Automatically logged in audit trail\n"
-                  "4. Roster updated immediately",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="Fixing Roster Mistakes",
-            value="1. `/admin` → Roster Management\n"
-                  "2. Select team and player\n"
-                  "3. Choose action: Release, Transfer, or Retract\n"
-                  "4. Changes apply immediately",
-            inline=False
-        )
-        
-        embed.set_footer(text="All admin actions are logged in audit trail")
-        await interaction.followup.edit_message(interaction.message.id, embed=embed)
+ADMIN_GUIDE: List[Tuple[str, str]] = [
+    (
+        "1. Settings",
+        "`/dashboard` → **Settings**: admin role, league name and the transactions, trading and announcements channels.",
+    ),
+    (
+        "2. Divisions",
+        "**Divisions** → **Add division** for each tier (tier 1 is the top). In each division set **Rules** "
+        "(scoring, games per matchup, draft on/off), optional **Groups**, the **Championship** playoff (tier 1) "
+        "and **Pro/rel below** for the boundary with the next tier.",
+    ),
+    (
+        "3. Teams",
+        "**Teams** → **Add team**, then open the team to set its owner, colour and logo. A member owns one team.",
+    ),
+    (
+        "4. Season",
+        "**Season** → **Create season**. It starts in setup: put every team in a division (and group) from its "
+        "team page and seed draft picks under **Transactions → Draft picks**. Then start the regular season.",
+    ),
+    (
+        "5. Playing the season",
+        "Owners report games with `/report-score` or `/report-stats-bulk`. Standings update after every game.",
+    ),
+    (
+        "6. Postseason and next season",
+        "End the regular season to lock standings and create the playoff brackets. Playoff games are reported the "
+        "same way and attach to their series. When every bracket is done, review the promotions and relegations "
+        "and start the next season: teams move divisions and rosters carry over.",
+    ),
+    (
+        "Shortcuts",
+        "`/admin-transactions` opens **Transactions** · `/configure-server` opens **Settings** · "
+        "`/admin-force-sign`, `/admin-force-release`, `/admin-force-pick` for quick fixes.",
+    ),
+]
+
+
+def admin_guide_embed() -> discord.Embed:
+    embed = discord.Embed(
+        title="⚙️ Running the league",
+        description="Everything is done from `/dashboard`. A new league goes through these steps once:",
+        color=discord.Color.blue(),
+    )
+    for name, value in ADMIN_GUIDE:
+        embed.add_field(name=name, value=value, inline=False)
+    embed.set_footer(text="Every admin action is recorded in the audit log (Transactions → Audit).")
+    return embed
 
 
 class HelpCog(commands.Cog):
-    """Enhanced help system with category browsing."""
-    
+    """Command browser and admin guide."""
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-    
+
     def categorize_commands(self) -> Dict[CommandCategory, List[Tuple[str, str]]]:
-        """Categorize all commands by their category tag."""
-        categories = {cat: [] for cat in CommandCategory}
-        
-        for cmd in self.bot.tree.walk_commands():
-            desc = cmd.description or "No description"
-            category = CommandCategory.OTHER
-            
-            # Extract category from description
-            if desc.startswith('[') and ']' in desc:
-                tag = desc[1:desc.index(']')].upper()
-                
-                # Map tags to categories
-                tag_map = {
-                    "STATS": CommandCategory.STATS,
-                    "TEAM OWNER": CommandCategory.TEAM_OWNER,
-                    "MEMBERS": CommandCategory.MEMBERS,
-                    "SEARCH": CommandCategory.SEARCH,
-                    "SCORE": CommandCategory.SCORE,
-                    "ADMIN": CommandCategory.ADMIN,
-                    "HELP": CommandCategory.HELP,
-                }
-                
-                category = tag_map.get(tag, CommandCategory.OTHER)
-            
-            categories[category].append((cmd.name, desc))
-        
-        return categories
-    
-    async def autocomplete_command(
-        self,
-        interaction: discord.Interaction,
-        current: str,
-    ) -> List[app_commands.Choice[str]]:
-        """Autocomplete for command names."""
-        current_lower = (current or "").lower()
-        choices = []
-        
-        for cmd in sorted(self.bot.tree.walk_commands(), key=lambda c: c.name):
-            if current_lower and current_lower not in cmd.name.lower():
-                continue
-            
-            choices.append(app_commands.Choice(name=f"/{cmd.name}", value=cmd.name))
-            
-            if len(choices) >= 25:
-                break
-        
-        return choices
-    
-    @app_commands.command(
-        name="help",
-        description="📚 Browse commands by category or get details on a specific command"
-    )
-    @app_commands.describe(
-        command="Get detailed help for a specific command",
-        category="Browse commands by category (stats, team_owner, members, search)",
-        search="Search for commands by keyword"
-    )
+        return categorize(self.bot.tree)
+
+    async def autocomplete_command(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+        needle = (current or "").lower()
+        names = sorted({cmd.qualified_name for cmd in self.bot.tree.walk_commands()})
+        return [app_commands.Choice(name=f"/{name}", value=name) for name in names if needle in name.lower()][:25]
+
+    @app_commands.command(name="help", description="[HELP] Browse commands by category or get details on one command")
+    @app_commands.describe(command="Explain one command", search="Find commands by keyword")
     @app_commands.autocomplete(command=autocomplete_command)
-    async def help(
-        self,
-        interaction: discord.Interaction,
-        command: Optional[str] = None,
-        category: Optional[str] = None,
-        search: Optional[str] = None,
-    ):
-        """
-        Browse commands by category or search for specific commands.
-        """
-        await interaction.response.defer(ephemeral=True)
-        
-        # Specific command help
+    async def help(self, interaction: discord.Interaction, command: Optional[str] = None, search: Optional[str] = None):
         if command:
-            cmd_name = str(command).strip().lower()
-            target = None
-            
-            for cmd in self.bot.tree.walk_commands():
-                if cmd.name.lower() == cmd_name:
-                    target = cmd
-                    break
-            
-            if not target:
-                embed = discord.Embed(
-                    title="❌ Command Not Found",
-                    description=f"Could not find command `{cmd_name}`. Use `/help` to see all commands.",
-                    color=discord.Color.red()
-                )
-                await interaction.followup.send(embed=embed, ephemeral=True)
-                return
-            
-            # Build detailed help
-            embed = discord.Embed(
-                title=f"📖 /{target.name}",
-                description=target.description or "No description available",
-                color=discord.Color.green()
-            )
-            
-            if target.options:
-                opts = []
-                for opt in target.options:
-                    opt_type = getattr(opt.type, "name", "string")
-                    required = "required" if getattr(opt, "required", False) else "optional"
-                    opts.append(f"**{opt.name}** ({opt_type}) — {required}")
-                
-                embed.add_field(name="Parameters", value="\n".join(opts), inline=False)
-            
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.response.send_message(embed=self._command_embed(command), ephemeral=True)
             return
-        
-        # Search for commands
         if search:
-            search_term = search.lower()
-            matching = []
-            
-            for cmd in self.bot.tree.walk_commands():
-                name_match = search_term in cmd.name.lower()
-                desc_match = search_term in (cmd.description or "").lower()
-                
-                if name_match or desc_match:
-                    matching.append((cmd.name, cmd.description or "No description"))
-            
-            if not matching:
-                embed = discord.Embed(
-                    title="🔍 No Matching Commands",
-                    description=f"No commands found matching `{search}`",
-                    color=discord.Color.orange()
-                )
-                await interaction.followup.send(embed=embed, ephemeral=True)
-                return
-            
-            # Show search results
-            embed = discord.Embed(
-                title=f"🔍 Search Results: {search}",
-                description=f"Found {len(matching)} matching command(s)",
-                color=discord.Color.blue()
-            )
-            
-            for cmd_name, cmd_desc in matching[:10]:
-                clean_desc = cmd_desc
-                if clean_desc.startswith('[') and ']' in clean_desc:
-                    clean_desc = clean_desc[clean_desc.index(']') + 1:].strip()
-                
-                embed.add_field(
-                    name=f"`/{cmd_name}`",
-                    value=clean_desc[:80] + "..." if len(clean_desc) > 80 else clean_desc,
-                    inline=False
-                )
-            
-            if len(matching) > 10:
-                embed.set_footer(text=f"... and {len(matching) - 10} more. Use `/help command:name` for details.")
-            
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            await interaction.response.send_message(embed=self._search_embed(search), ephemeral=True)
             return
-        
-        # Category browser (default)
-        categories = self.categorize_commands()
-        view = HelpView(self.bot, categories)
+        view = HelpView(self.bot, self.categorize_commands())
+        await interaction.response.send_message(embed=view.current_embed(), view=view, ephemeral=True)
+
+    def _command_embed(self, name: str) -> discord.Embed:
+        wanted = name.strip().lstrip("/").lower()
+        target = next((cmd for cmd in self.bot.tree.walk_commands() if cmd.qualified_name.lower() == wanted), None)
+        if not target:
+            return discord.Embed(
+                title="❌ Command not found",
+                description=f"There is no `/{wanted}`. Use `/help` to browse commands.",
+                color=discord.Color.red(),
+            )
         embed = discord.Embed(
-            title="📚 Touchline Command Help",
-            description="Select a category to browse commands using the buttons below.",
-            color=discord.Color.blurple()
+            title=f"📖 /{target.qualified_name}",
+            description=strip_tag(target.description or "No description"),
+            color=discord.Color.green(),
         )
-        
-        for cat in CommandCategory:
-            if categories[cat]:
-                name, desc = cat.value
-                count = len(categories[cat])
-                embed.add_field(
-                    name=f"{name} ({count})",
-                    value=desc,
-                    inline=False
-                )
-        
-        embed.set_footer(text="Use `/help command:<name>` or `/help search:<keyword>` for more options")
-        
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-    
-    @app_commands.command(
-        name="admin-help",
-        description="⚙️ Administrative command reference and workflows"
-    )
-    @app_commands.checks.has_permissions(administrator=True)
+        options = getattr(target, "parameters", None) or []
+        if options:
+            lines = [
+                f"**{opt.display_name}**{'' if opt.required else ' (optional)'}: {opt.description or '…'}"
+                for opt in options
+            ]
+            embed.add_field(name="Options", value="\n".join(lines)[:1024], inline=False)
+        return embed
+
+    def _search_embed(self, search: str) -> discord.Embed:
+        needle = search.lower()
+        matches = sorted(
+            (cmd.qualified_name, strip_tag(cmd.description or ""))
+            for cmd in self.bot.tree.walk_commands()
+            if needle in cmd.qualified_name.lower() or needle in (cmd.description or "").lower()
+        )
+        if not matches:
+            return discord.Embed(
+                title="🔍 No matching commands",
+                description=f"Nothing matches `{search}`.",
+                color=discord.Color.orange(),
+            )
+        embed = discord.Embed(
+            title=f"🔍 Commands matching “{search}”",
+            description=f"{len(matches)} found",
+            color=discord.Color.blue(),
+        )
+        for name, description in matches[:10]:
+            embed.add_field(name=f"`/{name}`", value=(description or "No description")[:100], inline=False)
+        if len(matches) > 10:
+            embed.set_footer(text=f"…and {len(matches) - 10} more")
+        return embed
+
+    @app_commands.command(name="admin-help", description="[HELP] How to set up and run the league from the dashboard")
     async def admin_help(self, interaction: discord.Interaction):
-        """Admin help and workflow reference."""
-        await interaction.response.defer(ephemeral=True)
-        
-        view = AdminHelpView()
-        embed = view.get_admin_embed()
-        
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        await interaction.response.send_message(embed=admin_guide_embed(), ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

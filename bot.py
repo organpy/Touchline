@@ -100,7 +100,7 @@ class TouchlineBot(commands.Bot):
             'trade_utils.py', 'views.py', 'pick_trading.py', 'configuration.py', 'picks_view.py',
             'roster_transactions.py', 'trading.py', 'persistent_views.py',
             # Admin panel helper modules (deprecated/excluded)
-            'admin_transactions_views_example.py', 'teams.py', 'rosters.py', 'picks.py', "common.py",
+            'teams.py', 'rosters.py', 'picks.py', "common.py",
             # Stats helper modules (deprecated)
             'stats_commands.py',
         }
