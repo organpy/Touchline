@@ -37,6 +37,7 @@ class FakeTable:
         self._select_cols = '*'
         self._limit_val = None
         self._order_val = None
+        self._range = None
     
     def select(self, cols='*'):
         self._select_cols = cols
@@ -57,6 +58,10 @@ class FakeTable:
     def order(self, col, desc=False):
         self._order_val = (col, desc)
         return self
+
+    def range(self, start, end):
+        self._range = (start, end)
+        return self
     
     def execute(self):
         """Execute query and return filtered data."""
@@ -72,6 +77,8 @@ class FakeTable:
         # Apply limit
         if self._limit_val:
             result = result[:self._limit_val]
+        if self._range:
+            result = result[self._range[0]:self._range[1] + 1]
         
         return Mock(data=result, count=len(result))
     
