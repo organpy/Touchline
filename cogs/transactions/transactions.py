@@ -54,14 +54,6 @@ async def autocomplete_team_code(
     return await AutocompleteHelper.team_code_choices(current)
 
 
-async def autocomplete_team_player(
-    interaction: discord.Interaction,
-    current: str,
-) -> list[app_commands.Choice[str]]:
-    """Autocomplete player names on user's team (delegates to AutocompleteHelper)."""
-    return await AutocompleteHelper.player_on_team_choices(interaction, current)
-
-
 async def autocomplete_league(
     interaction: discord.Interaction,
     current: str,
