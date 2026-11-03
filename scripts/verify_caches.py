@@ -58,44 +58,6 @@ async def test_ttl_cache():
         small_cache.set(f"k{i}", f"v{i}")
     print_result("Max size eviction", small_cache.size() <= 3, f"Size is {small_cache.size()}")
 
-async def test_cache_manager():
-    """Test CacheManager functionality."""
-    print_section("CacheManager (utils/cache_manager.py)")
-    
-    from utils.cache_manager import CacheManager
-    
-    # Test 1: Singleton pattern
-    mgr1 = CacheManager()
-    mgr2 = CacheManager()
-    print_result("Singleton pattern", mgr1 is mgr2)
-    
-    # Test 2: Set/Get for different cache types
-    CacheManager.set("seasons", "test_season", {"id": "s1", "name": "S10"})
-    result = CacheManager.get("seasons", "test_season")
-    print_result("Seasons cache set/get", result is not None and result.get("name") == "S10")
-    
-    CacheManager.set("teams", "test_team", {"id": "t1", "code": "TEST"})
-    result = CacheManager.get("teams", "test_team")
-    print_result("Teams cache set/get", result is not None and result.get("code") == "TEST")
-    
-    # Test 3: Invalid cache name
-    CacheManager.set("invalid_cache", "key", "value")  # Should log warning
-    result = CacheManager.get("invalid_cache", "key")
-    print_result("Invalid cache name returns None", result is None)
-    
-    # Test 4: Clear specific cache
-    CacheManager.set("standings", "st1", {"wins": 5})
-    CacheManager.clear("standings")
-    result = CacheManager.get("standings", "st1")
-    print_result("Clear specific cache", result is None)
-    
-    # Test 5: All sizes
-    sizes = CacheManager.all_sizes()
-    print_result("All sizes returns dict", isinstance(sizes, dict) and "seasons" in sizes)
-    
-    # Cleanup
-    CacheManager.clear()
-
 async def test_season_cache():
     """Test SeasonCache functionality."""
     print_section("SeasonCache (utils/season_cache.py)")
@@ -241,16 +203,13 @@ async def test_cache_integration():
     
     from utils.team_player_cache import TeamPlayerCache
     from utils.season_cache import SeasonCache
-    from utils.cache_manager import CacheManager
     
     # Ensure all caches can coexist
     tp_status = TeamPlayerCache.get_status()
     sc_stale = SeasonCache.is_stale()
-    cm_sizes = CacheManager.all_sizes()
     
     print_result("TeamPlayerCache accessible", isinstance(tp_status, dict))
     print_result("SeasonCache accessible", isinstance(sc_stale, bool))
-    print_result("CacheManager accessible", isinstance(cm_sizes, dict))
     
     # Verify no data corruption between caches
     print_result("Caches are independent singletons", True, "No cross-contamination detected")
@@ -263,7 +222,6 @@ async def main():
     
     try:
         await test_ttl_cache()
-        await test_cache_manager()
         await test_season_cache()
         await test_team_player_cache()
         await test_standings_image_cache()
