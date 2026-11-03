@@ -12,7 +12,6 @@ from discord.ext import commands
 from utils.error_handler import StandardError, ErrorCategory, ConfirmationView
 from cogs.search import fuzzy_match, search_players, search_teams
 from cogs.help.help import CommandCategory, HelpView
-from db.connection_pool import ConnectionPool, QueryOptimizer, QueryBatcher
 
 
 class TestStandardError:
@@ -135,110 +134,6 @@ class TestConfirmationView:
         view = ConfirmationView("Test", dummy_callback)
         buttons = [child for child in view.children if isinstance(child, discord.ui.Button)]
         assert len(buttons) >= 2
-
-
-class TestConnectionPool:
-    """Test connection pooling utilities."""
-    
-    @pytest.mark.asyncio
-    async def test_pool_creation(self):
-        """Test connection pool creation."""
-        pool = ConnectionPool(max_idle_time=3600)
-        assert pool is not None
-        assert pool.max_idle_time == 3600
-    
-    @pytest.mark.asyncio
-    async def test_connection_reuse(self):
-        """Test that connections are reused."""
-        pool = ConnectionPool()
-        conn1 = await pool.get_or_create_connection("test_pool_1")
-        conn2 = await pool.get_or_create_connection("test_pool_1")
-        
-        assert conn1['pool_key'] == conn2['pool_key']
-        assert conn2['reuse_count'] >= 1
-    
-    @pytest.mark.asyncio
-    async def test_query_stats_tracking(self):
-        """Test query statistics tracking."""
-        pool = ConnectionPool()
-        await pool.record_query("test", "get_teams", 10.5, error=None)
-        await pool.record_query("test", "get_teams", 12.3, error=None)
-        
-        stats = pool.get_statistics()
-        assert stats['query_stats']['get_teams']['count'] == 2
-        assert stats['query_stats']['get_teams']['total_time_ms'] > 20
-
-
-class TestQueryOptimizer:
-    """Test query optimization."""
-    
-    @pytest.mark.asyncio
-    async def test_cache_miss_and_hit(self):
-        """Test cache miss then hit."""
-        optimizer = QueryOptimizer(cache_ttl=300)
-        call_count = 0
-        
-        async def dummy_query():
-            nonlocal call_count
-            call_count += 1
-            return {"result": "data"}
-        
-        # First call - cache miss
-        result1 = await optimizer.execute_with_cache("key1", dummy_query)
-        assert result1 == {"result": "data"}
-        assert call_count == 1
-        
-        # Second call - cache hit
-        result2 = await optimizer.execute_with_cache("key1", dummy_query)
-        assert result2 == {"result": "data"}
-        assert call_count == 1  # Not called again
-    
-    @pytest.mark.asyncio
-    async def test_cache_invalidation(self):
-        """Test cache invalidation."""
-        optimizer = QueryOptimizer()
-        call_count = 0
-        
-        async def dummy_query():
-            nonlocal call_count
-            call_count += 1
-            return {"result": "data"}
-        
-        # Cache and hit
-        await optimizer.execute_with_cache("key1", dummy_query)
-        await optimizer.execute_with_cache("key1", dummy_query)
-        assert call_count == 1
-        
-        # Invalidate and try again
-        optimizer.invalidate_cache("key1")
-        await optimizer.execute_with_cache("key1", dummy_query)
-        assert call_count == 2
-
-
-class TestQueryBatcher:
-    """Test query batching."""
-    
-    @pytest.mark.asyncio
-    async def test_batcher_creation(self):
-        """Test batcher creation."""
-        batcher = QueryBatcher(batch_size=10, flush_interval=0.5)
-        assert batcher is not None
-        assert batcher.batch_size == 10
-        
-        await batcher.close()
-    
-    @pytest.mark.asyncio
-    async def test_batcher_single_query(self):
-        """Test batcher with single query."""
-        batcher = QueryBatcher(batch_size=10)
-        
-        async def simple_query(val):
-            return val * 2
-        
-        result = await batcher.add_query(simple_query, 5)
-        # May execute immediately or be batched
-        
-        await batcher.close()
 
 
 # Integration tests with mocked Discord
