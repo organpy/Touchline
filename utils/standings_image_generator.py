@@ -1,192 +1,66 @@
-"""Standings image generator - compact view with scores (W, L, PF, PA, Diff, Last 5)."""
+"""Standings image: one flat dark card per division with rank, team, record, point difference, points and form."""
 
 from __future__ import annotations
 
-import hashlib
 import io
-import json
 import logging
-import re
-from functools import lru_cache
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
-from PIL import Image, ImageDraw, ImageFont
-
-from utils.caching import TTLCache
-
-from utils.image_theme import division_color, tinted_theme
+from services.standings import ZONE_LABELS
+from utils.render import canvas
+from utils.render.fonts import font
+from utils.render.theme import CARD, DIVIDER, LOSS, MUTED, ROW_ALT, TEXT, WIN, ZONE_COLORS
+from utils.render.theme import accent_color as resolve_accent
 
 logger = logging.getLogger(__name__)
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-IMAGES_DIR = ROOT_DIR / "images"
-LOGO_CACHE_DIR = ROOT_DIR / "data" / "logo_cache"
-FONTS_DIR = ROOT_DIR / "fonts"
+INNER_PAD = 22  # between the card edge and the table
+HEADER_HEIGHT = 76
+COLUMN_HEIGHT = 34
+ROW_HEIGHT = 46
+LEGEND_HEIGHT = 40
+BOTTOM_PAD = 14
 
-# Theme system for standings visualization
-BASE_THEME = {
-    "canvas_gradient": ((6, 10, 22), (27, 8, 35)),
-    "card_bg": (26, 33, 49, 255),
-    "card_border": (58, 74, 108, 255),
-    "header_gradient": ((90, 134, 255), (176, 92, 255)),
-    "header_overlay": None,
-    "header_title_color": (245, 248, 255, 255),
-    "header_subtitle_color": (173, 187, 212, 255),
-    "text_primary": (245, 248, 255, 255),
-    "text_muted": (173, 187, 212, 255),
-    "text_stats": (223, 233, 255, 255),
-    "row_primary": (35, 46, 67, 255),
-    "row_alt": (40, 52, 76, 255),
-    "row_divider": (56, 68, 94, 255),
-    "rank_accent": {
-        1: (255, 197, 80, 255),
-        2: (200, 200, 220, 255),
-        3: (209, 148, 90, 255),
-    },
-}
+COL_RANK = 48
+COL_LOGO = 48
+COL_TEAM = 230
+COL_RECORD = 84
+COL_DIFF = 72
+COL_POINTS = 64
+COL_FORM = 124
 
-# Colour bar for each standings zone (services.standings zone names)
-ZONE_COLORS = {
-    "champion_playoff": (255, 197, 80, 255),
-    "promoted": (46, 204, 113, 255),
-    "promotion_playoff": (125, 220, 160, 255),
-    "relegation_playoff": (241, 160, 70, 255),
-    "relegated": (231, 76, 60, 255),
-}
+LEAGUE_LOGO_SIZE = 44
+TEAM_LOGO_SIZE = 32
+ZONE_STRIPE = 5
+FORM_DOT_RADIUS = 7
+FORM_DOT_SPACING = 22
 
-# Compact layout constants - standardized sizing (centered content)
-CANVAS_PADDING = 40
-CARD_CORNER_RADIUS = 28
-CARD_PADDING = 40  # Equal padding on all sides of card content
-HEADER_BLOCK_HEIGHT = 90
-ROW_HEIGHT = 58
-HEADER_HEIGHT = 46
-
-# Compact column widths - fixed for all leagues (wider stats area)
-COL_RANK = 54
-COL_LOGO = 54
-COL_TEAM = 220  # Fixed width for all leagues
-COL_W = 56
-COL_L = 56
-COL_PF = 70
-COL_PA = 70
-COL_DIFF = 80
-
-TEAM_LOGO_SIZE = 36
-LEAGUE_LOGO_SIZE = 56
-
-simple_standings_cache = TTLCache(ttl_seconds=600, max_size=32)  # Increased TTL from 120 to 600 for low-resource optimization
+standings_cache = canvas.RenderCache()
 
 
-def _to_rgba(color: Tuple[int, ...]) -> Tuple[int, int, int, int]:
-    if len(color) == 4:
-        return color
-    if len(color) == 3:
-        return (color[0], color[1], color[2], 255)
-    raise ValueError("Color tuples must be length 3 or 4")
+def _signed(value: int) -> str:
+    return f"{value:+d}" if value else "0"
 
 
-def _get_theme(league_code: Optional[str], accent_color: Optional[str] = None) -> Dict[str, Any]:
-    """Base theme tinted with the division's colour."""
-    return tinted_theme(BASE_THEME, accent_color or division_color(league_code))
+def _draw_form(draw, column_left: int, center_y: int, markers: List[str]) -> None:
+    """Last results as dots centred in the form column: green win, red loss, hollow for a game not played."""
+    markers = markers[:5]
+    dots_width = len(markers) * FORM_DOT_SPACING - (FORM_DOT_SPACING - 2 * FORM_DOT_RADIUS)
+    x = column_left + (COL_FORM - dots_width) // 2 + FORM_DOT_RADIUS
+    for marker in markers:
+        box = (x - FORM_DOT_RADIUS, center_y - FORM_DOT_RADIUS, x + FORM_DOT_RADIUS, center_y + FORM_DOT_RADIUS)
+        if marker == "W":
+            draw.ellipse(box, fill=WIN)
+        elif marker == "L":
+            draw.ellipse(box, fill=LOSS)
+        else:
+            draw.ellipse(box, outline=DIVIDER, width=2)
+        x += FORM_DOT_SPACING
 
 
-def _normalize_key(value: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", value.lower())
-
-
-@lru_cache(maxsize=1)
-def _image_index() -> Dict[str, Path]:
-    index: Dict[str, Path] = {}
-    # Uploaded logos (data/logo_cache) win over bundled images with the same name
-    for directory in (IMAGES_DIR, LOGO_CACHE_DIR):
-        if not directory.exists():
-            continue
-        for file_path in directory.iterdir():
-            if file_path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
-                continue
-            index[_normalize_key(file_path.stem)] = file_path
-    return index
-
-
-def _find_logo_path(*candidates: Optional[str]) -> Optional[Path]:
-    index = _image_index()
-    for candidate in candidates:
-        if not candidate:
-            continue
-        key = _normalize_key(candidate)
-        if key in index:
-            return index[key]
-    return None
-
-
-def _load_logo(path: Path, size: int) -> Optional[Image.Image]:
-    try:
-        image = Image.open(path).convert("RGBA")
-        image.thumbnail((size, size), Image.LANCZOS)
-        canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        offset = ((size - image.width) // 2, (size - image.height) // 2)
-        canvas.paste(image, offset, image)
-        return canvas
-    except Exception:
-        return None
-
-
-def _draw_vertical_gradient(draw: ImageDraw.ImageDraw, bbox: Tuple[int, int, int, int], start_color, end_color):
-    x0, y0, x1, y1 = bbox
-    height = max(y1 - y0, 1)
-    for i in range(height):
-        ratio = i / height
-        r = int(start_color[0] * (1 - ratio) + end_color[0] * ratio)
-        g = int(start_color[1] * (1 - ratio) + end_color[1] * ratio)
-        b = int(start_color[2] * (1 - ratio) + end_color[2] * ratio)
-        draw.line([(x0, y0 + i), (x1, y0 + i)], fill=(r, g, b))
-
-
-def _load_fonts():
-    try:
-        title_font = ImageFont.truetype(FONTS_DIR / "Poppins-Bold.ttf", 22)
-        subtitle_font = ImageFont.truetype(FONTS_DIR / "Poppins-Regular.ttf", 13)
-        header_font = ImageFont.truetype(FONTS_DIR / "Poppins-Regular.ttf", 12)
-        body_font = ImageFont.truetype(FONTS_DIR / "Poppins-Regular.ttf", 12)
-    except Exception:
-        title_font = ImageFont.load_default()
-        subtitle_font = ImageFont.load_default()
-        header_font = ImageFont.load_default()
-        body_font = ImageFont.load_default()
-    return title_font, subtitle_font, header_font, body_font
-
-
-def _measure_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
-    bbox = draw.textbbox((0, 0), text, font=font)
-    return bbox[2] - bbox[0], bbox[3] - bbox[1]
-
-
-def _truncate_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int) -> str:
-    if not text:
-        return ""
-    width, _ = _measure_text(draw, text.strip(), font)
-    if width <= max_width:
-        return text.strip()
-    trimmed = text.strip()
-    while trimmed:
-        trimmed = trimmed[:-1]
-        if _measure_text(draw, f"{trimmed}…", font)[0] <= max_width:
-            return f"{trimmed}…"
-    return "…"
-
-
-def _draw_circle_avatar(base, center, diameter, text, *, fill_color, outline_color, text_color):
-    draw = ImageDraw.Draw(base)
-    radius = diameter // 2
-    x0, y0 = center[0] - radius, center[1] - radius
-    x1, y1 = center[0] + radius, center[1] + radius
-    draw.ellipse((x0, y0, x1, y1), fill=fill_color, outline=outline_color, width=2)
-    font = ImageFont.load_default()
-    bbox = draw.textbbox((0, 0), text, font=font)
-    w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    draw.text((center[0] - w / 2, center[1] - h / 2), text, fill=text_color, font=font)
+def _form_for(team: Dict[str, Any], recent_results: Dict[str, List[str]]) -> List[str]:
+    team_id = team.get("team_id") or team.get("id")
+    return recent_results.get(str(team_id)) or recent_results.get(team_id) or []
 
 
 def generate_simple_standings_image(
@@ -197,267 +71,100 @@ def generate_simple_standings_image(
     recent_results: Optional[Dict[str, List[str]]] = None,
     accent_color: Optional[str] = None,
 ) -> Optional[io.BytesIO]:
-    """Generate compact standings image.
-    standings: list of dicts with keys: team_id, name, code, wins, losses, points_for, points_against, point_diff
-    accent_color: division colour (#RRGGBB) used to tint the theme (looked up from league_code when omitted)
-    recent_results: optional dict mapping team_id -> list of last 5 markers ['W'|'L'|'N']
-    Returns PNG bytes.
+    """Render one division's standings as a PNG, or None when there is nothing to show.
+
+    ``standings_data`` rows need ``name``, ``code``, ``wins``, ``losses``, ``point_diff``, ``competition_points``,
+    ``zone`` and ``team_id``. ``recent_results`` maps a team id to its last results ('W', 'L' or 'N' for none);
+    when given, a form column is drawn. ``accent_color`` is the division's ``#RRGGBB``, found from ``league_code``
+    when omitted.
     """
-    try:
-        if not standings_data:
-            return None
-
-        # Cache key
-        payload = {
-            "type": "simple",
-            "league_code": (league_code or "").upper(),
-            "accent_color": accent_color or division_color(league_code),
-            "league_name": league_name,
-            "season_name": season_name,
-            "standings": standings_data,
-            "recent_results": recent_results or {},
-        }
-        cache_key = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
-        
-        cached = simple_standings_cache.get(cache_key)
-        if cached is not None:
-            buf = io.BytesIO(cached)
-            buf.seek(0)
-            return buf
-
-        theme = _get_theme(league_code, accent_color)
-
-        # Fixed team column width for all leagues (standardized sizing)
-        team_column_width = COL_TEAM
-
-        # Table dimensions - extra space for stats and last 5 markers
-        recent_width = 130 if recent_results else 0  # More space for markers
-        table_width = COL_RANK + COL_LOGO + team_column_width + COL_W + COL_L + COL_PF + COL_PA + COL_DIFF + recent_width
-        table_height = HEADER_HEIGHT + ROW_HEIGHT * len(standings_data)
-        
-        # Card with equal padding on all sides
-        content_width = table_width
-        content_height = HEADER_BLOCK_HEIGHT + table_height
-        
-        card_width = content_width + (CARD_PADDING * 2)
-        card_height = content_height + (CARD_PADDING * 2)
-        
-        canvas_width = card_width + CANVAS_PADDING * 2
-        canvas_height = card_height + CANVAS_PADDING * 2
-
-        # Create canvas
-        canvas = Image.new("RGBA", (canvas_width, canvas_height), _to_rgba(theme["canvas_gradient"][0]))
-        canvas_draw = ImageDraw.Draw(canvas)
-        _draw_vertical_gradient(canvas_draw, (0, 0, canvas_width, canvas_height), *theme["canvas_gradient"])
-
-        # Create card
-        card = Image.new("RGBA", (card_width, card_height), (0, 0, 0, 0))
-        card_draw = ImageDraw.Draw(card)
-        card_draw.rounded_rectangle(
-            (0, 0, card_width, card_height),
-            radius=CARD_CORNER_RADIUS,
-            fill=theme["card_bg"],
-            outline=theme["card_border"],
-            width=2,
-        )
-
-        title_font, subtitle_font, header_font, body_font = _load_fonts()
-
-        # Header with gradient - centered with equal padding
-        header_width = content_width
-        header_x = CARD_PADDING
-        header_y = CARD_PADDING
-
-        header_layer = Image.new("RGBA", (header_width, HEADER_BLOCK_HEIGHT), (0, 0, 0, 0))
-        header_layer_draw = ImageDraw.Draw(header_layer)
-        _draw_vertical_gradient(header_layer_draw, (0, 0, header_width, HEADER_BLOCK_HEIGHT), *theme["header_gradient"])
-
-        header_overlay = theme.get("header_overlay")
-        if header_overlay:
-            header_layer_draw.rectangle((0, 0, header_width, HEADER_BLOCK_HEIGHT), fill=header_overlay)
-
-        # Round top corners of header
-        header_mask = Image.new("L", (header_width, HEADER_BLOCK_HEIGHT), 0)
-        mask_draw = ImageDraw.Draw(header_mask)
-        mask_draw.rounded_rectangle(
-            (0, 0, header_width, HEADER_BLOCK_HEIGHT + CARD_CORNER_RADIUS),
-            radius=CARD_CORNER_RADIUS,
-            fill=255,
-        )
-        card.paste(header_layer, (header_x, header_y), header_mask)
-
-        # League logo
-        league_logo = _find_logo_path(league_code, league_name)
-        header_center_y = header_y + HEADER_BLOCK_HEIGHT // 2
-        logo_y = header_center_y - LEAGUE_LOGO_SIZE // 2
-        logo_x = header_x + 12
-        if league_logo:
-            logo_img = _load_logo(league_logo, LEAGUE_LOGO_SIZE)
-            if logo_img:
-                card.paste(logo_img, (logo_x, logo_y), logo_img)
-
-        # Title and subtitle
-        text_x = logo_x + LEAGUE_LOGO_SIZE + 20
-        
-        # Measure text with proper baseline accounting
-        title_bbox = card_draw.textbbox((0, 0), league_name, font=title_font)
-        title_height = title_bbox[3] - title_bbox[1]
-        title_offset = title_bbox[1]  # Top offset from baseline
-        
-        subtitle = f"{(season_name or 'Season').upper()} • {len(standings_data)} TEAMS"
-        subtitle_bbox = card_draw.textbbox((0, 0), subtitle, font=subtitle_font)
-        subtitle_height = subtitle_bbox[3] - subtitle_bbox[1]
-        subtitle_offset = subtitle_bbox[1]
-        
-        # Position title centered on logo's middle
-        title_y = header_center_y - title_height // 2 - title_offset
-        
-        # Position subtitle below title with moderate gap
-        line_gap = 10  # Moderate gap to prevent overlap without too much space
-        subtitle_y = title_y + title_height + line_gap - subtitle_offset
-        
-        card_draw.text((text_x, title_y), league_name, fill=theme["header_title_color"], font=title_font)
-        card_draw.text((text_x, subtitle_y), subtitle, fill=theme["header_subtitle_color"], font=subtitle_font)
-
-        # Table header - directly below header block
-        table_x = CARD_PADDING
-        table_y = CARD_PADDING + HEADER_BLOCK_HEIGHT
-        card_draw.rectangle((table_x, table_y, table_x + table_width, table_y + HEADER_HEIGHT), fill=theme["row_primary"])
-
-        columns = [
-            ("", COL_RANK),
-            ("", COL_LOGO),
-            ("Team", team_column_width),
-            ("W", COL_W),
-            ("L", COL_L),
-            ("PF", COL_PF),
-            ("PA", COL_PA),
-            ("±", COL_DIFF),
-        ]
-        if recent_results:
-            columns.append(("Last 5", recent_width))
-
-        x = table_x
-        for text, width in columns:
-            if text:
-                text_w, text_h = _measure_text(card_draw, text, header_font)
-                text_x = x + width / 2 - text_w / 2
-                if text.lower() == "team":
-                    text_x = x + 8
-                card_draw.text((text_x, table_y + HEADER_HEIGHT / 2 - text_h / 2), text, fill=theme["text_muted"], font=header_font)
-            x += width
-
-        # Data rows
-        y = table_y + HEADER_HEIGHT
-        def _marker_color(m: str) -> Optional[Tuple[int, int, int, int]]:
-            """Return fill color for marker. None means outline-only (not reported)."""
-            if m == 'W':
-                return _to_rgba((46, 204, 113))  # Green for win
-            if m == 'L':
-                return _to_rgba((231, 76, 60))   # Red for loss
-            return None  # No fill - draw outline only for unreported
-
-        for rank, team in enumerate(standings_data, 1):
-            row_top = y
-            row_bottom = y + ROW_HEIGHT
-            row_color = theme["row_primary"] if rank % 2 else theme["row_alt"]
-            card_draw.rectangle((table_x, row_top, table_x + table_width, row_bottom), fill=row_color)
-            card_draw.line((table_x, row_bottom, table_x + table_width, row_bottom), fill=theme["row_divider"], width=1)
-
-            # Zone bar (promotion/relegation/playoff), else the podium accent
-            zone_color = ZONE_COLORS.get(team.get("zone"))
-            if zone_color:
-                card_draw.rectangle((table_x, row_top, table_x + 6, row_bottom), fill=zone_color)
-            else:
-                rank_accent = theme["rank_accent"].get(rank)
-                if rank_accent:
-                    card_draw.rectangle((table_x, row_top, table_x + 4, row_bottom), fill=rank_accent)
-
-            x = table_x
-
-            # Rank
-            rank_text = str(rank)
-            tw, th = _measure_text(card_draw, rank_text, body_font)
-            card_draw.text((x + COL_RANK / 2 - tw / 2, row_top + ROW_HEIGHT / 2 - th / 2), rank_text, fill=theme["text_primary"], font=body_font)
-            x += COL_RANK
-
-            # Logo
-            team_logo_path = _find_logo_path(team.get("code"), team.get("name"))
-            logo_center = (int(x + COL_LOGO / 2), int(row_top + ROW_HEIGHT / 2))
-            if team_logo_path:
-                logo_img = _load_logo(team_logo_path, TEAM_LOGO_SIZE)
-                if logo_img:
-                    card.paste(logo_img, (logo_center[0] - TEAM_LOGO_SIZE // 2, logo_center[1] - TEAM_LOGO_SIZE // 2), logo_img)
-                else:
-                    _draw_circle_avatar(card, logo_center, TEAM_LOGO_SIZE, team.get("name", "?")[:1].upper(),
-                                        fill_color=_to_rgba(theme["row_primary"]), outline_color=_to_rgba(theme["card_border"]),
-                                        text_color=_to_rgba(theme["text_primary"]))
-            else:
-                _draw_circle_avatar(card, logo_center, TEAM_LOGO_SIZE, team.get("name", "?")[:1].upper(),
-                                    fill_color=_to_rgba(theme["row_primary"]), outline_color=_to_rgba(theme["card_border"]),
-                                    text_color=_to_rgba(theme["text_primary"]))
-            x += COL_LOGO
-
-            # Team name
-            team_name = _truncate_text(card_draw, team.get("name", "Unknown"), body_font, team_column_width - 16)
-            tw, th = _measure_text(card_draw, team_name, body_font)
-            card_draw.text((x + 8, row_top + ROW_HEIGHT / 2 - th / 2), team_name, fill=theme["text_primary"], font=body_font)
-            x += team_column_width
-
-            # Stats (W, L, PF, PA, Diff)
-            stats = [
-                str(team.get("wins", 0)),
-                str(team.get("losses", 0)),
-                str(team.get("points_for", 0)),
-                str(team.get("points_against", 0)),
-                f"{team.get('point_diff', 0):+d}" if team.get("point_diff", 0) != 0 else "0",
-            ]
-            widths = [COL_W, COL_L, COL_PF, COL_PA, COL_DIFF]
-            
-            for stat, width in zip(stats, widths):
-                tw, th = _measure_text(card_draw, stat, body_font)
-                card_draw.text((x + width / 2 - tw / 2, row_top + ROW_HEIGHT / 2 - th / 2), stat, fill=theme["text_stats"], font=body_font)
-                x += width
-
-            # Recent results markers (last 5 games)
-            if recent_results:
-                markers = None
-                # team id could be under different keys depending on source
-                team_id = team.get('team_id') or team.get('id') or team.get('teams.id')
-                if team_id is not None:
-                    markers = (recent_results or {}).get(str(team_id)) or (recent_results or {}).get(team_id)
-                if markers:
-                    cx = x + 16
-                    cy = row_top + ROW_HEIGHT / 2
-                    for m in markers[:5]:
-                        r = 8  # Slightly bigger markers
-                        fill_color = _marker_color(m)
-                        if fill_color:
-                            # Win or Loss - filled circle
-                            card_draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=fill_color)
-                        else:
-                            # Not reported - dashed outline circle (hollow)
-                            outline_color = _to_rgba((100, 100, 100))
-                            card_draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=outline_color, width=2)
-                        cx += 24  # More spacing between markers
-                x += recent_width
-
-            y += ROW_HEIGHT
-
-        # Paste card onto canvas
-        canvas.paste(card, (CANVAS_PADDING, CANVAS_PADDING), card)
-
-        # Save
-        buffer = io.BytesIO()
-        canvas.convert("RGB").save(buffer, format="PNG", optimize=True)
-        image_bytes = buffer.getvalue()
-
-        simple_standings_cache.set(cache_key, image_bytes)
-
-        buffer = io.BytesIO(image_bytes)
-        buffer.seek(0)
-        return buffer
-
-    except Exception as e:
-        logger.error(f"Failed to generate simple standings: {e}", exc_info=True)
+    if not standings_data:
         return None
+    try:
+        rgb = resolve_accent(accent_color, league_code)
+        recent = recent_results or {}
+        key = standings_cache.key({
+            "league": [league_code, league_name, season_name], "accent": rgb, "rows": standings_data, "form": recent,
+        })
+        cached = standings_cache.get(key)
+        if cached is not None:
+            return cached
+
+        image = _render(standings_data, season_name, league_name, league_code, recent, rgb)
+        return standings_cache.put(key, image)
+    except Exception as exc:
+        logger.error("Failed to generate standings image: %s", exc, exc_info=True)
+        return None
+
+
+def _render(rows, season_name, league_name, league_code, recent, accent):
+    show_form = bool(recent)
+    table_width = COL_RANK + COL_LOGO + COL_TEAM + COL_RECORD + COL_DIFF + COL_POINTS + (COL_FORM if show_form else 0)
+    zones = list(dict.fromkeys(r["zone"] for r in rows if r.get("zone") in ZONE_COLORS))
+    legend = LEGEND_HEIGHT if zones else 0
+
+    width = canvas.PADDING * 2 + INNER_PAD * 2 + table_width
+    top = canvas.PADDING + canvas.ACCENT_HEIGHT
+    height = top + HEADER_HEIGHT + COLUMN_HEIGHT + ROW_HEIGHT * len(rows) + legend + BOTTOM_PAD + canvas.PADDING
+    image, draw = canvas.new_image(width, height, accent)
+    left = canvas.PADDING + INNER_PAD
+
+    # Header: division logo, name, season
+    middle = top + HEADER_HEIGHT // 2
+    canvas.draw_logo(image, draw, (left + LEAGUE_LOGO_SIZE // 2, middle), LEAGUE_LOGO_SIZE, [league_code, league_name], league_name)
+    text_x = left + LEAGUE_LOGO_SIZE + 14
+    draw.text((text_x, middle - 11), canvas.fit_text(league_name, font(22, bold=True), table_width - LEAGUE_LOGO_SIZE - 14),
+              font=font(22, bold=True), fill=TEXT, anchor="lm")
+    draw.text((text_x, middle + 15), f"{(season_name or 'Season').upper()} • {len(rows)} TEAMS", font=font(13), fill=MUTED, anchor="lm")
+
+    # Column titles
+    y = top + HEADER_HEIGHT
+    heads = font(12, bold=True)
+    x = left
+    draw.text((x + COL_RANK // 2, y + COLUMN_HEIGHT // 2), "#", font=heads, fill=MUTED, anchor="mm")
+    x += COL_RANK + COL_LOGO
+    draw.text((x + 8, y + COLUMN_HEIGHT // 2), "TEAM", font=heads, fill=MUTED, anchor="lm")
+    x += COL_TEAM
+    for label, column in (("W–L", COL_RECORD), ("±", COL_DIFF), ("PTS", COL_POINTS)):
+        draw.text((x + column // 2, y + COLUMN_HEIGHT // 2), label, font=heads, fill=MUTED, anchor="mm")
+        x += column
+    if show_form:
+        draw.text((x + COL_FORM // 2, y + COLUMN_HEIGHT // 2), "LAST 5", font=heads, fill=MUTED, anchor="mm")
+    y += COLUMN_HEIGHT
+
+    # Rows
+    body, bold = font(14), font(14, bold=True)
+    for index, team in enumerate(rows, start=1):
+        row_middle = y + ROW_HEIGHT // 2
+        draw.rectangle((left, y, left + table_width, y + ROW_HEIGHT - 1), fill=ROW_ALT if index % 2 == 0 else CARD)
+        if team.get("zone") in ZONE_COLORS:
+            draw.rectangle((left, y, left + ZONE_STRIPE - 1, y + ROW_HEIGHT - 1), fill=ZONE_COLORS[team["zone"]])
+
+        x = left
+        draw.text((x + COL_RANK // 2, row_middle), str(team.get("rank") or index), font=bold, fill=TEXT, anchor="mm")
+        x += COL_RANK
+        canvas.draw_logo(image, draw, (x + COL_LOGO // 2, row_middle), TEAM_LOGO_SIZE, [team.get("code"), team.get("name")], team.get("name"))
+        x += COL_LOGO
+        draw.text((x + 8, row_middle), canvas.fit_text(team.get("name") or "Unknown", body, COL_TEAM - 16), font=body, fill=TEXT, anchor="lm")
+        x += COL_TEAM
+        draw.text((x + COL_RECORD // 2, row_middle), f"{team.get('wins', 0)}–{team.get('losses', 0)}", font=body, fill=TEXT, anchor="mm")
+        x += COL_RECORD
+        diff = int(team.get("point_diff") or 0)
+        draw.text((x + COL_DIFF // 2, row_middle), _signed(diff), font=bold, fill=WIN if diff > 0 else LOSS if diff < 0 else MUTED, anchor="mm")
+        x += COL_DIFF
+        draw.text((x + COL_POINTS // 2, row_middle), str(team.get("competition_points", 0)), font=bold, fill=TEXT, anchor="mm")
+        x += COL_POINTS
+        if show_form:
+            _draw_form(draw, x, row_middle, _form_for(team, recent))
+        y += ROW_HEIGHT
+
+    # Legend: only the zones that appear
+    if zones:
+        x, legend_middle = left, y + LEGEND_HEIGHT // 2 + 2
+        small = font(12)
+        for zone in zones:
+            draw.rectangle((x, legend_middle - 5, x + 10, legend_middle + 5), fill=ZONE_COLORS[zone])
+            label = ZONE_LABELS.get(zone, zone)
+            draw.text((x + 16, legend_middle), label, font=small, fill=MUTED, anchor="lm")
+            x += 16 + int(small.getlength(label)) + 24
+    return image
