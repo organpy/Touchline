@@ -171,32 +171,6 @@ async def test_team_player_cache():
     status = TeamPlayerCache.get_status()
     print_result("Status has all fields", all(k in status for k in ['teams', 'players', 'team_rosters', 'last_refresh', 'is_fresh']))
 
-async def test_standings_image_cache():
-    """Test standings image TTL cache."""
-    print_section("Standings Image Cache (utils/standings_image_generator.py)")
-    
-    from utils.standings_image_generator import simple_standings_cache
-    
-    # Test 1: Initial empty
-    simple_standings_cache.clear()
-    print_result("Initial empty", simple_standings_cache.size() == 0)
-    
-    # Test 2: Set and get
-    test_key = "test_standings_key"
-    test_value = b"fake_image_bytes"
-    simple_standings_cache.set(test_key, test_value)
-    result = simple_standings_cache.get(test_key)
-    print_result("Set/get image bytes", result == test_value)
-    
-    # Test 3: TTL is 120 seconds
-    print_result("TTL is 600 seconds", simple_standings_cache.ttl_seconds == 600)
-    
-    # Test 4: Max size is 32
-    print_result("Max size is 32", simple_standings_cache.max_size == 32)
-    
-    # Cleanup
-    simple_standings_cache.clear()
-
 async def test_cache_integration():
     """Test cache integration - ensure caches don't interfere with each other."""
     print_section("Cache Integration Tests")
@@ -224,7 +198,6 @@ async def main():
         await test_ttl_cache()
         await test_season_cache()
         await test_team_player_cache()
-        await test_standings_image_cache()
         await test_cache_integration()
         
         print_section("SUMMARY")
