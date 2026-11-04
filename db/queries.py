@@ -452,6 +452,17 @@ async def get_player_totals(supabase, player_id: str, season_id: str,
         return None
 
 
+async def get_player_career(supabase, player_id: str) -> List[Dict[str, Any]]:
+    """One row per season the player has games in, oldest first: ``season_id``, ``season_number``, ``season_name``,
+    ``team_name``, ``games_played``, ``goals``, ``assists``, ``saves``, ``blocks`` and ``points``."""
+    try:
+        response = await execute_async(supabase.rpc('get_player_career', {'p_player_id': player_id}))
+        return response.data or []
+    except Exception as e:
+        logger.error(f"Error fetching player career: {e}")
+        return []
+
+
 async def get_team_totals(supabase, team_id: str, season_id: str) -> Optional[Dict[str, Any]]:
     """Get team season totals"""
     try:
