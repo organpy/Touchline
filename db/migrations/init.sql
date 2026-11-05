@@ -1065,6 +1065,23 @@ FROM players p CROSS JOIN agg
 WHERE p.id = p_player_id AND agg.gp > 0;
 $$;
 
+-- One row per season the player has games in, oldest first: the player card's career column.
+CREATE FUNCTION get_player_career(p_player_id uuid)
+RETURNS TABLE(season_id uuid, season_number integer, season_name text, team_name text, games_played integer,
+              goals integer, assists integer, saves integer, blocks integer, points integer)
+LANGUAGE sql STABLE AS $$
+SELECT s.id, s.number, s.name, player_season_team_name(p_player_id, s.id),
+       count(sl.id)::integer,
+       COALESCE(sum(sl.goals), 0)::integer, COALESCE(sum(sl.assists), 0)::integer,
+       COALESCE(sum(sl.saves), 0)::integer, COALESCE(sum(sl.blocks), 0)::integer,
+       COALESCE(sum(sl.points), 0)::integer
+FROM stat_lines sl
+JOIN seasons s ON s.id = sl.season_id
+WHERE sl.player_id = p_player_id
+GROUP BY s.id, s.number, s.name
+ORDER BY s.number
+$$;
+
 CREATE FUNCTION get_team_totals(p_team_id uuid, p_season_id uuid)
 RETURNS TABLE(team_id uuid, team_name text, player_count integer, games_played integer,
               total_points integer, total_assists integer, total_goals integer, total_saves integer,
