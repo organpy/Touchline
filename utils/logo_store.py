@@ -61,9 +61,9 @@ def clear_image_indexes() -> None:
 
     logos.clear()
 
-    from utils import match_table_image_generator, player_card_image_generator
+    from utils import player_card_image_generator
 
-    for module in (match_table_image_generator, player_card_image_generator):
+    for module in (player_card_image_generator,):
         module._image_index.cache_clear()
 
 
