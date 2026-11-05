@@ -191,4 +191,26 @@ $$;
 REVOKE EXECUTE ON FUNCTION record_match(jsonb, jsonb, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION record_match(jsonb, jsonb, uuid) TO service_role;
 
+-- ----------------------------------------------------------------------------
+-- Player card: one row per season of a player's career
+-- ----------------------------------------------------------------------------
+
+CREATE FUNCTION get_player_career(p_player_id uuid)
+RETURNS TABLE(season_id uuid, season_number integer, season_name text, team_name text, games_played integer,
+              goals integer, assists integer, saves integer, blocks integer, points integer)
+LANGUAGE sql STABLE AS $$
+SELECT s.id, s.number, s.name, player_season_team_name(p_player_id, s.id),
+       count(sl.id)::integer,
+       COALESCE(sum(sl.goals), 0)::integer, COALESCE(sum(sl.assists), 0)::integer,
+       COALESCE(sum(sl.saves), 0)::integer, COALESCE(sum(sl.blocks), 0)::integer,
+       COALESCE(sum(sl.points), 0)::integer
+FROM stat_lines sl
+JOIN seasons s ON s.id = sl.season_id
+WHERE sl.player_id = p_player_id
+GROUP BY s.id, s.number, s.name
+ORDER BY s.number
+$$;
+REVOKE EXECUTE ON FUNCTION get_player_career(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION get_player_career(uuid) TO service_role;
+
 COMMIT;
