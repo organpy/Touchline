@@ -406,22 +406,6 @@ async def get_standings(
         return []
 
 
-async def get_player_stats_for_season(supabase, player_id: str, season_id: str) -> List[Dict[str, Any]]:
-    """Get all player stats for a season"""
-    try:
-        response = await execute_async(supabase.table('player_stats').select(
-            '*, matches!inner(id, season_id, played_at, team1_score, team2_score, status)'
-        ).eq('player_id', player_id).eq('matches.season_id', season_id).eq('matches.status', 'final'))
-        return response.data if response.data else []
-    except Exception as e:
-        logger.error(f"Error fetching player stats: {e}")
-        return []
-
-
-# =====================================================================
-# Stats Functions (wrapping SQL functions from db/migrations/init.sql)
-# =====================================================================
-
 async def get_player_averages(supabase, player_id: str, season_id: str,
                               division_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Get player per-game averages for a season (optionally only games for a division's teams)"""
