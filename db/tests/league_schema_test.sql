@@ -135,6 +135,14 @@ BEGIN
     ASSERT (SELECT team_id FROM player_stats WHERE match_id = v_match AND player_id = p1) = t[2], 'stat team from roster';
     ASSERT (SELECT powerup_percentage FROM player_stats WHERE match_id = v_match AND player_id = p1) = 25.00, 'pp pct';
 
+    -- Career: one row per season with games, summed stats and the team the player was on.
+    ASSERT (SELECT count(*) FROM get_player_career(p1)) = 1, 'one season of games';
+    ASSERT (SELECT games_played FROM get_player_career(p1)) = 1 AND (SELECT points FROM get_player_career(p1)) = 5,
+        'career totals';
+    ASSERT (SELECT season_id FROM get_player_career(p1)) = s1, 'season of the games';
+    ASSERT (SELECT team_name FROM get_player_career(p1)) = (SELECT name FROM teams WHERE id = t[2]), 'team from the roster';
+    ASSERT (SELECT count(*) FROM get_player_career(gen_random_uuid())) = 0, 'a player without games has no career';
+
     PERFORM pg_temp.expect_hint(format($q$UPDATE matches SET team2_id = %L WHERE id = %L$q$, t[3], v_match), 'MATCH_IMMUTABLE');
     -- Teams with games cannot change division.
     PERFORM pg_temp.expect_hint(format(
