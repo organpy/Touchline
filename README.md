@@ -284,6 +284,14 @@ To update: `sudo -u touchline git -C /opt/touchline pull`, reinstall requirement
 
 The health server answers on `/health` (liveness), `/ready` (503 while disconnected from Discord) and `/metrics`. With `ERROR_WEBHOOK_URL` set, every error log is posted to that channel, at most 10 per minute and never with pings.
 
+## Security and limits
+
+- **Admins**: a server administrator, or a member with the admin role set in **Dashboard → Settings**. Every admin command checks this, and every admin panel checks it again on each click, so removing someone's rights takes effect straight away. Only a real server administrator can change the admin role.
+- **Rate limit**: each person gets 8 command uses per 30 seconds. Commands that draw images or run heavy queries (`/standings`, `/match-table`, `/player-card`, `/season-summary`, `/history` and the three report commands) cost 3. Autocomplete and button clicks are not counted. At most 2 images render at once.
+- **Names**: team, division, group, season and player names are checked when they are saved (see above), and the bot mentions nobody unless a message names a specific person to ping, so a name like `@everyone` can never ping anyone.
+- **Reporting**: the database enforces the games limit and series status under a lock, so two owners reporting at the same moment can't both squeeze in. A game and its stats save together, and pressing **Confirm** twice saves it once.
+- **Database load**: team and league lookups come from caches that reload when something changes. `/metrics` shows `total_queries` and a count per table, which is the easiest way to see what a change costs.
+
 ## Development
 
 ```bash
