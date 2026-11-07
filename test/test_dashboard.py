@@ -287,3 +287,19 @@ async def test_season_step_previews_before_confirming():
     assert confirm.disabled
     assert "needs at least 2 teams" in page.preview["text"]
     session.repo.set_season_phase.assert_not_awaited()
+
+
+def test_render_bracket_names_rounds_and_marks_winners():
+    from cogs.dashboard.playoffs import bracket_started, render_bracket
+
+    bracket = {
+        "kind": "championship",
+        "bracket_entries": [{"team_id": "t1", "seed": 1}, {"team_id": "t2", "seed": 2}],
+        "series": [{"round": 1, "position": 0, "team1_id": "t1", "team2_id": "t2", "team1_wins": 2,
+                    "team2_wins": 1, "winner_id": "t1", "status": "completed", "best_of": 3}],
+    }
+    with patch("cogs.dashboard.playoffs.TeamPlayerCache.get_team", side_effect=lambda t: {"name": t.upper()}):
+        text = render_bracket(bracket)
+    assert "__Final__" in text
+    assert "✅ (1) **T1** 2–1 (2) T2 · bo3" in text
+    assert bracket_started(bracket)
