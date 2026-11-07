@@ -16,6 +16,7 @@ from typing import Any, Awaitable, Callable, List, Optional
 import discord
 
 from db.league_repository import LeagueRepository, LeagueRuleError, friendly_error
+from utils import board_events
 from utils.league_cache import LeagueCache
 
 logger = logging.getLogger(__name__)
@@ -177,6 +178,7 @@ class DashboardPage(discord.ui.View):
             await target.show(interaction)
             return False
         await refresh_caches(rosters=rosters)
+        board_events.league_changed()
         target.notice = f"✅ {success}"
         await target.show(interaction)
         return True
