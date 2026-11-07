@@ -269,3 +269,21 @@ def test_settings_channels_read_and_write_nested_keys():
     assert read_channel(config, "announcements") == "456"
     write_channel(config, "announcements", None)
     assert read_channel(config, "announcements") is None
+
+
+@pytest.mark.asyncio
+async def test_season_step_previews_before_confirming():
+    from cogs.dashboard.season import SeasonPage
+
+    session = make_session()
+    page = SeasonPage(session)
+    session.stack.extend([HomePage(session), page])
+    with patch.object(LeagueCache, "load_season_teams", AsyncMock()):
+        await page.render()
+        assert "Start regular season" in labels(page)
+        await page._step(make_interaction())
+    # D1 has one team and D2 none, so the step is blocked
+    confirm = next(item for item in page.children if getattr(item, "label", "").startswith("Confirm"))
+    assert confirm.disabled
+    assert "needs at least 2 teams" in page.preview["text"]
+    session.repo.set_season_phase.assert_not_awaited()
