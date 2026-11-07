@@ -302,6 +302,21 @@ BEGIN
     ASSERT NOT has_table_privilege('anon', 'public.teams', 'SELECT'), 'anon cannot read base tables';
     ASSERT has_table_privilege('service_role', 'public.teams', 'SELECT'), 'service_role reads';
 
+    -- ------------------------------------------------------------ website views
+    ASSERT has_schema_privilege('anon', 'api', 'USAGE'), 'anon can use the api schema';
+    ASSERT has_table_privilege('anon', 'api.standings', 'SELECT'), 'anon reads api views';
+    ASSERT NOT has_table_privilege('anon', 'api.standings', 'INSERT'), 'api views are read-only';
+    ASSERT NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'api' AND column_name IN ('owner_discord_id', 'discord_id', 'recorded_by', 'voided_by', 'settings', 'metadata')
+    ), 'api views expose no discord ids or internals';
+    ASSERT (SELECT count(*) FROM api.matches WHERE season_id = s1) = (SELECT count(*) FROM matches WHERE season_id = s1 AND status = 'final'),
+        'api.matches hides voided games';
+    SELECT count(*) INTO v_count FROM teams;
+    SET LOCAL ROLE anon;
+    ASSERT (SELECT count(*) FROM api.teams) = v_count, 'anon reads teams through the view';
+    RESET ROLE;
+
     RAISE NOTICE 'ALL LEAGUE TESTS PASSED';
 END;
 $$;

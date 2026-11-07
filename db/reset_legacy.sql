@@ -12,6 +12,7 @@
 
 BEGIN;
 
+DROP SCHEMA IF EXISTS api CASCADE;
 DROP VIEW IF EXISTS view_standings CASCADE;
 
 DROP FUNCTION IF EXISTS execute_trade_proposal(uuid, bigint) CASCADE;
