@@ -22,6 +22,7 @@ from .views import (
 from .roster_cache import RosterCache
 from .access import NOT_ALLOWED_MESSAGE, NOT_YOUR_MATCH_MESSAGE, resolve_reporter_access
 from db.db_utils import execute_async
+from services.standings import refresh_after_match
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +227,7 @@ class StatRegistrationCog(commands.Cog):
 
             match_id = match_response.data[0]['id']
             logger.info(f"✅ Match inserted: {match_id}")
+            await refresh_after_match(self.supabase, season_id, match_response.data[0].get('division_id') or division_id)
 
             # Prepare & insert player_stats
             player_stats_list = match_entry.to_supabase_player_stats(match_id)
