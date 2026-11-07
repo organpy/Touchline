@@ -303,3 +303,31 @@ def test_render_bracket_names_rounds_and_marks_winners():
     assert "__Final__" in text
     assert "✅ (1) **T1** 2–1 (2) T2 · bo3" in text
     assert bracket_started(bracket)
+
+
+async def test_matches_page_voids_after_confirming():
+    from cogs.dashboard import matches as matches_module
+    from cogs.dashboard.matches import MatchesPage
+
+    session = make_session()
+    session.repo.list_recent_matches.return_value = [
+        {"id": "m1", "team1_id": "t1", "team2_id": "t2", "team1_score": 3, "team2_score": 1,
+         "stage": "regular", "status": "final", "season_id": "s1", "division_id": "d1"},
+        {"id": "m0", "team1_id": "t2", "team2_id": "t1", "team1_score": 2, "team2_score": 0,
+         "stage": "regular", "status": "void"},
+    ]
+    page = MatchesPage(session)
+    embed = await page.render()
+    assert "~~" in embed.description           # voided games are struck through
+    select = next(item for item in page.children if isinstance(item, discord.ui.Select))
+    assert [o.value for o in select.options] == ["m1"]  # only counted games can be voided
+    assert next(i for i in page.children if getattr(i, "label", None) == "Void game").disabled
+
+    interaction = make_interaction()
+    await page._pick(interaction, "m1")
+    await page._ask(interaction)
+    assert "Confirm void" in labels(page)
+    with patch.object(matches_module, "void_match", AsyncMock()) as void:
+        await page._void(interaction)
+    void.assert_awaited_once()
+    assert void.await_args.args[1]["id"] == "m1"
