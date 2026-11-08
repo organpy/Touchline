@@ -199,6 +199,32 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/init.sql
 It turns on row level security and removes every privilege from the public `anon` and `authenticated` roles on base tables. Only the bot's service role reads and writes them.
 
 <details>
+<summary><b>Updating an existing database (hardening release)</b></summary>
+
+<br>
+
+`init.sql` already includes everything below, so a new database needs nothing extra. A database created from an earlier `init.sql` needs one migration, which is safe to run while the bot is stopped:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/20261108_hardening.sql
+```
+
+It adds:
+
+- **Safe names**: team, division, group and season names, and player names, can no longer hold backticks, `<` `>`, line breaks, `@everyone` or `@here`. The checks are added as `NOT VALID`, so older rows never block the migration, but new and changed rows must pass. To find older names that break the rule, and then check them all:
+
+  ```sql
+  SELECT id, name FROM teams WHERE NOT is_safe_name(name);      -- same for divisions, division_groups, seasons
+  SELECT id, display_name FROM players WHERE NOT is_safe_name(display_name) OR length(btrim(display_name)) NOT BETWEEN 1 AND 64;
+  ALTER TABLE teams VALIDATE CONSTRAINT ck_teams_name_safe;     -- once the rows are fixed (and the others likewise)
+  ```
+- **Match locking**: the games-per-matchup limit and playoff series status are checked inside the database, one reporter at a time per pair or series.
+- **`record_match`**: saves a game and its player stats in one transaction. Reporting the same game twice stores it once.
+- **`get_player_career`**: the per-season rows behind the player card.
+
+</details>
+
+<details>
 <summary><b>Upgrading from the old NBL schema</b></summary>
 
 <br>
