@@ -40,7 +40,7 @@ Touchline started as the NBL's Discord bot and now runs any league with any numb
 Requires **Python 3.12** and a **Supabase** project (or any Postgres reachable through PostgREST).
 
 ```bash
-git clone https://github.com/organpy/repo.git touchline && cd touchline
+git clone https://github.com/organpy/Touchline.git touchline && cd touchline
 python -m venv .venv && source .venv/bin/activate      # Windows: .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 cp .env.example .env                                   # then fill in the values below
@@ -268,7 +268,7 @@ With supabase-js: `supabase.schema('api').from('standings').select('*')`. Standi
 
 ```bash
 sudo useradd --system --home-dir /opt/touchline --shell /usr/sbin/nologin touchline
-sudo git clone https://github.com/organpy/repo.git /opt/touchline
+sudo git clone https://github.com/organpy/Touchline.git /opt/touchline
 cd /opt/touchline
 sudo python3.12 -m venv .venv
 sudo .venv/bin/pip install -r requirements.txt
