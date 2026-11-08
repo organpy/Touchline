@@ -345,6 +345,12 @@ test/                  pytest suite
 
 **"A later playoff series already has results. Void those games first."** A result that fed a later series can't be voided while that series has games. Void the later games in **Dashboard → Matches** first, newest first.
 
+**"Rate Limited".** You used too many commands too fast: 8 per 30 seconds, with image and report commands costing 3. The message says how long to wait.
+
+**A name is refused.** Names can't contain backticks, `<` `>`, line breaks, `@everyone` or `@here`. Remove those and try again. Discord display names with such characters are cleaned automatically when a player is added.
+
+**"Every game between these teams has already been recorded."** The pair has played all the games its division allows (**Dashboard → Divisions → Rules**). If a game was entered by mistake, void it in **Dashboard → Matches** and report it again.
+
 **Team logos don't appear.** Create a public `team-logos` bucket in Supabase Storage, then upload the logo again from the team page.
 
 ## License
