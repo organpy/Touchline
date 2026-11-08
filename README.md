@@ -305,6 +305,12 @@ pytest test/ -q
 python scripts/seed_demo.py --apply --divisions 4 --teams 8
 ```
 
+`scripts/preview_images.py` renders the standings, match tables and player cards with dummy data (no Discord or database needed) into `preview_output/`, with an `index.html` gallery. Add `--open` to open it in your browser.
+
+```bash
+python scripts/preview_images.py --open
+```
+
 Slash commands sync on startup only when their definitions changed, tracked in `data/.command_sync_hash`. Delete that file to force a sync. Domain rules (standings, brackets, movements, the season lifecycle and reporting) live in `services/` with no Discord code, and most tests target them directly.
 
 ## Project layout
