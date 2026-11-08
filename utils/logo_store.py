@@ -56,11 +56,10 @@ def normalize_logo(data: bytes) -> bytes:
 
 
 def clear_image_indexes() -> None:
-    """The image generators cache their logo file index; drop it after logos change."""
-    from utils import match_table_image_generator, player_card_image_generator, standings_image_generator
+    """The image generators share one logo cache; drop it after logos change."""
+    from utils.render import logos
 
-    for module in (standings_image_generator, match_table_image_generator, player_card_image_generator):
-        module._image_index.cache_clear()
+    logos.clear()
 
 
 def _write_cache(team_code: str, png: bytes) -> None:

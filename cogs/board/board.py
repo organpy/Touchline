@@ -28,6 +28,7 @@ from utils.config_manager import get_config_manager
 from utils.config_utility import BOARD_STATE_KEY, ConfigUtility
 from utils.league_cache import LeagueCache
 from utils.standings_image_generator import generate_simple_standings_image
+from utils.render.limit import render_in_thread
 
 from .render import BoardData, BoardPost, board_posts, pending_announcements
 
@@ -153,7 +154,7 @@ class BoardService:
         for division_id, rows in data.by_division().items():
             division = LeagueCache.division(division_id) or {}
             try:
-                image = await asyncio.to_thread(
+                image = await render_in_thread(
                     generate_simple_standings_image,
                     rows,
                     data.season.get("name", ""),

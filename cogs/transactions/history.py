@@ -10,6 +10,7 @@ import discord
 from discord import app_commands
 
 from db import queries
+from utils.team_player_cache import TeamPlayerCache
 from utils.embed_builder import EmbedBuilder
 from utils.team_display import format_team_label_from_record
 from db.db_utils import execute_async
@@ -114,6 +115,25 @@ class TransactionHistoryPaginator:
 
         builder.set_footer_text(f"Total: {len(self.transactions)} transactions")
         return builder.embed
+
+
+async def load_history_names(
+    supabase: Any, transactions: List[Dict[str, Any]]
+) -> tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+    """(teams by id, players by id) for the teams and players the given transactions mention.
+
+    Read from the team cache once it is loaded; otherwise every team and player is fetched.
+    """
+    if TeamPlayerCache.is_loaded():
+        team_ids = {t for txn in transactions for t in (txn.get('from_team_id'), txn.get('to_team_id')) if t}
+        player_ids = {txn['player_id'] for txn in transactions if txn.get('player_id')}
+        teams = {team_id: TeamPlayerCache.get_team(team_id) for team_id in team_ids}
+        players = {player_id: TeamPlayerCache.get_player_by_id(player_id) for player_id in player_ids}
+        return ({k: v for k, v in teams.items() if v}, {k: v for k, v in players.items() if v})
+
+    teams = await queries.get_all_teams(supabase)
+    players = (await execute_async(supabase.table('players').select('id, display_name'))).data or []
+    return {team['id']: team for team in teams}, {player['id']: player for player in players}
 
 
 def build_history_embed(

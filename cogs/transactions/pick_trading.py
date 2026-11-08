@@ -6,7 +6,7 @@ division and season, and picks can only change hands between teams of that divis
 """
 
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Set
 
 from db.db_utils import execute_async
 from db.league_repository import utc_now_iso
@@ -82,6 +82,31 @@ async def get_pick_details(supabase, pick_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+async def get_picks_by_id(supabase, pick_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Details of several picks in one query, keyed by pick id."""
+    if not pick_ids:
+        return {}
+    response = await execute_async(supabase.table('draft_picks').select(
+        '*, seasons(name), current_owner_team:current_owner_team_id(code, name), original_team:original_team_id(code, name)'
+    ).in_('id', pick_ids))
+    return {pick['id']: pick for pick in (response.data or [])}
+
+
+async def pick_ids_in_pending_trades(supabase, pick_ids: List[str]) -> Set[str]:
+    """Which of these picks are already part of a pending trade (two queries, however many picks)."""
+    if not pick_ids:
+        return set()
+    pending_proposals = await execute_async(supabase.table('trade_proposals').select('id').eq('status', 'pending'))
+    proposal_ids = [p['id'] for p in (pending_proposals.data or [])]
+    if not proposal_ids:
+        return set()
+    assets = await execute_async(
+        supabase.table('trade_assets').select('draft_pick_id')
+        .in_('draft_pick_id', pick_ids).in_('proposal_id', proposal_ids)
+    )
+    return {asset['draft_pick_id'] for asset in (assets.data or [])}
+
+
 def format_pick(pick: Dict[str, Any]) -> str:
     """Format a pick for display: 'R1.3'"""
     return f"R{pick.get('round', '?')}.{pick.get('overall', '?')}"
@@ -106,8 +131,10 @@ async def validate_picks_for_trade(
     4. Aren't already in pending trades
     """
     try:
+        picks = await get_picks_by_id(supabase, pick_ids)
+        in_pending_trade = await pick_ids_in_pending_trades(supabase, pick_ids)
         for pick_id in pick_ids:
-            pick = await get_pick_details(supabase, pick_id)
+            pick = picks.get(pick_id)
             if not pick:
                 return False, f"❌ Pick not found: {pick_id}"
 
@@ -120,17 +147,8 @@ async def validate_picks_for_trade(
             if pick.get('current_owner_team_id') != owner_team_id:
                 return False, f"❌ Your team doesn't own pick #{pick.get('overall', '?')}"
 
-            pending_proposals = await execute_async(
-                supabase.table('trade_proposals').select('id').eq('status', 'pending')
-            )
-            proposal_ids = [p['id'] for p in (pending_proposals.data or [])]
-            if proposal_ids:
-                pending = await execute_async(
-                    supabase.table('trade_assets').select('id')
-                    .eq('draft_pick_id', pick_id).in_('proposal_id', proposal_ids).limit(1)
-                )
-                if pending.data:
-                    return False, f"❌ Pick #{pick.get('overall', '?')} is already in a pending trade"
+            if pick_id in in_pending_trade:
+                return False, f"❌ Pick #{pick.get('overall', '?')} is already in a pending trade"
 
         return True, "✅ All picks valid"
     except Exception as e:

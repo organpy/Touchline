@@ -6,7 +6,7 @@ import pytest
 import time
 from unittest.mock import Mock
 
-from utils.caching import TTLCache, season_cache, division_cache, team_cache
+from utils.caching import TTLCache
 
 
 class TestTTLCache:
@@ -64,18 +64,6 @@ class TestTTLCache:
         cache.clear()
         assert cache.size() == 0
         assert cache.get("key1") is None
-
-    def test_global_season_cache_exists(self):
-        """Test that global season_cache is initialized."""
-        assert season_cache is not None
-        assert isinstance(season_cache, TTLCache)
-
-    def test_global_caches_have_correct_ttl(self):
-        """Test that global caches have appropriate TTLs."""
-        # Season cache should be 5 minutes (300 seconds)
-        assert season_cache.ttl_seconds == 300
-        # Team cache should be 10 minutes (600 seconds)
-        assert team_cache.ttl_seconds == 600
 
     def test_concurrent_cache_operations(self):
         """Test that cache handles concurrent-like operations."""

@@ -8,10 +8,12 @@ from typing import Optional
 
 import discord
 
+from utils.permissions import AdminOnlyView
+
 logger = logging.getLogger(__name__)
 
 
-class LazyInitView(discord.ui.View, metaclass=abc.ABCMeta):
+class LazyInitView(AdminOnlyView, metaclass=abc.ABCMeta):
     """Base view that populates components on first use."""
 
     def __init__(self, *, timeout: Optional[float] = 300) -> None:
@@ -53,4 +55,4 @@ class LazyInitView(discord.ui.View, metaclass=abc.ABCMeta):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if not self._is_prepared:
             await self.prepare()
-        return True
+        return await super().interaction_check(interaction)

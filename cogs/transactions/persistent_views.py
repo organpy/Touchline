@@ -10,7 +10,6 @@ from db import get_supabase
 from db.transactions_repository import TransactionsRepository
 from utils.team_player_cache import TeamPlayerCache
 from utils.embed_builder import EmbedBuilder
-from cogs.score.roster_cache import RosterCache
 from db.db_utils import execute_async
 from utils.league_cache import LeagueCache
 
@@ -112,7 +111,6 @@ class SigningAcceptButton(ui.DynamicItem[ui.Button], template=r'signing:accept:(
         await repo.cancel_other_pending_signings(signing['player_id'], keep_id=signing['id'])
 
         # Refresh caches
-        RosterCache().invalidate()
         cache = TeamPlayerCache()
         await cache.invalidate_team(signing['team_id'])
 

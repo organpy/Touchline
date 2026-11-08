@@ -5,7 +5,10 @@ Wraps slow Supabase queries in asyncio.to_thread() when appropriate.
 
 import asyncio
 import logging
+import time
 from typing import Any, Callable, Optional, TypeVar
+
+from utils.metrics import MetricsCollector
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +33,45 @@ async def execute_async(query: Any) -> Any:
             .select('*')
         )
     """
-    return await asyncio.to_thread(query.execute)
+    name = _query_name(query)
+    started = time.perf_counter()
+    try:
+        response = await asyncio.to_thread(query.execute)
+    except Exception:
+        MetricsCollector.record_query(name, (time.perf_counter() - started) * 1000, error=True)
+        raise
+    MetricsCollector.record_query(name, (time.perf_counter() - started) * 1000)
+    return response
+
+
+# Supabase returns at most this many rows per request, silently dropping the rest.
+PAGE_SIZE = 1000
+
+
+async def fetch_all(build_query: Callable[[], Any], page_size: int = PAGE_SIZE) -> list:
+    """Every row of a query, fetched page by page.
+
+    ``build_query`` returns a fresh query each time (a query can only be used once) and should order by a unique
+    column such as ``id`` so pages never overlap or skip rows.
+    """
+    rows: list = []
+    start = 0
+    while True:
+        response = await execute_async(build_query().range(start, start + page_size - 1))
+        batch = response.data or []
+        rows.extend(batch)
+        if len(batch) < page_size:
+            return rows
+        start += page_size
+
+
+def _query_name(query: Any) -> str:
+    """Metric key for a Supabase query, such as ``GET matches`` or ``POST rpc/record_match``."""
+    try:
+        request = query.request
+        return f"{request.http_method} {str(request.path).split('/rest/v1/', 1)[-1]}"
+    except Exception:
+        return "unknown"
 
 
 async def run_query_in_thread(

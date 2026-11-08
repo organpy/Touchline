@@ -10,7 +10,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
-from db.db_utils import execute_async
+from db.db_utils import execute_async, fetch_all
 from utils.league_cache import LeagueCache, enrich_team
 
 logger = logging.getLogger(__name__)
@@ -166,15 +166,28 @@ class TeamPlayerCache:
             await LeagueCache.refresh(cls._supabase)
             active = LeagueCache.active_season()
 
-            teams_response = await execute_async(cls._supabase.table("teams").select("*"))
+            # Fetch everything first (paged: Supabase returns at most 1000 rows per request), then rebuild the
+            # in-memory state without awaiting, so readers never see a half-built cache.
+            supabase = cls._supabase
+            raw_teams = await fetch_all(lambda: supabase.table("teams").select("*").order("id"))
+            raw_players = await fetch_all(lambda: supabase.table("players").select("*").order("id"))
+            raw_rosters = []
+            if active:
+                raw_rosters = await fetch_all(
+                    lambda: supabase.table("rosters")
+                    .select("player_id, team_id")
+                    .eq("season_id", active["id"])
+                    .is_("left_at", "null")
+                    .order("id")
+                )
+
             cls._teams = {}
             cls._teams_by_code = {}
-            for raw_team in teams_response.data or []:
+            for raw_team in raw_teams:
                 cls._store_team(cls._enrich_team(raw_team))
 
-            players_response = await execute_async(cls._supabase.table("players").select("*"))
             cls._players = {}
-            for raw_player in players_response.data or []:
+            for raw_player in raw_players:
                 player = dict(raw_player)
                 cls._clear_membership(player)
                 if player.get("id"):
@@ -182,13 +195,7 @@ class TeamPlayerCache:
 
             cls._team_players = {}
             if active:
-                rosters_response = await execute_async(
-                    cls._supabase.table("rosters")
-                    .select("player_id, team_id")
-                    .eq("season_id", active["id"])
-                    .is_("left_at", "null")
-                )
-                for roster in rosters_response.data or []:
+                for roster in raw_rosters:
                     team = cls._teams.get(roster.get("team_id"))
                     player = cls._players.get(roster.get("player_id"))
                     if not team or not player:
@@ -225,6 +232,11 @@ class TeamPlayerCache:
         logger.info("🔄 TeamPlayerCache invalidated")
 
     # ==================== TEAMS ====================
+
+    @classmethod
+    def is_loaded(cls) -> bool:
+        """True once teams have been loaded, so a missing team really is missing (not just not loaded yet)."""
+        return bool(cls._teams)
 
     @classmethod
     def get_team(cls, team_id: str) -> Optional[dict]:

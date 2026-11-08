@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import discord
 
-from cogs.score.roster_cache import RosterCache
 from utils.team_player_cache import TeamPlayerCache
 from utils.embed_builder import EmbedBuilder
 from cogs.transactions.persistent_views import SigningAcceptButton, SigningDeclineButton
@@ -261,9 +260,6 @@ class ReleaseConfirmationModal(discord.ui.Modal):
         ):
             logger.warning("⚠️ Failed to mark roster entry as left for player %s", self.player_record['id'])
 
-        logger.info("🔄 Invalidating roster cache for release")
-        RosterCache().invalidate()
-        # Note: RosterCache reload happens lazily on next stat command - it's not critical for transactions
         logger.info("🔄 Invalidating team player cache for release - team %s", self.team['id'])
         cache = TeamPlayerCache()
         await cache.invalidate_team(self.team['id'])

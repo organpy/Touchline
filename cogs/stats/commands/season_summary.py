@@ -11,6 +11,7 @@ from typing import Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
+from utils.command_limits import HEAVY
 
 from db import get_supabase, queries
 from cogs.stats.base import StatsCogBase
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 class SeasonSummaryCog(StatsCogBase):
     """Season summary command: /season-summary"""
 
-    @app_commands.command(name="season-summary", description="[STATS] Show season overview and statistics")
+    @app_commands.command(name="season-summary", description="[STATS] Show season overview and statistics", extras=HEAVY)
     @app_commands.describe(
         league="League code or name (defaults to active season league)",
         season="Season name (e.g., S10). Defaults to active season",

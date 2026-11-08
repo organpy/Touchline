@@ -14,6 +14,8 @@ from discord import app_commands
 from discord.ext import commands
 
 from db import get_supabase, queries
+from db.league_repository import friendly_error
+from utils.command_limits import HEAVY
 from utils.player_card_image_generator import generate_player_card
 from utils.team_player_cache import TeamPlayerCache
 from utils.league_cache import LeagueCache
@@ -56,7 +58,7 @@ class PlayerCardCog(commands.Cog):
             logger.error(f"Autocomplete error: {e}")
             return []
 
-    @app_commands.command(name="player-card", description="[STATS] Show a player's stats card with rating")
+    @app_commands.command(name="player-card", description="[STATS] Show a player's stats card with rating", extras=HEAVY)
     @app_commands.describe(
         player="Player name or ID",
         season="Season name (e.g., S10). Defaults to active season",
@@ -104,75 +106,22 @@ class PlayerCardCog(commands.Cog):
                 await LeagueCache.load_season_teams(season_row['id'])
                 league_code = (LeagueCache.team_division(team_info['id'], season_row['id']) or {}).get('code') or league_code
 
-            # Fetch player stats for the season
-            stats = {}
-            seasons_played = []
-            awards = []
-            teams_played = []
-            
+            # One query for every season: this season's column and the career column both come from it
+            career = await queries.get_player_career(self.supabase, player_id)
+            season_stats = None
             if season_row:
-                try:
-                    player_stats = await queries.get_player_stats_for_season(
-                        self.supabase, player_id, season_row['id']
-                    )
-                    if player_stats:
-                        # Aggregate stats
-                        total_goals = sum(s.get('goals', 0) or 0 for s in player_stats)
-                        total_assists = sum(s.get('assists', 0) or 0 for s in player_stats)
-                        total_saves = sum(s.get('saves', 0) or 0 for s in player_stats)
-                        total_points = sum(s.get('points', 0) or 0 for s in player_stats)
-                        total_blocks = sum(s.get('blocks', 0) or 0 for s in player_stats)
-                        total_own_goals = sum(s.get('own_goals', 0) or 0 for s in player_stats)
-                        total_pp_plays = sum(s.get('powerup_plays', 0) or 0 for s in player_stats)
-                        total_pp_used = sum(s.get('powerups_used', 0) or 0 for s in player_stats)
-                        games_played = len(player_stats)
-
-                        powerup_percentage = (total_pp_plays / total_pp_used * 100) if total_pp_used > 0 else 0
-
-                        stats = {
-                            'goals': total_goals,
-                            'assists': total_assists,
-                            'saves': total_saves,
-                            'points': total_points,
-                            'games_played': games_played,
-                            'blocks': total_blocks,
-                            'own_goals': total_own_goals,
-                            'powerup_plays': total_pp_plays,
-                            'powerups_used': total_pp_used,
-                            'powerup_percentage': round(powerup_percentage, 2),
-                        }
-                except Exception as e:
-                    logger.error(f"Failed to fetch player stats: {e}")
-            
-            # TODO: Fetch seasons played and teams played from rosters
-            # For now, keep empty
-            seasons_played = []
-            teams_played = []
-            
-            # Generate the card image
-            # Get avatar URL from Discord user if available
-            avatar_url = None
-            if player_record.get('discord_id'):
-                try:
-                    user = await self.bot.fetch_user(int(player_record['discord_id']))
-                    if user and user.avatar:
-                        avatar_url = user.avatar.url
-                except Exception:
-                    pass
+                season_stats = next((row for row in career if row['season_id'] == season_row['id']), None)
 
             season_name = season_row.get('name', 'Unknown') if season_row else 'N/A'
-            
+
             card_image = await generate_player_card(
                 player_name=player_name,
                 team_name=team_name,
                 team_code=team_code,
                 league_type=league_code,
                 season_name=season_name,
-                avatar_url=avatar_url,
-                stats=stats,
-                seasons=seasons_played,
-                awards=awards,
-                teams_played=teams_played,
+                season_stats=season_stats,
+                career=career,
             )
             
             if not card_image:
@@ -182,18 +131,11 @@ class PlayerCardCog(commands.Cog):
             # Send the card
             file = discord.File(io.BytesIO(card_image), filename=f"player_card_{player_name.replace(' ', '_')}.png")
             
-            # Add a simple embed with context
-            embed = discord.Embed(
-                title=f"🎴 {player_name}",
-                description=f"**Team:** {team_name or 'Free Agent'}\n**Season:** {season_name}",
-                color=discord.Color.gold(),
-            )
-            
-            await interaction.followup.send(embed=embed, file=file)
+            await interaction.followup.send(file=file)
         
         except Exception as e:
             logger.error(f"Error generating player card: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error: {str(e)}")
+            await interaction.followup.send(f"❌ {friendly_error(e, 'Something went wrong. The error was logged; please try again.')}", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

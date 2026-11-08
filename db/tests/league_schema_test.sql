@@ -47,6 +47,9 @@ DECLARE
     r1a uuid; r1b uuid; r2 uuid;
     pr1 uuid; cr1 uuid;
     v_series series%ROWTYPE;
+    v_report uuid;
+    v_rec matches%ROWTYPE;
+    v_again matches%ROWTYPE;
     i integer;
 BEGIN
     -- ------------------------------------------------------------ divisions and tiers
@@ -54,6 +57,17 @@ BEGIN
     INSERT INTO divisions (code, name, tier) VALUES ('ZZ2', 'Test Championship', 902) RETURNING id INTO d2;
     INSERT INTO divisions (code, name, tier) VALUES ('ZZ3', 'Test League One', 903) RETURNING id INTO d3;
     PERFORM pg_temp.expect_hint($q$INSERT INTO divisions (code, name, tier) VALUES ('zz1', 'Dup code', 950)$q$, NULL);
+
+    -- Names cannot hold mentions, markdown breakers or control characters.
+    PERFORM pg_temp.expect_hint($q$INSERT INTO divisions (code, name, tier) VALUES ('zz8', '@everyone', 958)$q$, NULL);
+    PERFORM pg_temp.expect_hint($q$INSERT INTO divisions (code, name, tier) VALUES ('zz8', 'Go @HERE now', 958)$q$, NULL);
+    PERFORM pg_temp.expect_hint($q$INSERT INTO teams (code, name) VALUES ('zz-bad-name', 'Team `x`')$q$, NULL);
+    PERFORM pg_temp.expect_hint($q$INSERT INTO teams (code, name) VALUES ('zz-bad-name', '<@&123>')$q$, NULL);
+    PERFORM pg_temp.expect_hint($q$INSERT INTO players (display_name) VALUES (E'two\nlines')$q$, NULL);
+    PERFORM pg_temp.expect_hint($q$INSERT INTO players (display_name) VALUES ('<@1>')$q$, NULL);
+    PERFORM pg_temp.expect_hint($q$INSERT INTO players (display_name) VALUES (repeat('x', 65))$q$, NULL);
+    ASSERT is_safe_name('Falcons #1') AND is_safe_name('O''Brien & Sons') AND is_safe_name('Team @ Home'),
+        'ordinary names must be accepted';
 
     -- Swapping two tiers in one call works (deferred exclusion constraint).
     PERFORM reorder_divisions(ARRAY[d2, d1, d3]);
@@ -121,6 +135,14 @@ BEGIN
     ASSERT (SELECT team_id FROM player_stats WHERE match_id = v_match AND player_id = p1) = t[2], 'stat team from roster';
     ASSERT (SELECT powerup_percentage FROM player_stats WHERE match_id = v_match AND player_id = p1) = 25.00, 'pp pct';
 
+    -- Career: one row per season with games, summed stats and the team the player was on.
+    ASSERT (SELECT count(*) FROM get_player_career(p1)) = 1, 'one season of games';
+    ASSERT (SELECT games_played FROM get_player_career(p1)) = 1 AND (SELECT points FROM get_player_career(p1)) = 5,
+        'career totals';
+    ASSERT (SELECT season_id FROM get_player_career(p1)) = s1, 'season of the games';
+    ASSERT (SELECT team_name FROM get_player_career(p1)) = (SELECT name FROM teams WHERE id = t[2]), 'team from the roster';
+    ASSERT (SELECT count(*) FROM get_player_career(gen_random_uuid())) = 0, 'a player without games has no career';
+
     PERFORM pg_temp.expect_hint(format($q$UPDATE matches SET team2_id = %L WHERE id = %L$q$, t[3], v_match), 'MATCH_IMMUTABLE');
     -- Teams with games cannot change division.
     PERFORM pg_temp.expect_hint(format(
@@ -143,6 +165,46 @@ BEGIN
     UPDATE matches SET status = 'void', voided_by = 1 WHERE id = v_match;
     ASSERT (SELECT voided_at FROM matches WHERE id = v_match) IS NOT NULL, 'voided_at set';
     ASSERT (SELECT wins FROM team_records WHERE season_id = s1 AND team_id = t[4]) = 0, 'void ignored in records';
+
+    -- A pair plays at most the division's games_per_matchup (default 2), in either order; a void frees a slot.
+    -- (Every game here is voided again so the standings used by the playoff tests below are unchanged.)
+    v_match := pg_temp.game(s1, t[6], t[5], 4, 2);
+    PERFORM pg_temp.expect_hint(format($q$SELECT pg_temp.game(%L, %L, %L, 10, 5)$q$, s1, t[5], t[6]), 'MATCH_LIMIT');
+    PERFORM pg_temp.expect_hint(format($q$SELECT pg_temp.game(%L, %L, %L, 10, 5)$q$, s1, t[6], t[5]), 'MATCH_LIMIT');
+    UPDATE matches SET status = 'void', voided_by = 1 WHERE id = v_match;
+    v_match := pg_temp.game(s1, t[5], t[6], 3, 1);
+    UPDATE matches SET status = 'void', voided_by = 1 WHERE id = v_match;
+    ASSERT (SELECT count(*) FROM matches WHERE season_id = s1 AND status = 'final'
+            AND team1_id IN (t[5], t[6]) AND team2_id IN (t[5], t[6])) = 1, 'only the original t5-t6 game still counts';
+
+    -- record_match saves a game with its stats in one go; sending the same report again returns the same game.
+    v_report := gen_random_uuid();
+    v_rec := record_match(
+        jsonb_build_object('season_id', s1, 'team1_id', t[5], 'team2_id', t[6], 'team1_score', 6, 'team2_score', 2,
+                           'recorded_by', 42),
+        jsonb_build_array(jsonb_build_object('player_id', p2, 'team_id', t[5], 'goals', 3, 'points', 6)),
+        v_report);
+    ASSERT v_rec.report_id = v_report AND v_rec.recorded_by = 42 AND v_rec.division_id IS NOT NULL, 'game saved and placed';
+    ASSERT (SELECT count(*) FROM player_stats WHERE match_id = v_rec.id) = 1, 'stats saved with the game';
+    v_again := record_match(
+        jsonb_build_object('season_id', s1, 'team1_id', t[5], 'team2_id', t[6], 'team1_score', 6, 'team2_score', 2),
+        '[]'::jsonb, v_report);
+    ASSERT v_again.id = v_rec.id, 'a repeated report returns the saved game';
+    ASSERT (SELECT count(*) FROM matches WHERE report_id = v_report) = 1, 'no second game';
+    ASSERT (SELECT count(*) FROM player_stats WHERE match_id = v_rec.id) = 1, 'no second set of stats';
+    -- The pair is at its limit now (2 games), also through record_match.
+    PERFORM pg_temp.expect_hint(format(
+        $q$SELECT record_match(%L::jsonb, '[]'::jsonb, gen_random_uuid())$q$,
+        jsonb_build_object('season_id', s1, 'team1_id', t[5], 'team2_id', t[6], 'team1_score', 5, 'team2_score', 1)),
+        'MATCH_LIMIT');
+    -- A bad stat row (unknown player) rolls the whole game back.
+    PERFORM pg_temp.expect_hint(format(
+        $q$SELECT record_match(%L::jsonb, %L::jsonb, gen_random_uuid())$q$,
+        jsonb_build_object('season_id', s1, 'team1_id', t[7], 'team2_id', t[8], 'team1_score', 5, 'team2_score', 1),
+        jsonb_build_array(jsonb_build_object('player_id', gen_random_uuid(), 'team_id', t[7], 'goals', 1))), NULL);
+    ASSERT (SELECT count(*) FROM matches WHERE season_id = s1 AND status = 'final'
+            AND team1_id IN (t[7], t[8]) AND team2_id IN (t[7], t[8])) = 1, 'failed save left no game behind';
+    UPDATE matches SET status = 'void', voided_by = 1 WHERE id = v_rec.id;
 
     -- ------------------------------------------------------------ postseason plan
     -- Championship (D1): semis 1v4, 2v3 (bo1), final bo3.

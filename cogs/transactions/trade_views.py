@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import discord
 
-from cogs.score.roster_cache import RosterCache
 from db import queries
 from cogs.transactions.pick_trading import (
     get_available_picks_for_team,
@@ -110,18 +109,14 @@ class TradeAssetModal(discord.ui.Modal):
         from cogs.transactions.trade_utils import can_trade_picks
 
         # Fetch available rosters for initiating team (from their season)
-        initiating_rosters = await queries.get_active_rosters(self.supabase, self.season['id'])
-        initiating_players = [
-            r for r in initiating_rosters
-            if r.get('team_id') == self.initiating_team['id']
-        ]
+        initiating_players = await queries.get_team_roster(
+            self.supabase, self.season['id'], self.initiating_team['id']
+        )
 
         # Fetch available rosters for counterparty
-        counterparty_rosters = await queries.get_active_rosters(self.supabase, self.counterparty_season['id'])
-        counterparty_players = [
-            r for r in counterparty_rosters
-            if r.get('team_id') == self.counterparty_team['id']
-        ]
+        counterparty_players = await queries.get_team_roster(
+            self.supabase, self.counterparty_season['id'], self.counterparty_team['id']
+        )
 
         # Check if picks can be traded between these teams
         allow_picks = await can_trade_picks(
@@ -460,13 +455,14 @@ class TradeAssetSelectionView(discord.ui.View):
         try:
             counterparty_owner_id = self.counterparty_team.get('owner_discord_id')
             counterparty_mention = f"<@{counterparty_owner_id}>" if counterparty_owner_id else "Team"
-            counterparty_member = interaction.guild.get_member(int(counterparty_owner_id)) if counterparty_owner_id else None
 
             await channel.send(
                 content=f"{counterparty_mention} you have a trade proposal to review!",
                 embed=approval_embed,
                 view=approval_view,
-                allowed_mentions=discord.AllowedMentions(users=[counterparty_member] if counterparty_member else True),
+                allowed_mentions=discord.AllowedMentions(
+                    users=[discord.Object(int(counterparty_owner_id))] if counterparty_owner_id else []
+                ),
                 files=files or None,
             )
         except discord.Forbidden:

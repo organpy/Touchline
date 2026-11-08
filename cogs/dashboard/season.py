@@ -16,7 +16,7 @@ from services.league import (
     Movement,
     default_plan_builder,
     end_regular_season,
-    final_standings,
+    current_standings,
     finish_postseason,
     regular_season_readiness,
     season_outcome,
@@ -140,7 +140,7 @@ class SeasonPage(DashboardPage):
         phase = self.season.get("phase")
         if phase == "offseason":
             modal = FormModal("Start next season", self._submit_next)
-            modal.season_name = modal.text("New season name", default=suggested_next_name(self.season), max_length=100)
+            modal.season_name = modal.text("New season name", default=suggested_next_name(self.season), max_length=64)
             await interaction.response.send_modal(modal)
             return
         await interaction.response.defer()
@@ -158,7 +158,7 @@ class SeasonPage(DashboardPage):
                 lines.insert(0, "Games can be reported once it starts. Teams that haven't played can still change division.")
             return {"title": NEXT_STEP[phase], "text": "\n".join(lines), "blocked": not readiness.ok, "phase": phase}
         if phase == "regular":
-            standings = await final_standings(self.repo, season_id)
+            standings = await current_standings(self.repo, season_id)  # a preview must not rewrite anything
             plan = default_plan_builder()(season_id, standings)
             lines = ["Standings lock for good."]
             brackets = plan.get("brackets") or []
@@ -191,7 +191,7 @@ class SeasonPage(DashboardPage):
             "postseason": (lambda: finish_postseason(self.repo, season), "Season finished. Review the moves, then start the next season."),
         }
         change, success = actions[preview["phase"]]
-        await self.apply(interaction, change, success, rosters=True)
+        await self.apply(interaction, change, success)
 
     async def _recalculate(self, interaction: discord.Interaction) -> None:
         await self.apply(interaction, lambda: recompute_season(self.repo, self.season["id"]), "Standings recalculated.")
@@ -206,12 +206,11 @@ class SeasonPage(DashboardPage):
             interaction,
             lambda: start_next_season(self.repo, self.season, name),
             f"**{name}** started in setup. Teams moved divisions and rosters carried over.",
-            rosters=True,
         )
 
     async def _create(self, interaction: discord.Interaction) -> None:
         modal = FormModal("Create first season", self._submit_create)
-        modal.season_name = modal.text("Season name", default="Season 1", max_length=100)
+        modal.season_name = modal.text("Season name", default="Season 1", max_length=64)
         await interaction.response.send_modal(modal)
 
     async def _submit_create(self, interaction: discord.Interaction, modal: FormModal) -> None:
@@ -224,7 +223,7 @@ class SeasonPage(DashboardPage):
 
     async def _rename(self, interaction: discord.Interaction) -> None:
         modal = FormModal("Rename season", self._submit_rename)
-        modal.season_name = modal.text("Season name", default=self.season.get("name"), max_length=100)
+        modal.season_name = modal.text("Season name", default=self.season.get("name"), max_length=64)
         await interaction.response.send_modal(modal)
 
     async def _submit_rename(self, interaction: discord.Interaction, modal: FormModal) -> None:

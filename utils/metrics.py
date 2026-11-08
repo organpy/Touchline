@@ -43,6 +43,7 @@ class MetricsCollector:
         # Query metrics
         self.query_times: Dict[str, List[float]] = defaultdict(list)  # {query_name: [times_ms]}
         self.query_errors: Dict[str, int] = defaultdict(int)  # {query_name: count}
+        self.query_counts: Dict[str, int] = defaultdict(int)  # {query_name: total ever run}
         
         # Stat calculation metrics
         self.stat_calc_times: Dict[str, List[float]] = defaultdict(list)  # {stat_name: [times_ms]}
@@ -93,6 +94,7 @@ class MetricsCollector:
             error: Whether the query failed
         """
         metrics = cls()
+        metrics.query_counts[query_name] += 1
         metrics.query_times[query_name].append(latency_ms)
         
         if error:
@@ -201,6 +203,7 @@ class MetricsCollector:
             "uptime_seconds": metrics.get_uptime_seconds(),
             "cache_stats": {},
             "query_stats": {},
+            "total_queries": sum(metrics.query_counts.values()),
             "stat_calc_stats": {},
             "eviction_stats": {
                 "ttl_evictions": dict(metrics.ttl_evictions),
@@ -221,7 +224,7 @@ class MetricsCollector:
         for query_name in metrics.query_times.keys():
             times = metrics.query_times[query_name]
             summary["query_stats"][query_name] = {
-                "count": len(times),
+                "count": metrics.query_counts[query_name],
                 "avg_latency_ms": metrics.get_avg_query_latency(query_name),
                 "min_latency_ms": min(times) if times else 0,
                 "max_latency_ms": max(times) if times else 0,
@@ -249,6 +252,7 @@ class MetricsCollector:
         metrics.cache_hit_times.clear()
         metrics.query_times.clear()
         metrics.query_errors.clear()
+        metrics.query_counts.clear()
         metrics.stat_calc_times.clear()
         metrics.ttl_evictions.clear()
         metrics.capacity_evictions.clear()

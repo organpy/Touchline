@@ -199,6 +199,32 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/init.sql
 It turns on row level security and removes every privilege from the public `anon` and `authenticated` roles on base tables. Only the bot's service role reads and writes them.
 
 <details>
+<summary><b>Updating an existing database (hardening release)</b></summary>
+
+<br>
+
+`init.sql` already includes everything below, so a new database needs nothing extra. A database created from an earlier `init.sql` needs one migration, which is safe to run while the bot is stopped:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/20261108_hardening.sql
+```
+
+It adds:
+
+- **Safe names**: team, division, group and season names, and player names, can no longer hold backticks, `<` `>`, line breaks, `@everyone` or `@here`. The checks are added as `NOT VALID`, so older rows never block the migration, but new and changed rows must pass. To find older names that break the rule, and then check them all:
+
+  ```sql
+  SELECT id, name FROM teams WHERE NOT is_safe_name(name);      -- same for divisions, division_groups, seasons
+  SELECT id, display_name FROM players WHERE NOT is_safe_name(display_name) OR length(btrim(display_name)) NOT BETWEEN 1 AND 64;
+  ALTER TABLE teams VALIDATE CONSTRAINT ck_teams_name_safe;     -- once the rows are fixed (and the others likewise)
+  ```
+- **Match locking**: the games-per-matchup limit and playoff series status are checked inside the database, one reporter at a time per pair or series.
+- **`record_match`**: saves a game and its player stats in one transaction. Reporting the same game twice stores it once.
+- **`get_player_career`**: the per-season rows behind the player card.
+
+</details>
+
+<details>
 <summary><b>Upgrading from the old NBL schema</b></summary>
 
 <br>
@@ -258,6 +284,14 @@ To update: `sudo -u touchline git -C /opt/touchline pull`, reinstall requirement
 
 The health server answers on `/health` (liveness), `/ready` (503 while disconnected from Discord) and `/metrics`. With `ERROR_WEBHOOK_URL` set, every error log is posted to that channel, at most 10 per minute and never with pings.
 
+## Security and limits
+
+- **Admins**: a server administrator, or a member with the admin role set in **Dashboard → Settings**. Every admin command checks this, and every admin panel checks it again on each click, so removing someone's rights takes effect straight away. Only a real server administrator can change the admin role.
+- **Rate limit**: each person gets 8 command uses per 30 seconds. Commands that draw images or run heavy queries (`/standings`, `/match-table`, `/player-card`, `/season-summary`, `/history` and the three report commands) cost 3. Autocomplete and button clicks are not counted. At most 2 images render at once.
+- **Names**: team, division, group, season and player names are checked when they are saved (see above), and the bot mentions nobody unless a message names a specific person to ping, so a name like `@everyone` can never ping anyone.
+- **Reporting**: the database enforces the games limit and series status under a lock, so two owners reporting at the same moment can't both squeeze in. A game and its stats save together, and pressing **Confirm** twice saves it once.
+- **Database load**: team and league lookups come from caches that reload when something changes. `/metrics` shows `total_queries` and a count per table, which is the easiest way to see what a change costs.
+
 ## Development
 
 ```bash
@@ -269,6 +303,12 @@ pytest test/ -q
 
 ```bash
 python scripts/seed_demo.py --apply --divisions 4 --teams 8
+```
+
+`scripts/preview_images.py` renders the standings, match tables and player cards with dummy data (no Discord or database needed) into `preview_output/`, with an `index.html` gallery. Add `--open` to open it in your browser.
+
+```bash
+python scripts/preview_images.py --open
 ```
 
 Slash commands sync on startup only when their definitions changed, tracked in `data/.command_sync_hash`. Delete that file to force a sync. Domain rules (standings, brackets, movements, the season lifecycle and reporting) live in `services/` with no Discord code, and most tests target them directly.
@@ -310,6 +350,12 @@ test/                  pytest suite
 **"These teams don't have an open playoff series right now."** In the postseason, a game counts only when the two teams meet in a series that is ready, so both of its teams must be decided. Check **Dashboard → Playoffs**.
 
 **"A later playoff series already has results. Void those games first."** A result that fed a later series can't be voided while that series has games. Void the later games in **Dashboard → Matches** first, newest first.
+
+**"Rate Limited".** You used too many commands too fast: 8 per 30 seconds, with image and report commands costing 3. The message says how long to wait.
+
+**A name is refused.** Names can't contain backticks, `<` `>`, line breaks, `@everyone` or `@here`. Remove those and try again. Discord display names with such characters are cleaned automatically when a player is added.
+
+**"Every game between these teams has already been recorded."** The pair has played all the games its division allows (**Dashboard → Divisions → Rules**). If a game was entered by mistake, void it in **Dashboard → Matches** and report it again.
 
 **Team logos don't appear.** Create a public `team-logos` bucket in Supabase Storage, then upload the logo again from the team page.
 

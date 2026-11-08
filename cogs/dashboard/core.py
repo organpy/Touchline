@@ -17,6 +17,7 @@ import discord
 
 from db.league_repository import LeagueRepository, LeagueRuleError, friendly_error
 from utils import board_events
+from utils.permissions import AdminOnlyView
 from utils.league_cache import LeagueCache
 
 logger = logging.getLogger(__name__)
@@ -41,18 +42,14 @@ class DashboardSession:
         return self.bot.get_guild(self.guild_id) if self.bot else None
 
 
-async def refresh_caches(*, rosters: bool = False) -> None:
-    """Reload league structure after a change (and the score-report roster cache when asked)."""
+async def refresh_caches() -> None:
+    """Reload league structure after a change (the team cache also reloads the league cache)."""
     from utils.team_player_cache import TeamPlayerCache
 
-    await TeamPlayerCache.refresh()  # also refreshes LeagueCache
-    if rosters:
-        from cogs.score.roster_cache import RosterCache
-
-        RosterCache().invalidate()
+    await TeamPlayerCache.refresh()
 
 
-class DashboardPage(discord.ui.View):
+class DashboardPage(AdminOnlyView):
     """One dashboard screen."""
 
     title = "Dashboard"
@@ -159,10 +156,13 @@ class DashboardPage(discord.ui.View):
         change: Callable[[], Awaitable[Any]],
         success: str,
         *,
-        rosters: bool = False,
+        refresh: bool = True,
         page: Optional["DashboardPage"] = None,
     ) -> bool:
-        """Run a change, refresh caches and re-render ``page`` (default: this page) with a notice."""
+        """Run a change, refresh caches and re-render ``page`` (default: this page) with a notice.
+
+        Pass ``refresh=False`` for changes that touch no league data (server settings), so they cost no reload.
+        """
         target = page or self
         if not interaction.response.is_done():
             await interaction.response.defer()
@@ -177,7 +177,8 @@ class DashboardPage(discord.ui.View):
             target.notice = f"❌ {friendly_error(exc, 'Something went wrong. Check the bot logs.')}"
             await target.show(interaction)
             return False
-        await refresh_caches(rosters=rosters)
+        if refresh:
+            await refresh_caches()
         board_events.league_changed()
         target.notice = f"✅ {success}"
         await target.show(interaction)
@@ -188,7 +189,7 @@ class DashboardPage(discord.ui.View):
         if interaction.user.id != self.session.user_id:
             await interaction.response.send_message("❌ This dashboard belongs to someone else. Open your own with `/dashboard`.", ephemeral=True)
             return False
-        return True
+        return await super().interaction_check(interaction)
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
         logger.error("Dashboard error in %s: %s", type(self).__name__, error, exc_info=error)

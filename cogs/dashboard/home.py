@@ -91,7 +91,7 @@ class HomePage(DashboardPage):
 
     async def _refresh(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer()
-        await refresh_caches(rosters=True)
+        await refresh_caches()
         self.notice = "🔄 Reloaded from the database."
         await self.show(interaction)
 

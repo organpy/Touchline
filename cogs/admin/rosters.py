@@ -11,11 +11,11 @@ from discord import app_commands
 
 from db import queries
 from db import get_supabase
+from db.league_repository import friendly_error
 from db.transactions_repository import TransactionsRepository
 from cogs.admin.common import LazyInitView
 from cogs.admin.base import AdminBaseManager
 from utils.team_player_cache import TeamPlayerCache
-from cogs.score.roster_cache import RosterCache
 from utils.config_manager import get_config_manager
 from utils.embed_assets import (
     apply_league_badge,
@@ -27,6 +27,8 @@ from utils.team_colors import get_team_color
 from db.db_utils import execute_async
 from utils.league_cache import LeagueCache
 from utils.team_picker import team_select_for
+from utils.validation import sanitize_player_name
+from utils.permissions import AdminOnlyView
 
 if TYPE_CHECKING:  # pragma: no cover
     from .admin_transactions import AdminTransactionsCog
@@ -34,7 +36,7 @@ if TYPE_CHECKING:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
-class RosterActionsView(discord.ui.View):
+class RosterActionsView(AdminOnlyView):
     """Buttons for roster management actions."""
 
     def __init__(self, bot: Any, guild_id: int, supabase: Any) -> None:
@@ -141,7 +143,7 @@ class RosterActionsView(discord.ui.View):
         self.stop()
 
 
-class ForceSignView(discord.ui.View):
+class ForceSignView(AdminOnlyView):
     """Simple force sign: Select team → Select Discord member → Confirm sign."""
 
     def __init__(self, bot: Any, guild_id: int, supabase: Any, repo: TransactionsRepository, parent_view: RosterActionsView) -> None:
@@ -227,7 +229,7 @@ class ForceSignView(discord.ui.View):
             )
             member_select.callback = self.select_member
             
-            view = discord.ui.View()
+            view = AdminOnlyView()
             view.add_item(member_select)
 
             await interaction.followup.send(
@@ -274,7 +276,7 @@ class ForceSignView(discord.ui.View):
             embed.add_field(name="Team", value=f"**{self._selected_team.get('name')}**", inline=False)
             embed.add_field(name="Member", value=f"**{self._selected_member.display_name}** (<@{member_id}>)", inline=False)
 
-            confirm_view = discord.ui.View()
+            confirm_view = AdminOnlyView()
             confirm_view.add_item(
                 discord.ui.Button(
                     label="Confirm Sign",
@@ -324,7 +326,7 @@ class ForceSignView(discord.ui.View):
                     self.supabase
                     .table('players')
                     .insert({
-                        'display_name': self._selected_member.display_name,
+                        'display_name': sanitize_player_name(self._selected_member.display_name),
                         'discord_id': self._selected_member.id,
                     })
                 )
@@ -438,7 +440,7 @@ class ForceSignView(discord.ui.View):
 
         except Exception as exc:
             logger.error("Error confirming force sign: %s", exc, exc_info=True)
-            await interaction.followup.send(f"❌ Error: {str(exc)[:100]}", ephemeral=True)
+            await interaction.followup.send(f"❌ {friendly_error(exc, 'Something went wrong. The error was logged; please try again.')}", ephemeral=True)
 
 
 class ForceReleaseView(LazyInitView):
@@ -507,7 +509,7 @@ class ForceReleaseView(LazyInitView):
                 team_name = roster_entry['teams'].get('name', 'Unknown')
 
                 # Confirmation
-                class ConfirmReleaseView(discord.ui.View):
+                class ConfirmReleaseView(AdminOnlyView):
                     def __init__(self) -> None:
                         super().__init__(timeout=60)
 
@@ -539,7 +541,6 @@ class ForceReleaseView(LazyInitView):
                                 team_code,
                                 confirm_interaction.user.id,
                             )
-                            RosterCache().invalidate()
                             await TeamPlayerCache.refresh(self.supabase)
                             
                             # Post to transactions channel
@@ -578,12 +579,13 @@ class ForceReleaseView(LazyInitView):
                                         embed, files = builder.build_with_files()
                                         # Ping the player
                                         ping_content = f"<@{player_discord_id}>" if player_discord_id else None
-                                        player_member = confirm_interaction.guild.get_member(int(player_discord_id)) if player_discord_id else None
                                         await channel.send(
                                             content=ping_content,
                                             embed=embed,
                                             files=files or None,
-                                            allowed_mentions=discord.AllowedMentions(users=[player_member] if player_member else True),
+                                            allowed_mentions=discord.AllowedMentions(
+                                                users=[discord.Object(int(player_discord_id))] if player_discord_id else []
+                                            ),
                                         )
                                 except Exception as e:
                                     logger.warning(f"Failed to post admin release to transactions channel: {e}")
@@ -704,7 +706,7 @@ class ForceTransferView(LazyInitView):
                     placeholder="Select destination team...",
                     row=0,
                 )
-                view = discord.ui.View()
+                view = AdminOnlyView()
                 view.add_item(team_select)
 
                 await interaction.followup.send(
@@ -733,7 +735,7 @@ class ForceTransferView(LazyInitView):
                 dest_code = dest_team_data.get('code', '?')
 
                 # Confirmation
-                class ConfirmTransferView(discord.ui.View):
+                class ConfirmTransferView(AdminOnlyView):
                     def __init__(self) -> None:
                         super().__init__(timeout=60)
 
@@ -767,7 +769,6 @@ class ForceTransferView(LazyInitView):
                                 dest_code,
                                 confirm_interaction.user.id,
                             )
-                            RosterCache().invalidate()
                             await TeamPlayerCache.refresh(self.supabase)
                             
                             # Post to transactions channel
@@ -810,12 +811,13 @@ class ForceTransferView(LazyInitView):
                                         embed, files = builder.build_with_files()
                                         # Ping the player
                                         ping_content = f"<@{player_discord_id}>" if player_discord_id else None
-                                        player_member = confirm_interaction.guild.get_member(int(player_discord_id)) if player_discord_id else None
                                         await channel.send(
                                             content=ping_content,
                                             embed=embed,
                                             files=files or None,
-                                            allowed_mentions=discord.AllowedMentions(users=[player_member] if player_member else True),
+                                            allowed_mentions=discord.AllowedMentions(
+                                                users=[discord.Object(int(player_discord_id))] if player_discord_id else []
+                                            ),
                                         )
                                 except Exception as e:
                                     logger.warning(f"Failed to post admin transfer to transactions channel: {e}")
@@ -862,7 +864,7 @@ class ForceTransferView(LazyInitView):
 
 
 
-class BlacklistView(discord.ui.View):
+class BlacklistView(AdminOnlyView):
     """Blacklist management: Add/Remove players from team blacklists."""
 
     def __init__(self, bot: Any, guild_id: int, supabase: Any, parent_view: RosterActionsView) -> None:
@@ -908,7 +910,7 @@ class BlacklistView(discord.ui.View):
             return
 
         # Build action buttons
-        action_view = discord.ui.View()
+        action_view = AdminOnlyView()
         
         add_btn = discord.ui.Button(
             label="Add to Blacklist",
@@ -1013,7 +1015,7 @@ class BlacklistView(discord.ui.View):
                     await member_interaction.followup.send("❌ Invalid member ID.", ephemeral=True)
 
             member_select.callback = select_member_callback
-            view = discord.ui.View()
+            view = AdminOnlyView()
             view.add_item(member_select)
 
             action_text = "add to blacklist" if action == "add" else "remove from blacklist"
@@ -1039,7 +1041,7 @@ class BlacklistView(discord.ui.View):
                     self.supabase
                     .table('players')
                     .insert({
-                        'display_name': member.display_name,
+                        'display_name': sanitize_player_name(member.display_name),
                         'discord_id': member.id,
                         'active': True,
                     })
@@ -1092,7 +1094,7 @@ class BlacklistView(discord.ui.View):
 
         except Exception as exc:
             logger.error("Error in confirm_blacklist_action: %s", exc, exc_info=True)
-            await interaction.followup.send(f"❌ Error: {str(exc)[:100]}", ephemeral=True)
+            await interaction.followup.send(f"❌ {friendly_error(exc, 'Something went wrong. The error was logged; please try again.')}", ephemeral=True)
 
 
 class ViewRosterView(LazyInitView):

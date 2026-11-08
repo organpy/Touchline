@@ -8,10 +8,8 @@ database caches.
 import logging
 from typing import List, Optional
 
-import discord
 from discord import app_commands
 
-from db import get_supabase, queries
 from utils.team_player_cache import TeamPlayerCache
 from utils.autocomplete_loader import load_autocomplete_data, get_league_entries
 from utils.team_data_provider import TeamDataProvider
@@ -158,38 +156,6 @@ class AutocompleteHelper:
                 break
 
         return suggestions
-
-    @staticmethod
-    async def player_on_team_choices(
-        interaction: discord.Interaction,
-        current: str,
-    ) -> List[app_commands.Choice[str]]:
-        """
-        Get players on the user's team.
-        Used by /sign, /trade, etc. in transactions.
-        """
-        cache = TeamPlayerCache()
-        supabase = get_supabase()
-
-        # Get user's team
-        team = cache.get_team_by_owner(interaction.user.id) or await queries.get_team_by_owner(supabase, interaction.user.id)
-        if not team:
-            return []
-
-        # Get players on that team
-        player_names = cache.get_team_player_names(team["id"])
-
-        # Filter to matching names
-        current_lower = current.lower()
-        filtered = [
-            name for name in player_names
-            if current_lower in name.lower()
-        ]
-
-        return [
-            app_commands.Choice(name=name, value=name)
-            for name in filtered[:25]
-        ]
 
     # ==================== SEASONS ====================
 

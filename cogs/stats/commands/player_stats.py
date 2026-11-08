@@ -67,13 +67,12 @@ class PlayerStatsCog(StatsCogBase):
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
         division_filter = (league_meta or {}).get('id') if league else None
-        if not league_meta:
-            league_meta = await self._resolve_player_division(player, season_row)
+        player_in_season, player_division = await self._player_in_season(player, season_row)
+        league_meta = league_meta or player_division
 
         league_season_display = self._format_league_season_display(league_meta, season_row)
 
         # Validate player plays in this season
-        player_in_season = await self._validate_player_in_season(player, season_row)
         if not player_in_season:
             league_display = self._format_league_display(league_meta)
             await interaction.followup.send(
@@ -186,13 +185,12 @@ class PlayerStatsCog(StatsCogBase):
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
         division_filter = (league_meta or {}).get('id') if league else None
-        if not league_meta:
-            league_meta = await self._resolve_player_division(player, season_row)
+        player_in_season, player_division = await self._player_in_season(player, season_row)
+        league_meta = league_meta or player_division
 
         league_season_display = self._format_league_season_display(league_meta, season_row)
 
         # Validate player plays in this season
-        player_in_season = await self._validate_player_in_season(player, season_row)
         if not player_in_season:
             league_display = self._format_league_display(league_meta)
             await interaction.followup.send(
@@ -307,13 +305,12 @@ class PlayerStatsCog(StatsCogBase):
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
         division_filter = (league_meta or {}).get('id') if league else None
-        if not league_meta:
-            league_meta = await self._resolve_player_division(player, season_row)
+        player_in_season, player_division = await self._player_in_season(player, season_row)
+        league_meta = league_meta or player_division
 
         league_season_display = self._format_league_season_display(league_meta, season_row)
 
         # Validate player plays in this season
-        player_in_season = await self._validate_player_in_season(player, season_row)
         if not player_in_season:
             league_display = self._format_league_display(league_meta)
             await interaction.followup.send(

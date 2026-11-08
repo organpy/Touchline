@@ -11,6 +11,7 @@ from discord.ext import commands
 
 from db import get_supabase
 from utils.config_utility import ConfigUtility
+from utils.permissions import admin_only, is_admin
 
 from .core import DashboardPage, DashboardSession
 from .home import HomePage
@@ -23,13 +24,14 @@ async def check_dashboard_access(bot: Any, interaction: discord.Interaction) -> 
     if not interaction.guild:
         await interaction.response.send_message("❌ The dashboard only works inside a server.", ephemeral=True)
         return False
+    # Admin first: a member without rights is not told which channel is the admin channel.
+    if not await is_admin(interaction):
+        await ConfigUtility.send_permission_denied_message(interaction)
+        return False
     guild_config = await ConfigUtility.get_guild_config(bot, interaction.guild.id)
     allowed, channel_embed = await ConfigUtility.check_admin_channel_restriction(interaction, guild_config)
     if not allowed:
         await interaction.response.send_message(embed=channel_embed, ephemeral=True)
-        return False
-    if not await ConfigUtility.check_admin_permissions(interaction, guild_config):
-        await ConfigUtility.send_permission_denied_message(interaction)
         return False
     return True
 
@@ -60,6 +62,7 @@ class DashboardCog(commands.Cog):
         self.bot = bot
 
     @app_commands.command(name="dashboard", description="[ADMIN] Run the league: divisions, teams, seasons and playoffs")
+    @admin_only()
     async def dashboard(self, interaction: discord.Interaction) -> None:
         await open_dashboard(self.bot, interaction)
 

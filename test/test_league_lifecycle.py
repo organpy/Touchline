@@ -119,10 +119,11 @@ def test_direct_movements_follow_zones_and_adjacent_tiers():
 async def test_finish_postseason_records_champion_and_moves():
     season = load(phase="postseason")
     repo = repo_mock()
-    repo.get_standings.side_effect = lambda season_id, division_id: {
-        "d1": [{"team_id": "a", "rank": 1, "zone": None}, {"team_id": "c", "rank": 2, "zone": "relegated"}],
-        "d2": [{"team_id": "x", "rank": 1, "zone": "promoted"}],
-    }[division_id]
+    repo.get_standings.return_value = [
+        {"division_id": "d1", "team_id": "a", "rank": 1, "zone": None},
+        {"division_id": "d1", "team_id": "c", "rank": 2, "zone": "relegated"},
+        {"division_id": "d2", "team_id": "x", "rank": 1, "zone": "promoted"},
+    ]
     outcome = await finish_postseason(repo, season)
     assert outcome.champion_team_id == "a"
     season_id, champion, moves = repo.finalize_season.await_args.args
@@ -144,3 +145,36 @@ async def test_finish_postseason_waits_for_brackets():
 def test_suggested_next_name():
     assert suggested_next_name({"name": "Season 3", "number": 3}) == "Season 4"
     assert suggested_next_name({"name": "Spring Cup", "number": 2}) == "Season 3"
+
+
+@pytest.mark.asyncio
+async def test_current_standings_reads_every_division_in_one_query_without_writing():
+    from services.league import current_standings
+
+    load(phase="regular")
+    repo = repo_mock()
+    repo.get_standings.return_value = [
+        {"division_id": "d1", "team_id": "b", "rank": 2},
+        {"division_id": "d2", "team_id": "x", "rank": 1},
+        {"division_id": "d1", "team_id": "a", "rank": 1},
+    ]
+
+    standings = await current_standings(repo, "s1")
+
+    assert [row["team_id"] for row in standings["d1"]] == ["a", "b"]
+    assert [row["team_id"] for row in standings["d2"]] == ["x"]
+    repo.get_standings.assert_awaited_once_with("s1")
+    repo.replace_standings.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_division_without_standings_still_gets_an_empty_list():
+    from services.league import current_standings
+
+    load(phase="regular")
+    repo = repo_mock()
+    repo.get_standings.return_value = [{"division_id": "d1", "team_id": "a", "rank": 1}]
+
+    standings = await current_standings(repo, "s1")
+
+    assert standings["d2"] == []

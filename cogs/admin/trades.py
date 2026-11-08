@@ -13,6 +13,7 @@ from db.transactions_repository import TransactionsRepository
 from cogs.admin.common import LazyInitView
 from utils.team_player_cache import TeamPlayerCache
 from db.db_utils import execute_async
+from utils.permissions import AdminOnlyView
 
 if TYPE_CHECKING:
     pass
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class TradeManagementView(discord.ui.View):
+class TradeManagementView(AdminOnlyView):
     """Main view for managing trades - view pending, cancel, etc."""
 
     def __init__(self, bot: Any, guild_id: int, supabase: Any) -> None:

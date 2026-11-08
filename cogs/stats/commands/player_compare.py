@@ -75,14 +75,13 @@ class PlayerCompareCog(StatsCogBase):
         if not season_row:
             await interaction.followup.send("❌ Could not locate a season matching your request.")
             return
-        if not league_meta:
-            league_meta = await self._resolve_player_division(player_a, season_row)
+        player_a_in_season, player_a_division = await self._player_in_season(player_a, season_row)
+        player_b_in_season, _ = await self._player_in_season(player_b, season_row)
+        league_meta = league_meta or player_a_division
 
         league_season_display = self._format_league_season_display(league_meta, season_row)
 
         # Validate both players in season
-        player_a_in_season = await self._validate_player_in_season(player_a, season_row)
-        player_b_in_season = await self._validate_player_in_season(player_b, season_row)
 
         if not player_a_in_season or not player_b_in_season:
             league_display = self._format_league_display(league_meta)

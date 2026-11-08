@@ -4,7 +4,7 @@ change hands inside that division.
 """
 
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, MagicMock, AsyncMock, patch
 from datetime import datetime
 
 from cogs.transactions.pick_trading import (
@@ -256,43 +256,118 @@ class TestValidatePicksForTrade:
         pick.update(overrides)
         return pick
 
+    @staticmethod
+    def _patched(picks, pending=()):
+        return (
+            patch('cogs.transactions.pick_trading.get_picks_by_id', AsyncMock(return_value={p['id']: p for p in picks})),
+            patch('cogs.transactions.pick_trading.pick_ids_in_pending_trades', AsyncMock(return_value=set(pending))),
+        )
+
+    async def _validate(self, picks, team='team-a', pending=(), ids=None):
+        picks_patch, pending_patch = self._patched(picks, pending)
+        with picks_patch, pending_patch:
+            return await validate_picks_for_trade(
+                Mock(), ids if ids is not None else [p['id'] for p in picks], team, 'season-1'
+            )
+
     @pytest.mark.asyncio
-    async def test_valid_pick(self, mock_supabase):
-        with patch('cogs.transactions.pick_trading.get_pick_details', AsyncMock(return_value=self._pick())):
-            mock_supabase.table().select().eq().execute.return_value = Mock(data=[])
-            valid, message = await validate_picks_for_trade(mock_supabase, ['pick-1'], 'team-a', 'season-1')
+    async def test_valid_pick(self):
+        valid, message = await self._validate([self._pick()])
         assert valid is True, message
 
     @pytest.mark.asyncio
-    async def test_wrong_owner(self, mock_supabase):
-        with patch('cogs.transactions.pick_trading.get_pick_details', AsyncMock(return_value=self._pick())):
-            valid, message = await validate_picks_for_trade(mock_supabase, ['pick-1'], 'team-b', 'season-1')
+    async def test_several_valid_picks(self):
+        valid, message = await self._validate([self._pick(), self._pick(id='pick-2', overall=2)])
+        assert valid is True, message
+
+    @pytest.mark.asyncio
+    async def test_unknown_pick(self):
+        valid, message = await self._validate([self._pick()], ids=['pick-1', 'pick-404'])
+        assert valid is False
+        assert "pick-404" in message
+
+    @pytest.mark.asyncio
+    async def test_wrong_owner(self):
+        valid, message = await self._validate([self._pick()], team='team-b')
         assert valid is False
         assert "doesn't own" in message
 
     @pytest.mark.asyncio
-    async def test_division_without_draft(self, mock_supabase):
-        pick = self._pick(division_id='div-2', current_owner_team_id='team-c')
-        with patch('cogs.transactions.pick_trading.get_pick_details', AsyncMock(return_value=pick)):
-            valid, message = await validate_picks_for_trade(mock_supabase, ['pick-1'], 'team-c', 'season-1')
+    async def test_division_without_draft(self):
+        valid, message = await self._validate([self._pick(division_id='div-2', current_owner_team_id='team-c')], team='team-c')
         assert valid is False
         assert "turned off" in message
 
     @pytest.mark.asyncio
-    async def test_other_season(self, mock_supabase):
-        pick = self._pick(season_id='season-0')
-        with patch('cogs.transactions.pick_trading.get_pick_details', AsyncMock(return_value=pick)):
-            valid, message = await validate_picks_for_trade(mock_supabase, ['pick-1'], 'team-a', 'season-1')
+    async def test_other_season(self):
+        valid, _ = await self._validate([self._pick(season_id='season-0')])
         assert valid is False
 
     @pytest.mark.asyncio
-    async def test_pick_in_pending_trade(self, mock_supabase):
-        with patch('cogs.transactions.pick_trading.get_pick_details', AsyncMock(return_value=self._pick())):
-            mock_supabase.table().select().eq().execute.return_value = Mock(data=[{'id': 'proposal-1'}])
-            mock_supabase.table().select().eq().in_().limit().execute.return_value = Mock(data=[{'id': 'asset-1'}])
-            valid, message = await validate_picks_for_trade(mock_supabase, ['pick-1'], 'team-a', 'season-1')
+    async def test_pick_in_pending_trade(self):
+        valid, message = await self._validate([self._pick(), self._pick(id='pick-2', overall=2)], pending={'pick-2'})
         assert valid is False
-        assert "pending trade" in message
+        assert "#2" in message and "pending trade" in message
+
+
+class TestPickLookupsAreBatched:
+    """However many picks are involved, validation costs a fixed number of queries."""
+
+    @staticmethod
+    def _supabase(picks, proposals, assets):
+        supabase = MagicMock()
+        tables = {
+            'draft_picks': picks, 'trade_proposals': proposals, 'trade_assets': assets,
+        }
+        queries_run = []
+
+        def table(name):
+            query = MagicMock()
+            query.select.return_value = query
+            query.eq.return_value = query
+            query.in_.return_value = query
+            query.execute.side_effect = lambda: (queries_run.append(name), Mock(data=tables[name]))[1]
+            return query
+
+        supabase.table.side_effect = table
+        return supabase, queries_run
+
+    @pytest.mark.asyncio
+    async def test_many_picks_use_three_queries(self):
+        picks = [{'id': f'p{i}', 'season_id': 's1', 'division_id': 'div-1', 'current_owner_team_id': 'team-a', 'overall': i}
+                 for i in range(1, 9)]
+        supabase, queries_run = self._supabase(picks, [{'id': 'prop-1'}], [])
+
+        valid, message = await validate_picks_for_trade(supabase, [p['id'] for p in picks], 'team-a', 's1')
+
+        assert valid is True, message
+        assert queries_run == ['draft_picks', 'trade_proposals', 'trade_assets']
+
+    @pytest.mark.asyncio
+    async def test_no_pending_trades_skips_the_asset_query(self):
+        picks = [{'id': 'p1', 'season_id': 's1', 'division_id': 'div-1', 'current_owner_team_id': 'team-a', 'overall': 1}]
+        supabase, queries_run = self._supabase(picks, [], [])
+
+        await validate_picks_for_trade(supabase, ['p1'], 'team-a', 's1')
+
+        assert queries_run == ['draft_picks', 'trade_proposals']
+
+    @pytest.mark.asyncio
+    async def test_a_pick_in_a_pending_trade_is_found(self):
+        picks = [{'id': 'p1', 'season_id': 's1', 'division_id': 'div-1', 'current_owner_team_id': 'team-a', 'overall': 1}]
+        supabase, _ = self._supabase(picks, [{'id': 'prop-1'}], [{'draft_pick_id': 'p1'}])
+
+        valid, message = await validate_picks_for_trade(supabase, ['p1'], 'team-a', 's1')
+
+        assert valid is False and "pending trade" in message
+
+    @pytest.mark.asyncio
+    async def test_no_picks_means_no_queries(self):
+        supabase, queries_run = self._supabase([], [], [])
+
+        valid, _ = await validate_picks_for_trade(supabase, [], 'team-a', 's1')
+
+        assert valid is True and queries_run == []
 
 
 # ============================================================================

@@ -21,9 +21,9 @@ from .views import (
 )
 from .roster_cache import RosterCache
 from .access import NOT_ALLOWED_MESSAGE, NOT_YOUR_MATCH_MESSAGE, resolve_reporter_access
-from db.db_utils import execute_async
 from services.reporting import STAGE_LABELS, record_match, resolve_match_context
-from db.league_repository import LeagueRuleError
+from utils.command_limits import HEAVY
+from db.league_repository import LeagueRuleError, friendly_error
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,8 @@ class StatRegistrationCog(commands.Cog):
 
     @app_commands.command(
         name="report-stats",
-        description="[TEAM OWNER] Start recording a match with individual player statistics"
+        description="[TEAM OWNER] Start recording a match with individual player statistics",
+        extras=HEAVY,
     )
     async def report_stats(self, interaction: discord.Interaction):
         """Main command to initiate stat registration flow"""
@@ -183,13 +184,14 @@ class StatRegistrationCog(commands.Cog):
         embed.add_field(name=match_entry.team1.team_name, value=team1_str, inline=False)
         embed.add_field(name=match_entry.team2.team_name, value=team2_str, inline=False)
 
-        async def on_confirm(confirm_interaction: discord.Interaction):
-            await self.save_match_to_database(confirm_interaction, match_entry, interaction.user.id)
+        async def on_confirm(confirm_interaction: discord.Interaction) -> bool:
+            return await self.save_match_to_database(confirm_interaction, match_entry, interaction.user.id)
 
-        async def on_cancel(confirm_interaction: discord.Interaction):
+        async def on_cancel(confirm_interaction: discord.Interaction) -> bool:
             await confirm_interaction.followup.send("❌ Match recording cancelled.", ephemeral=True)
             if interaction.user.id in self.active_matches:
                 del self.active_matches[interaction.user.id]
+            return True
 
         confirmation_view = MatchConfirmationView(match_entry, on_confirm, on_cancel)
         await self._send_interaction_response(interaction, embed=embed, view=confirmation_view, ephemeral=True)
@@ -199,35 +201,21 @@ class StatRegistrationCog(commands.Cog):
         interaction: discord.Interaction,
         match_entry: MatchEntry,
         user_id: int
-    ):
-        """Save match + all player_stats to Supabase"""
+    ) -> bool:
+        """Save match + all player_stats to Supabase. Returns True once the game is saved."""
 
         try:
             # Checks the phase, games limit or playoff series again (things may have changed while
-            # stats were typed in), inserts the game and refreshes standings.
+            # stats were typed in), saves the game with its stats in one transaction and refreshes standings.
             logger.info(f"🔄 Inserting match: {match_entry.team1.team_code} vs {match_entry.team2.team_code}")
             try:
-                match_row, context = await record_match(self.supabase, match_entry)
+                match_row, context = await record_match(self.supabase, match_entry, recorded_by=user_id)
             except LeagueRuleError as exc:
                 await interaction.followup.send(f"❌ {exc.message}", ephemeral=True)
-                return
+                return False
 
             match_id = match_row['id']
             logger.info(f"✅ Match inserted: {match_id} ({context.stage})")
-
-            # Prepare & insert player_stats
-            player_stats_list = match_entry.to_supabase_player_stats(match_id)
-
-            if player_stats_list:
-                logger.info(f"🔄 Inserting {len(player_stats_list)} player stats...")
-                stats_response = await execute_async(self.supabase.table('player_stats').insert(player_stats_list))
-
-                if not stats_response.data:
-                    await interaction.followup.send("❌ Failed to insert player stats", ephemeral=True)
-                    logger.error("Player stats insert returned no data")
-                    return
-
-                logger.info(f"✅ Player stats inserted: {len(stats_response.data)} entries")
 
             # Success message
             embed = discord.Embed(
@@ -256,10 +244,12 @@ class StatRegistrationCog(commands.Cog):
                 f"✅ Match complete: {match_entry.team1.team_code} ({match_entry.team1.score}) vs "
                 f"{match_entry.team2.team_code} ({match_entry.team2.score})"
             )
+            return True
 
         except Exception as e:
             logger.error(f"❌ Error saving match: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error saving match: {str(e)}", ephemeral=True)
+            await interaction.followup.send(f"❌ {friendly_error(e, 'Something went wrong. The error was logged; please try again.')}", ephemeral=True)
+            return False
 
 
 async def setup(bot: commands.Bot):

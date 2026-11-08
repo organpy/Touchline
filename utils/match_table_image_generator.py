@@ -1,78 +1,41 @@
-"""Match table rendering as a grid image showing all games (played and scheduled)."""
+"""Match table image: a grid of every game in a division, one row and one column per team.
+
+Each cell holds one slot per game between the two teams: the first is the row team's home game, the second its
+away game, and so on. Scores are shown from the row team's side, green for a win, red for a loss, grey when the
+game has not been played.
+"""
 
 from __future__ import annotations
 
-import hashlib
 import io
-import json
 import logging
-import re
-from functools import lru_cache
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from PIL import Image, ImageDraw, ImageFont
-
-from utils.caching import TTLCache
-
-from utils.image_theme import division_color, tinted_theme
+from utils.render import canvas
+from utils.render.fonts import font
+from utils.render.theme import CARD, DIVIDER, LOSS, MUTED, PENDING, TEXT, WIN
+from utils.render.theme import accent_color as resolve_accent
 
 logger = logging.getLogger(__name__)
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-IMAGES_DIR = ROOT_DIR / "images"
-LOGO_CACHE_DIR = ROOT_DIR / "data" / "logo_cache"
-FONTS_DIR = ROOT_DIR / "fonts"
+INNER_PAD = 22
+HEADER_HEIGHT = 76
+LOGO_BAND = 64  # width of the row-logo column and height of the column-logo row
+CELL_WIDTH = 76
+TEAM_LOGO_SIZE = 36
+LEAGUE_LOGO_SIZE = 44
+BOTTOM_PAD = 14
+MIN_CONTENT_WIDTH = 400  # keeps the header readable when there are only a few teams
 
-# Theme configuration (reused from standings)
-BASE_THEME = {
-    "canvas_gradient": ((6, 10, 22), (27, 8, 35)),
-    "card_bg": (26, 33, 49, 255),
-    "card_border": (58, 74, 108, 255),
-    "header_gradient": ((90, 134, 255), (176, 92, 255)),
-    "text_primary": (245, 248, 255, 255),
-    "text_muted": (173, 187, 212, 255),
-    "cell_win": (34, 139, 34, 255),      # Green for wins
-    "cell_loss": (139, 0, 0, 255),       # Dark red for losses
-    "cell_pending": (60, 60, 80, 255),   # Gray for not played
-    "cell_border": (40, 50, 70, 255),
-}
-
-MATCH_TABLE_CACHE_TTL_SECONDS = 600  # Increased from 120 to 600 for low-resource optimization
-
-
-def _to_rgba(color: Tuple[int, ...]) -> Tuple[int, int, int, int]:
-    if len(color) == 4:
-        return color
-    if len(color) == 3:
-        return (color[0], color[1], color[2], 255)
-    raise ValueError("Color tuples must be length 3 or 4")
-
-
-def _get_theme(league_code: Optional[str], accent_color: Optional[str] = None) -> Dict[str, Any]:
-    """Base theme tinted with the division's colour."""
-    return tinted_theme(BASE_THEME, accent_color or division_color(league_code))
-
-
-# Layout constants
-CANVAS_PADDING = 32
-CARD_CORNER_RADIUS = 24
-HEADER_HEIGHT = 100
-CELL_SIZE = 70
-SUBCELL_HEIGHT = 35  # Height of each half-cell (home/away) - for 2 games
-LOGO_COLUMN_WIDTH = 80
-LOGO_SIZE = 50
-CELL_PADDING = 4
-MATCH_HEADER_LOGO_SIZE = 64
-MATCH_HEADER_GAP = 18
-
-# Supported games per matchup configurations
+# Cell layout for a few common numbers of games per pairing
 GAMES_PER_MATCHUP_CONFIGS = {
-    2: {"subcells": 2, "cell_height": 70, "layout": "vertical"},   # 2 games: 1 home, 1 away (default)
-    3: {"subcells": 3, "cell_height": 84, "layout": "vertical"},   # 3 games: alternating home/away/home
-    4: {"subcells": 4, "cell_height": 96, "layout": "vertical"},   # 4 games: 2 home, 2 away
-    6: {"subcells": 6, "cell_height": 108, "layout": "grid"},     # 6 games: 3x2 grid (3 rows of 2)
+    2: {"subcells": 2, "cell_height": 70, "layout": "vertical"},   # 1 home, 1 away (default)
+    3: {"subcells": 3, "cell_height": 84, "layout": "vertical"},   # home, away, home
+    4: {"subcells": 4, "cell_height": 96, "layout": "vertical"},   # 2 home, 2 away
+    6: {"subcells": 6, "cell_height": 108, "layout": "grid"},      # 3 rows of home/away
 }
+
+match_table_cache = canvas.RenderCache()
 
 
 def matchup_layout(games_per_matchup: int) -> Dict[str, Any]:
@@ -87,139 +50,36 @@ def matchup_layout(games_per_matchup: int) -> Dict[str, Any]:
     return {"subcells": games, "cell_height": 36 * rows, "layout": "grid"}
 
 
-def _normalize_key(value: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", value.lower())
+def _slot_rects(x: int, y: int, config: Dict[str, Any]) -> List[Tuple[int, int, int, int]]:
+    """The rectangle of each game slot of a cell whose top-left corner is (x, y)."""
+    slots, height = config["subcells"], config["cell_height"]
+    if config["layout"] == "grid":
+        rows, width = (slots + 1) // 2, CELL_WIDTH // 2
+        slot_height = height // rows
+        return [
+            (x + (i % 2) * width, y + (i // 2) * slot_height, x + (i % 2 + 1) * width, y + (i // 2 + 1) * slot_height)
+            for i in range(slots)
+        ]
+    slot_height = height // slots
+    return [(x, y + i * slot_height, x + CELL_WIDTH, y + (i + 1) * slot_height) for i in range(slots)]
 
 
-@lru_cache(maxsize=1)
-def _image_index() -> Dict[str, Path]:
-    index: Dict[str, Path] = {}
-    # Uploaded logos (data/logo_cache) win over bundled images with the same name
-    for directory in (IMAGES_DIR, LOGO_CACHE_DIR):
-        if not directory.exists():
-            continue
-        for file_path in directory.iterdir():
-            if file_path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
-                continue
-            index[_normalize_key(file_path.stem)] = file_path
-    return index
+def _score_font(slot_width: int, slot_height: int):
+    """The largest bold font in which a typical score still fits its slot."""
+    for size in range(15, 8, -1):
+        candidate = font(size, bold=True)
+        if candidate.getlength("00–00") <= slot_width - 6 and size + 6 <= slot_height:
+            return candidate
+    return font(9, bold=True)
 
 
-match_table_cache = TTLCache(ttl_seconds=MATCH_TABLE_CACHE_TTL_SECONDS, max_size=32)
-
-
-def clear_match_table_cache() -> None:
-    """Clear cached match table images."""
-    match_table_cache.clear()
-
-
-def _make_cache_key(
-    matches: List[Dict[str, Any]],
-    teams: List[Dict[str, Any]],
-    season_name: str,
-    league_name: str,
-    league_code: Optional[str],
-    games_per_matchup: int = 2,
-) -> str:
-    payload = {
-        "league_code": (league_code or "").upper(),
-        "accent_color": division_color(league_code),
-        "league_name": league_name,
-        "season_name": season_name,
-        "matches": matches,
-        "teams": [t.get('id') for t in teams],
-        "games_per_matchup": games_per_matchup,
-    }
-    serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-
-
-def _bytes_to_buffer(image_bytes: bytes) -> io.BytesIO:
-    buffer = io.BytesIO(image_bytes)
-    buffer.seek(0)
-    return buffer
-
-
-def _find_logo_path(*candidates: Optional[str]) -> Optional[Path]:
-    index = _image_index()
-    for candidate in candidates:
-        if not candidate:
-            continue
-        key = _normalize_key(candidate)
-        if key in index:
-            return index[key]
-    return None
-
-
-def _load_logo(path: Path, size: int) -> Optional[Image.Image]:
-    try:
-        image = Image.open(path).convert("RGBA")
-        return _prepare_logo_image(image, size)
-    except Exception:
-        logger.warning("Failed to load logo %s", path)
+def _result_for(row_is_home: bool, match: Optional[Dict[str, Any]]) -> Optional[Tuple[str, bool]]:
+    """('their–our' score text from the row team's side, whether the row team won) for a played game."""
+    if not match or match.get("status") != "final":
         return None
-
-
-def _prepare_logo_image(image: Image.Image, size: int) -> Image.Image:
-    image.thumbnail((size, size), Image.LANCZOS)
-    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    offset = ((size - image.width) // 2, (size - image.height) // 2)
-    canvas.paste(image, offset, image)
-    return canvas
-
-
-def _draw_circle_avatar(
-    base: Image.Image,
-    center: Tuple[int, int],
-    diameter: int,
-    text: str,
-    *,
-    fill_color: Tuple[int, int, int, int],
-    outline_color: Tuple[int, int, int, int],
-    text_color: Tuple[int, int, int, int],
-):
-    draw = ImageDraw.Draw(base)
-    radius = diameter // 2
-    x0, y0 = center[0] - radius, center[1] - radius
-    x1, y1 = center[0] + radius, center[1] + radius
-    draw.ellipse((x0, y0, x1, y1), fill=fill_color, outline=outline_color, width=2)
-    text_font = ImageFont.load_default()
-    bbox = draw.textbbox((0, 0), text, font=text_font)
-    w = bbox[2] - bbox[0]
-    h = bbox[3] - bbox[1]
-    draw.text((center[0] - w / 2, center[1] - h / 2), text, fill=text_color, font=text_font)
-
-
-def _draw_vertical_gradient(draw: ImageDraw.ImageDraw, bbox: Tuple[int, int, int, int], start_color, end_color):
-    x0, y0, x1, y1 = bbox
-    height = max(y1 - y0, 1)
-    for i in range(height):
-        ratio = i / height
-        r = int(start_color[0] * (1 - ratio) + end_color[0] * ratio)
-        g = int(start_color[1] * (1 - ratio) + end_color[1] * ratio)
-        b = int(start_color[2] * (1 - ratio) + end_color[2] * ratio)
-        draw.line([(x0, y0 + i), (x1, y0 + i)], fill=(r, g, b))
-
-
-def _load_fonts(games_per_matchup: int = 2):
-    """Load fonts with size scaling based on games_per_matchup."""
-    # Scale factor: 2 games = 1.0, 6 games = 0.85
-    scale_factor = max(0.85, 1.0 - (games_per_matchup - 2) * 0.025)
-    
-    score_font_size = max(10, int(14 * scale_factor))
-    score_label_size = max(8, int(10 * scale_factor))
-    
-    try:
-        title_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), 24)
-        subtitle_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), 14)
-        score_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Bold.ttf"), score_font_size)
-        score_label_font = ImageFont.truetype(str(FONTS_DIR / "Poppins-Regular.ttf"), score_label_size)
-    except Exception:
-        title_font = ImageFont.load_default()
-        subtitle_font = ImageFont.load_default()
-        score_font = ImageFont.load_default()
-        score_label_font = ImageFont.load_default()
-    return title_font, subtitle_font, score_font, score_label_font
+    home, away = match.get("team1_score") or 0, match.get("team2_score") or 0
+    ours, theirs = (home, away) if row_is_home else (away, home)
+    return f"{ours}–{theirs}", ours > theirs
 
 
 def generate_match_table_image(
@@ -230,339 +90,85 @@ def generate_match_table_image(
     league_code: Optional[str] = None,
     games_per_matchup: int = 2,
 ) -> Optional[io.BytesIO]:
+    """Render a division's games as a PNG grid, or None when there are no teams.
+
+    ``matches`` need ``team1_id`` (home), ``team2_id``, ``team1_score``, ``team2_score`` and ``status``;
+    ``teams`` need ``id``, ``code`` and ``name``.
     """
-    Generate a match table grid image showing all games.
-    
-    Args:
-        matches: List of match dicts with team1_id, team2_id, team1_score, team2_score, status
-        teams: List of team dicts in the division
-        season_name: Season name for title
-        league_name: League name for title
-        league_code: Division code; the image is tinted with that division's colour
-        games_per_matchup: Number of games per team pair (1-10)
-    
-    Returns:
-        BytesIO buffer with PNG image, or None on error
-    """
-    try:
-        if not teams:
-            return None
-        
-        # Validate games_per_matchup
-        config = matchup_layout(games_per_matchup)
-        games_per_matchup = config["subcells"]
-        cell_height = config["cell_height"]
-        num_subcells = config["subcells"]
-        subcell_height = cell_height // num_subcells
-
-        cache_key = _make_cache_key(matches, teams, season_name, league_name, league_code, games_per_matchup)
-        cached_image = match_table_cache.get(cache_key)
-        if cached_image is not None:
-            logger.debug("Match table image cache hit for key %s", cache_key[:8])
-            return _bytes_to_buffer(cached_image)
-
-        theme = _get_theme(league_code)
-        title_font, subtitle_font, score_font, score_label_font = _load_fonts(games_per_matchup)
-
-        num_teams = len(teams)
-        
-        # Build team ID to index mapping
-        team_by_id = {t['id']: t for t in teams}
-        team_indices = {t['id']: i for i, t in enumerate(teams)}
-
-        # Build match lookup: (team1_id, team2_id) -> list of matches (for multiple games)
-        match_lookup: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
-        for match in matches:
-            t1_id = match.get('team1_id')
-            t2_id = match.get('team2_id')
-            if t1_id and t2_id:
-                key = (t1_id, t2_id)
-                if key not in match_lookup:
-                    match_lookup[key] = []
-                match_lookup[key].append(match)
-
-        # Calculate dimensions - use dynamic cell height based on games_per_matchup
-        grid_width = LOGO_COLUMN_WIDTH + (num_teams * CELL_SIZE)
-        grid_height = LOGO_COLUMN_WIDTH + (num_teams * cell_height)  # Dynamic row height
-        
-        card_width = grid_width + (CANVAS_PADDING * 2)
-        card_height = HEADER_HEIGHT + grid_height + CANVAS_PADDING
-        
-        canvas_width = card_width + (CANVAS_PADDING * 2)
-        canvas_height = card_height + (CANVAS_PADDING * 2)
-
-        # Create canvas with gradient background
-        canvas = Image.new("RGBA", (canvas_width, canvas_height), _to_rgba(theme["canvas_gradient"][0]))
-        canvas_draw = ImageDraw.Draw(canvas)
-        _draw_vertical_gradient(canvas_draw, (0, 0, canvas_width, canvas_height), *theme["canvas_gradient"])
-
-        # Create card
-        card = Image.new("RGBA", (card_width, card_height), (0, 0, 0, 0))
-        card_draw = ImageDraw.Draw(card)
-        card_draw.rounded_rectangle(
-            (0, 0, card_width, card_height),
-            radius=CARD_CORNER_RADIUS,
-            fill=_to_rgba(theme["card_bg"]),
-            outline=_to_rgba(theme["card_border"]),
-            width=2,
-        )
-
-        # Draw header with gradient
-        header_bbox = (0, 0, card_width, HEADER_HEIGHT)
-        header_img = Image.new("RGBA", (card_width, HEADER_HEIGHT), (0, 0, 0, 0))
-        header_draw = ImageDraw.Draw(header_img)
-        
-        # Rounded top corners only
-        header_draw.rounded_rectangle(
-            (0, 0, card_width, HEADER_HEIGHT + CARD_CORNER_RADIUS),
-            radius=CARD_CORNER_RADIUS,
-            fill=(0, 0, 0, 0),
-        )
-        _draw_vertical_gradient(header_draw, (0, 0, card_width, HEADER_HEIGHT), *theme["header_gradient"])
-        
-        # Mask to get rounded top corners
-        mask = Image.new("L", (card_width, HEADER_HEIGHT), 0)
-        mask_draw = ImageDraw.Draw(mask)
-        mask_draw.rounded_rectangle(
-            (0, 0, card_width, HEADER_HEIGHT + CARD_CORNER_RADIUS),
-            radius=CARD_CORNER_RADIUS,
-            fill=255,
-        )
-        card.paste(header_img, (0, 0), mask)
-
-        # Draw header block: league logo left of text, centered together
-        title_text = f"{league_name} — {season_name}"
-        subtitle_text = "Match Results Grid"
-
-        # Measure text sizes with baseline accounting
-        title_bbox = card_draw.textbbox((0, 0), title_text, font=title_font)
-        title_width = title_bbox[2] - title_bbox[0]
-        title_height = title_bbox[3] - title_bbox[1]
-        title_offset = title_bbox[1]  # Top offset from baseline
-        
-        subtitle_bbox = card_draw.textbbox((0, 0), subtitle_text, font=subtitle_font)
-        subtitle_width = subtitle_bbox[2] - subtitle_bbox[0]
-        subtitle_height = subtitle_bbox[3] - subtitle_bbox[1]
-        subtitle_offset = subtitle_bbox[1]  # Top offset from baseline
-        
-        text_block_width = max(title_width, subtitle_width)
-
-        # Load league logo (or fallback avatar)
-        logo_img: Optional[Image.Image] = None
-        league_logo_path = _find_logo_path(league_code, league_name)
-        if league_logo_path:
-            logo_img = _load_logo(league_logo_path, MATCH_HEADER_LOGO_SIZE)
-
-        # Combined width for centering
-        has_logo = logo_img is not None
-        combined_width = (MATCH_HEADER_LOGO_SIZE + MATCH_HEADER_GAP if has_logo else 0) + text_block_width
-        combined_x = (card_width - combined_width) // 2
-        header_center_y = HEADER_HEIGHT // 2
-
-        # Vertically center the logo
-        logo_x = combined_x
-        logo_y = header_center_y - MATCH_HEADER_LOGO_SIZE // 2
-        
-        # Position text to the right of logo
-        text_x = logo_x + MATCH_HEADER_LOGO_SIZE + MATCH_HEADER_GAP
-        
-        # Position title centered on logo's middle
-        title_y = header_center_y - title_height // 2 - title_offset
-        
-        # Position subtitle below title with moderate gap to avoid overlap
-        line_gap = 10  # Moderate gap
-        subtitle_y = title_y + title_height + line_gap - subtitle_offset
-
-        # Draw logo (or fallback avatar)
-        if has_logo:
-            card.paste(logo_img, (logo_x, logo_y), logo_img)
-        else:
-            # Draw a simple avatar placeholder with league initials
-            initials = (league_code or "L")[:2].upper()
-            _draw_circle_avatar(
-                card,
-                (logo_x + MATCH_HEADER_LOGO_SIZE // 2, logo_y + MATCH_HEADER_LOGO_SIZE // 2),
-                MATCH_HEADER_LOGO_SIZE,
-                initials,
-                fill_color=_to_rgba(theme["card_bg"]),
-                outline_color=_to_rgba(theme["card_border"]),
-                text_color=_to_rgba(theme["text_primary"]),
-            )
-
-        card_draw.text((text_x, title_y), title_text, fill=_to_rgba(theme["text_primary"]), font=title_font)
-        card_draw.text((text_x, subtitle_y), subtitle_text, fill=_to_rgba(theme["text_muted"]), font=subtitle_font)
-
-        # Grid starting position
-        grid_x = CANVAS_PADDING
-        grid_y = HEADER_HEIGHT
-
-        # Draw top row logos (column headers)
-        for col, team in enumerate(teams):
-            x = grid_x + LOGO_COLUMN_WIDTH + (col * CELL_SIZE)
-            y = grid_y
-            
-            # Cell background
-            cell_rect = (x, y, x + CELL_SIZE, y + LOGO_COLUMN_WIDTH)
-            card_draw.rectangle(cell_rect, fill=_to_rgba(theme["card_bg"]), outline=_to_rgba(theme["cell_border"]))
-            
-            # Load and draw team logo
-            logo_path = _find_logo_path(team.get('code'), team.get('name'))
-            if logo_path:
-                logo = _load_logo(logo_path, LOGO_SIZE)
-                if logo:
-                    logo_x = x + (CELL_SIZE - LOGO_SIZE) // 2
-                    logo_y = y + (LOGO_COLUMN_WIDTH - LOGO_SIZE) // 2
-                    card.paste(logo, (logo_x, logo_y), logo)
-
-        # Draw left column logos (row headers) - use dynamic cell_height
-        for row, team in enumerate(teams):
-            x = grid_x
-            y = grid_y + LOGO_COLUMN_WIDTH + (row * cell_height)
-            
-            # Cell background
-            cell_rect = (x, y, x + LOGO_COLUMN_WIDTH, y + cell_height)
-            card_draw.rectangle(cell_rect, fill=_to_rgba(theme["card_bg"]), outline=_to_rgba(theme["cell_border"]))
-            
-            # Load and draw team logo
-            logo_path = _find_logo_path(team.get('code'), team.get('name'))
-            if logo_path:
-                logo = _load_logo(logo_path, LOGO_SIZE)
-                if logo:
-                    logo_x = x + (LOGO_COLUMN_WIDTH - LOGO_SIZE) // 2
-                    logo_y = y + (cell_height - LOGO_SIZE) // 2
-                    card.paste(logo, (logo_x, logo_y), logo)
-
-        # Draw match cells - dynamic subcells based on games_per_matchup
-        for row, row_team in enumerate(teams):
-            for col, col_team in enumerate(teams):
-                base_x = grid_x + LOGO_COLUMN_WIDTH + (col * CELL_SIZE)
-                base_y = grid_y + LOGO_COLUMN_WIDTH + (row * cell_height)
-                
-                # Same team = diagonal (dark cells)
-                if row_team['id'] == col_team['id']:
-                    cell_rect = (base_x, base_y, base_x + CELL_SIZE, base_y + cell_height)
-                    card_draw.rectangle(cell_rect, fill=_to_rgba(theme["cell_border"]), outline=_to_rgba(theme["cell_border"]))
-                    continue
-                
-                # Get all matches between these teams (both directions)
-                home_matches = match_lookup.get((row_team['id'], col_team['id']), [])  # row_team is home
-                away_matches = match_lookup.get((col_team['id'], row_team['id']), [])  # row_team is away
-                
-                # For 6 games: use 3x2 grid (3 rows, 2 columns)
-                # For others: use vertical stack (N rows, 1 column)
-                layout = config.get("layout", "vertical")
-                
-                if layout == "grid":
-                    # Two columns (home, away), one row per pair of games
-                    grid_cols = 2
-                    grid_rows = (num_subcells + 1) // 2
-                    subcell_width = CELL_SIZE // grid_cols
-                    subcell_height_grid = cell_height // grid_rows
-                    
-                    for subcell_idx in range(num_subcells):
-                        grid_row = subcell_idx // grid_cols
-                        grid_col = subcell_idx % grid_cols
-                        
-                        subcell_x = base_x + (grid_col * subcell_width)
-                        subcell_y = base_y + (grid_row * subcell_height_grid)
-                        subcell_rect = (subcell_x, subcell_y, subcell_x + subcell_width, subcell_y + subcell_height_grid)
-                        
-                        # Determine if this is a home or away slot (for row_team)
-                        # Grid order: [0,1] = [home1, away1], [2,3] = [home2, away2], [4,5] = [home3, away3]
-                        is_home = (subcell_idx % 2 == 0)
-                        
-                        # Get the appropriate match for this slot
-                        if is_home:
-                            home_idx = subcell_idx // 2
-                            match = home_matches[home_idx] if home_idx < len(home_matches) else None
-                        else:
-                            away_idx = subcell_idx // 2
-                            match = away_matches[away_idx] if away_idx < len(away_matches) else None
-                        
-                        if match and match.get('status') == 'final':
-                            score1 = match.get('team1_score', 0) or 0
-                            score2 = match.get('team2_score', 0) or 0
-                            
-                            # Determine win/loss from row_team perspective
-                            if is_home:
-                                # row_team is home (team1), they win if score1 > score2
-                                row_team_won = score1 > score2
-                                score_text = f"{score1}-{score2}"
-                            else:
-                                # row_team is away (team2), they win if score2 > score1
-                                row_team_won = score2 > score1
-                                score_text = f"{score2}-{score1}"  # Show from row_team perspective
-                            
-                            cell_color = theme["cell_win"] if row_team_won else theme["cell_loss"]
-                            card_draw.rectangle(subcell_rect, fill=_to_rgba(cell_color), outline=_to_rgba(theme["cell_border"]))
-                            
-                            # Draw score centered in subcell
-                            score_bbox = card_draw.textbbox((0, 0), score_text, font=score_font)
-                            score_width = score_bbox[2] - score_bbox[0]
-                            score_height = score_bbox[3] - score_bbox[1]
-                            score_x = subcell_x + (subcell_width - score_width) // 2
-                            score_y = subcell_y + (subcell_height_grid - score_height) // 2
-                            card_draw.text((score_x, score_y), score_text, fill=_to_rgba(theme["text_primary"]), font=score_font)
-                        else:
-                            # Not played yet
-                            card_draw.rectangle(subcell_rect, fill=_to_rgba(theme["cell_pending"]), outline=_to_rgba(theme["cell_border"]))
-                else:
-                    # Vertical layout (default for 2, 3, 4 games)
-                    for subcell_idx in range(num_subcells):
-                        subcell_y = base_y + (subcell_idx * subcell_height)
-                        subcell_rect = (base_x, subcell_y, base_x + CELL_SIZE, subcell_y + subcell_height)
-                        
-                        # Determine if this is a home or away slot (for row_team)
-                        is_home = (subcell_idx % 2 == 0)
-                        
-                        # Get the appropriate match for this slot
-                        if is_home:
-                            home_idx = subcell_idx // 2
-                            match = home_matches[home_idx] if home_idx < len(home_matches) else None
-                        else:
-                            away_idx = subcell_idx // 2
-                            match = away_matches[away_idx] if away_idx < len(away_matches) else None
-                        
-                        if match and match.get('status') == 'final':
-                            score1 = match.get('team1_score', 0) or 0
-                            score2 = match.get('team2_score', 0) or 0
-                            
-                            # Determine win/loss from row_team perspective
-                            if is_home:
-                                # row_team is home (team1), they win if score1 > score2
-                                row_team_won = score1 > score2
-                                score_text = f"{score1}-{score2}"
-                            else:
-                                # row_team is away (team2), they win if score2 > score1
-                                row_team_won = score2 > score1
-                                score_text = f"{score2}-{score1}"  # Show from row_team perspective
-                            
-                            cell_color = theme["cell_win"] if row_team_won else theme["cell_loss"]
-                            card_draw.rectangle(subcell_rect, fill=_to_rgba(cell_color), outline=_to_rgba(theme["cell_border"]))
-                            
-                            # Draw score centered in subcell
-                            score_bbox = card_draw.textbbox((0, 0), score_text, font=score_font)
-                            score_width = score_bbox[2] - score_bbox[0]
-                            score_height = score_bbox[3] - score_bbox[1]
-                            score_x = base_x + (CELL_SIZE - score_width) // 2
-                            score_y = subcell_y + (subcell_height - score_height) // 2
-                            card_draw.text((score_x, score_y), score_text, fill=_to_rgba(theme["text_primary"]), font=score_font)
-                        else:
-                            # Not played yet
-                            card_draw.rectangle(subcell_rect, fill=_to_rgba(theme["cell_pending"]), outline=_to_rgba(theme["cell_border"]))
-        # Paste card onto canvas
-        canvas.paste(card, (CANVAS_PADDING, CANVAS_PADDING), card)
-
-        # Save to buffer
-        buffer = io.BytesIO()
-        canvas.save(buffer, format="PNG", optimize=True)
-        image_bytes = buffer.getvalue()
-
-        # Cache the result
-        match_table_cache.set(cache_key, image_bytes)
-
-        return _bytes_to_buffer(image_bytes)
-
-    except Exception as e:
-        logger.error("Error generating match table image: %s", e, exc_info=True)
+    if not teams:
         return None
+    try:
+        config = matchup_layout(games_per_matchup)
+        accent = resolve_accent(None, league_code)
+        key = match_table_cache.key({
+            "league": [league_code, league_name, season_name], "accent": accent, "games": config["subcells"],
+            "teams": [[t.get("id"), t.get("code"), t.get("name")] for t in teams],
+            "matches": [[m.get("team1_id"), m.get("team2_id"), m.get("team1_score"), m.get("team2_score"), m.get("status")]
+                        for m in matches],
+        })
+        cached = match_table_cache.get(key)
+        if cached is not None:
+            return cached
+
+        return match_table_cache.put(key, _render(matches, teams, season_name, league_name, league_code, config, accent))
+    except Exception as exc:
+        logger.error("Failed to generate match table image: %s", exc, exc_info=True)
+        return None
+
+
+def _render(matches, teams, season_name, league_name, league_code, config, accent):
+    cell_height = config["cell_height"]
+    grid_width = LOGO_BAND + len(teams) * CELL_WIDTH
+    grid_height = LOGO_BAND + len(teams) * cell_height
+    content_width = max(grid_width, MIN_CONTENT_WIDTH)
+    top = canvas.PADDING + canvas.ACCENT_HEIGHT
+    width = canvas.PADDING * 2 + INNER_PAD * 2 + content_width
+    height = top + HEADER_HEIGHT + grid_height + BOTTOM_PAD + canvas.PADDING
+    image, draw = canvas.new_image(width, height, accent)
+    left = canvas.PADDING + INNER_PAD
+
+    # Header
+    middle = top + HEADER_HEIGHT // 2
+    canvas.draw_logo(image, draw, (left + LEAGUE_LOGO_SIZE // 2, middle), LEAGUE_LOGO_SIZE, [league_code, league_name], league_name)
+    text_x = left + LEAGUE_LOGO_SIZE + 14
+    text_width = content_width - LEAGUE_LOGO_SIZE - 14
+    title = canvas.fit_text(f"{league_name} — {season_name}", font(22, bold=True), text_width)
+    subtitle = canvas.fit_text("MATCH RESULTS · SCORES FROM THE ROW TEAM'S SIDE", font(12), text_width)
+    draw.text((text_x, middle - 11), title, font=font(22, bold=True), fill=TEXT, anchor="lm")
+    draw.text((text_x, middle + 15), subtitle, font=font(12), fill=MUTED, anchor="lm")
+
+    grid_left, grid_top = left + (content_width - grid_width) // 2, top + HEADER_HEIGHT
+    # Row and column headers: team logos
+    for index, team in enumerate(teams):
+        names = [team.get("code"), team.get("name")]
+        canvas.draw_logo(image, draw, (grid_left + LOGO_BAND + index * CELL_WIDTH + CELL_WIDTH // 2, grid_top + LOGO_BAND // 2),
+                         TEAM_LOGO_SIZE, names, team.get("name"))
+        canvas.draw_logo(image, draw, (grid_left + LOGO_BAND // 2, grid_top + LOGO_BAND + index * cell_height + cell_height // 2),
+                         TEAM_LOGO_SIZE, names, team.get("name"))
+
+    # Games by (home team, away team)
+    played: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
+    for match in matches:
+        if match.get("team1_id") and match.get("team2_id"):
+            played.setdefault((match["team1_id"], match["team2_id"]), []).append(match)
+
+    slot_rects = _slot_rects(0, 0, config)
+    score_font = _score_font(slot_rects[0][2] - slot_rects[0][0], slot_rects[0][3] - slot_rects[0][1])
+    for row, row_team in enumerate(teams):
+        for col, col_team in enumerate(teams):
+            x = grid_left + LOGO_BAND + col * CELL_WIDTH
+            y = grid_top + LOGO_BAND + row * cell_height
+            if row_team["id"] == col_team["id"]:
+                draw.rectangle((x, y, x + CELL_WIDTH - 1, y + cell_height - 1), fill=DIVIDER)
+                continue
+            home_games = played.get((row_team["id"], col_team["id"]), [])  # the row team hosted these
+            away_games = played.get((col_team["id"], row_team["id"]), [])
+            for slot, (x0, y0, x1, y1) in enumerate(_slot_rects(x, y, config)):
+                row_is_home = slot % 2 == 0
+                games = home_games if row_is_home else away_games
+                result = _result_for(row_is_home, games[slot // 2] if slot // 2 < len(games) else None)
+                fill = PENDING if result is None else WIN if result[1] else LOSS
+                draw.rectangle((x0, y0, x1 - 1, y1 - 1), fill=fill, outline=CARD)
+                if result:
+                    draw.text(((x0 + x1) / 2, (y0 + y1) / 2), result[0], font=score_font, fill=TEXT, anchor="mm")
+    return image
