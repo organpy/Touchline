@@ -1,8 +1,8 @@
 """Match table image: a grid of every game in a division, one row and one column per team.
 
 Each cell holds one slot per game between the two teams: the first is the row team's home game, the second its
-away game, and so on. Scores are shown from the row team's side, green for a win, red for a loss, grey when the
-game has not been played.
+away game, and so on. Scores are shown from the row team's side on a neutral slot: green text for a win, red for a
+loss, an empty slot when the game has not been played.
 """
 
 from __future__ import annotations
@@ -13,16 +13,16 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from utils.render import canvas
 from utils.render.fonts import font
-from utils.render.theme import CARD, DIVIDER, LOSS, MUTED, PENDING, TEXT, WIN
+from utils.render.theme import CARD, HAIRLINE, LOSS, PENDING, ROW_ALT, WIN
 from utils.render.theme import accent_color as resolve_accent
 
 logger = logging.getLogger(__name__)
 
 INNER_PAD = 22
-HEADER_HEIGHT = 76
+HEADER_HEIGHT = 72
 LOGO_BAND = 64  # width of the row-logo column and height of the column-logo row
 CELL_WIDTH = 76
-TEAM_LOGO_SIZE = 36
+TEAM_LOGO_SIZE = 32
 LEAGUE_LOGO_SIZE = 44
 BOTTOM_PAD = 14
 MIN_CONTENT_WIDTH = 400  # keeps the header readable when there are only a few teams
@@ -128,14 +128,8 @@ def _render(matches, teams, season_name, league_name, league_code, config, accen
     left = canvas.PADDING + INNER_PAD
 
     # Header
-    middle = top + HEADER_HEIGHT // 2
-    canvas.draw_logo(image, draw, (left + LEAGUE_LOGO_SIZE // 2, middle), LEAGUE_LOGO_SIZE, [league_code, league_name], league_name)
-    text_x = left + LEAGUE_LOGO_SIZE + 14
-    text_width = content_width - LEAGUE_LOGO_SIZE - 14
-    title = canvas.fit_text(f"{league_name} — {season_name}", font(22, bold=True), text_width)
-    subtitle = canvas.fit_text("MATCH RESULTS · SCORES FROM THE ROW TEAM'S SIDE", font(12), text_width)
-    draw.text((text_x, middle - 11), title, font=font(22, bold=True), fill=TEXT, anchor="lm")
-    draw.text((text_x, middle + 15), subtitle, font=font(12), fill=MUTED, anchor="lm")
+    canvas.draw_header(image, draw, left, top + HEADER_HEIGHT // 2, content_width, league_name,
+                       f"{season_name} · results from the row team's side", [league_code, league_name], LEAGUE_LOGO_SIZE)
 
     grid_left, grid_top = left + (content_width - grid_width) // 2, top + HEADER_HEIGHT
     # Row and column headers: team logos
@@ -159,7 +153,8 @@ def _render(matches, teams, season_name, league_name, league_code, config, accen
             x = grid_left + LOGO_BAND + col * CELL_WIDTH
             y = grid_top + LOGO_BAND + row * cell_height
             if row_team["id"] == col_team["id"]:
-                draw.rectangle((x, y, x + CELL_WIDTH - 1, y + cell_height - 1), fill=DIVIDER)
+                # The team against itself: a faint diagonal instead of a filled block
+                draw.line((x + 10, y + cell_height - 10, x + CELL_WIDTH - 10, y + 10), fill=HAIRLINE, width=1)
                 continue
             home_games = played.get((row_team["id"], col_team["id"]), [])  # the row team hosted these
             away_games = played.get((col_team["id"], row_team["id"]), [])
@@ -167,8 +162,8 @@ def _render(matches, teams, season_name, league_name, league_code, config, accen
                 row_is_home = slot % 2 == 0
                 games = home_games if row_is_home else away_games
                 result = _result_for(row_is_home, games[slot // 2] if slot // 2 < len(games) else None)
-                fill = PENDING if result is None else WIN if result[1] else LOSS
-                draw.rectangle((x0, y0, x1 - 1, y1 - 1), fill=fill, outline=CARD)
+                draw.rounded_rectangle((x0 + 2, y0 + 2, x1 - 3, y1 - 3), radius=4, fill=ROW_ALT if result else CARD,
+                                       outline=None if result else PENDING)
                 if result:
-                    draw.text(((x0 + x1) / 2, (y0 + y1) / 2), result[0], font=score_font, fill=TEXT, anchor="mm")
+                    draw.text(((x0 + x1) / 2, (y0 + y1) / 2), result[0], font=score_font, fill=WIN if result[1] else LOSS, anchor="mm")
     return image

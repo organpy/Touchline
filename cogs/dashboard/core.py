@@ -69,6 +69,10 @@ class DashboardPage(AdminOnlyView):
     def embed(self) -> discord.Embed:
         return discord.Embed(title=self.title, color=EMBED_COLOR)
 
+    def attachments(self) -> List[discord.File]:
+        """Files shown with the page (an embed image refers to one as ``attachment://name``). Fresh each call."""
+        return []
+
     # ------------------------------------------------------------------ rendering
     @property
     def repo(self) -> LeagueRepository:
@@ -96,10 +100,12 @@ class DashboardPage(AdminOnlyView):
     async def show(self, interaction: discord.Interaction) -> None:
         """Render this page into the dashboard message."""
         embed = await self.render()
+        # Always pass attachments, so leaving a page with an image also removes the image.
+        files = self.attachments()
         if interaction.response.is_done():
-            await interaction.edit_original_response(embed=embed, view=self)
+            await interaction.edit_original_response(embed=embed, view=self, attachments=files)
         else:
-            await interaction.response.edit_message(embed=embed, view=self)
+            await interaction.response.edit_message(embed=embed, view=self, attachments=files)
 
     async def open(self, interaction: discord.Interaction, page: "DashboardPage") -> None:
         self.session.stack.append(page)

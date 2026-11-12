@@ -305,11 +305,21 @@ pytest test/ -q
 python scripts/seed_demo.py --apply --divisions 4 --teams 8
 ```
 
-`scripts/preview_images.py` renders the standings, match tables and player cards with dummy data (no Discord or database needed) into `preview_output/`, with an `index.html` gallery. Add `--open` to open it in your browser.
+`scripts/preview_images.py` renders the standings, playoff brackets, match tables and player cards with dummy data (no Discord or database needed) into `preview_output/`, with an `index.html` gallery. Add `--open` to open it in your browser.
 
 ```bash
 python scripts/preview_images.py --open
 ```
+
+On a dev server, set `ENABLE_DEMO_COMMANDS=true` to get admin-only `/demo` commands that run on made-up data and save nothing:
+
+| Command | What it does |
+|---|---|
+| `/demo bracket` | A bracket image of any kind (championship, promotion, relegation, promotion/relegation), 2–16 teams, any best-of, at a chosen stage |
+| `/demo playoffs` | An interactive playoff: play a game, finish a series or round, play to the end, decide by forfeit, swap seeds before the first game, reset |
+| `/demo standings`, `/demo match-table`, `/demo player-card` | Each image with dummy data and options |
+| `/demo gallery` | Every preview image at once |
+| `/demo errors` | Every kind of error reply |
 
 Slash commands sync on startup only when their definitions changed, tracked in `data/.command_sync_hash`. Delete that file to force a sync. Domain rules (standings, brackets, movements, the season lifecycle and reporting) live in `services/` with no Discord code, and most tests target them directly.
 

@@ -77,11 +77,20 @@ def test_overview_without_a_season():
     assert "No season yet" in posts[0].embed.description
 
 
-def test_brackets_appear_in_the_postseason():
+def test_brackets_appear_in_the_postseason_as_text_without_an_image():
     posts = board_posts(data("postseason", brackets=[bracket()]))
-    assert posts[-1].key == "brackets:0"
-    assert "Ants" in posts[-1].embed.fields[0].value
-    assert "brackets:0" not in [p.key for p in board_posts(data("regular", brackets=[bracket()]))]
+    assert posts[-1].key == "bracket:br1"
+    assert posts[-1].image is None and "Ants" in posts[-1].embed.description
+    assert "bracket:br1" not in [p.key for p in board_posts(data("regular", brackets=[bracket()]))]
+
+
+def test_a_bracket_post_carries_its_image():
+    posts = board_posts(data("postseason", brackets=[bracket()]), images={"bracket:br1": b"png"})
+    post = posts[-1]
+    assert post.image == b"png" and post.filename == "bracket-championship-d1.png"
+    assert post.embed.image.url == "attachment://bracket-championship-d1.png"
+    assert post.embed.title.startswith("Championship ·")
+    assert post.embed.description is None
 
 
 def test_post_file_is_fresh_each_time():

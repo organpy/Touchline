@@ -1,4 +1,7 @@
-"""Standings image: one flat dark card per division with rank, team, record, point difference, points and form."""
+"""Standings image: one flat dark card per division with rank, team, record, point difference, points and form.
+
+Rows are separated by hairlines, not filled bands; colour is kept for meaning (zones, form, point difference).
+"""
 
 from __future__ import annotations
 
@@ -9,15 +12,15 @@ from typing import Any, Dict, List, Optional
 from services.standings import ZONE_LABELS
 from utils.render import canvas
 from utils.render.fonts import font
-from utils.render.theme import CARD, DIVIDER, LOSS, MUTED, ROW_ALT, TEXT, WIN, ZONE_COLORS
+from utils.render.theme import DIVIDER, HAIRLINE, LOSS, MUTED, TEXT, WIN, ZONE_COLORS
 from utils.render.theme import accent_color as resolve_accent
 
 logger = logging.getLogger(__name__)
 
 INNER_PAD = 22  # between the card edge and the table
-HEADER_HEIGHT = 76
-COLUMN_HEIGHT = 34
-ROW_HEIGHT = 46
+HEADER_HEIGHT = 72
+COLUMN_HEIGHT = 30
+ROW_HEIGHT = 44
 LEGEND_HEIGHT = 40
 BOTTOM_PAD = 14
 
@@ -27,13 +30,13 @@ COL_TEAM = 230
 COL_RECORD = 84
 COL_DIFF = 72
 COL_POINTS = 64
-COL_FORM = 124
+COL_FORM = 110
 
 LEAGUE_LOGO_SIZE = 44
-TEAM_LOGO_SIZE = 32
-ZONE_STRIPE = 5
-FORM_DOT_RADIUS = 7
-FORM_DOT_SPACING = 22
+TEAM_LOGO_SIZE = 28
+ZONE_STRIPE = 3
+FORM_DOT_RADIUS = 5
+FORM_DOT_SPACING = 17
 
 standings_cache = canvas.RenderCache()
 
@@ -54,7 +57,7 @@ def _draw_form(draw, column_left: int, center_y: int, markers: List[str]) -> Non
         elif marker == "L":
             draw.ellipse(box, fill=LOSS)
         else:
-            draw.ellipse(box, outline=DIVIDER, width=2)
+            draw.ellipse(box, outline=DIVIDER, width=1)
         x += FORM_DOT_SPACING
 
 
@@ -109,17 +112,14 @@ def _render(rows, season_name, league_name, league_code, recent, accent):
     image, draw = canvas.new_image(width, height, accent)
     left = canvas.PADDING + INNER_PAD
 
-    # Header: division logo, name, season
-    middle = top + HEADER_HEIGHT // 2
-    canvas.draw_logo(image, draw, (left + LEAGUE_LOGO_SIZE // 2, middle), LEAGUE_LOGO_SIZE, [league_code, league_name], league_name)
-    text_x = left + LEAGUE_LOGO_SIZE + 14
-    draw.text((text_x, middle - 11), canvas.fit_text(league_name, font(22, bold=True), table_width - LEAGUE_LOGO_SIZE - 14),
-              font=font(22, bold=True), fill=TEXT, anchor="lm")
-    draw.text((text_x, middle + 15), f"{(season_name or 'Season').upper()} • {len(rows)} TEAMS", font=font(13), fill=MUTED, anchor="lm")
+    # Header: division logo (when there is one), name, season
+    teams_label = "1 team" if len(rows) == 1 else f"{len(rows)} teams"
+    canvas.draw_header(image, draw, left, top + HEADER_HEIGHT // 2, table_width, league_name,
+                       f"{season_name or 'Season'} · {teams_label}", [league_code, league_name], LEAGUE_LOGO_SIZE)
 
     # Column titles
     y = top + HEADER_HEIGHT
-    heads = font(12, bold=True)
+    heads = font(11, bold=True)
     x = left
     draw.text((x + COL_RANK // 2, y + COLUMN_HEIGHT // 2), "#", font=heads, fill=MUTED, anchor="mm")
     x += COL_RANK + COL_LOGO
@@ -131,17 +131,19 @@ def _render(rows, season_name, league_name, league_code, recent, accent):
     if show_form:
         draw.text((x + COL_FORM // 2, y + COLUMN_HEIGHT // 2), "LAST 5", font=heads, fill=MUTED, anchor="mm")
     y += COLUMN_HEIGHT
+    draw.line((left, y - 1, left + table_width, y - 1), fill=DIVIDER, width=1)
 
     # Rows
     body, bold = font(14), font(14, bold=True)
     for index, team in enumerate(rows, start=1):
         row_middle = y + ROW_HEIGHT // 2
-        draw.rectangle((left, y, left + table_width, y + ROW_HEIGHT - 1), fill=ROW_ALT if index % 2 == 0 else CARD)
+        if index < len(rows):
+            draw.line((left, y + ROW_HEIGHT - 1, left + table_width, y + ROW_HEIGHT - 1), fill=HAIRLINE, width=1)
         if team.get("zone") in ZONE_COLORS:
-            draw.rectangle((left, y, left + ZONE_STRIPE - 1, y + ROW_HEIGHT - 1), fill=ZONE_COLORS[team["zone"]])
+            draw.rectangle((left, y + 8, left + ZONE_STRIPE - 1, y + ROW_HEIGHT - 9), fill=ZONE_COLORS[team["zone"]])
 
         x = left
-        draw.text((x + COL_RANK // 2, row_middle), str(team.get("rank") or index), font=bold, fill=TEXT, anchor="mm")
+        draw.text((x + COL_RANK // 2, row_middle), str(team.get("rank") or index), font=body, fill=MUTED, anchor="mm")
         x += COL_RANK
         canvas.draw_logo(image, draw, (x + COL_LOGO // 2, row_middle), TEAM_LOGO_SIZE, [team.get("code"), team.get("name")], team.get("name"))
         x += COL_LOGO
@@ -163,8 +165,8 @@ def _render(rows, season_name, league_name, league_code, recent, accent):
         x, legend_middle = left, y + LEGEND_HEIGHT // 2 + 2
         small = font(12)
         for zone in zones:
-            draw.rectangle((x, legend_middle - 5, x + 10, legend_middle + 5), fill=ZONE_COLORS[zone])
+            draw.rectangle((x, legend_middle - 6, x + ZONE_STRIPE - 1, legend_middle + 6), fill=ZONE_COLORS[zone])
             label = ZONE_LABELS.get(zone, zone)
-            draw.text((x + 16, legend_middle), label, font=small, fill=MUTED, anchor="lm")
-            x += 16 + int(small.getlength(label)) + 24
+            draw.text((x + 10, legend_middle), label, font=small, fill=MUTED, anchor="lm")
+            x += 10 + int(small.getlength(label)) + 22
     return image

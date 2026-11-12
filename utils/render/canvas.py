@@ -12,11 +12,11 @@ from PIL import Image, ImageChops, ImageDraw, ImageFont
 from utils.caching import TTLCache
 from utils.render import logos
 from utils.render.fonts import font
-from utils.render.theme import BG, CARD, DIVIDER, RGB, TEXT
+from utils.render.theme import BG, CARD, DIVIDER, MUTED, RGB, TEXT
 
 PADDING = 24  # space between the image edge and the card
 RADIUS = 18  # card corner radius
-ACCENT_HEIGHT = 6  # accent strip along the top of the card
+ACCENT_HEIGHT = 3  # thin accent line along the top of the card
 
 
 def new_image(width: int, height: int, accent: RGB) -> Tuple[Image.Image, ImageDraw.ImageDraw]:
@@ -65,6 +65,35 @@ def draw_logo(
     draw.ellipse((cx - half, cy - half, cx + half, cy + half), fill=DIVIDER)
     letter = (label or next((n for n in names if n), "?"))[:1].upper()
     draw.text((cx, cy), letter, font=font(max(size // 2, 10), bold=True), fill=TEXT, anchor="mm")
+
+
+def draw_header(
+    image: Image.Image,
+    draw: ImageDraw.ImageDraw,
+    left: int,
+    middle: int,
+    width: int,
+    title: str,
+    subtitle: Optional[str],
+    logo_names: Sequence[Optional[str]] = (),
+    logo_size: int = 40,
+) -> None:
+    """Title and a muted subtitle, vertically centred on ``middle``, after a logo only when one exists.
+
+    No placeholder letter is drawn for a missing division logo: the title says the same thing.
+    """
+    x = left
+    picture = logos.logo(logo_size, *logo_names) if logo_names else None
+    if picture:
+        image.paste(picture, (left, middle - logo_size // 2), picture)
+        x += logo_size + 14
+    title_font, subtitle_font = font(21, bold=True), font(13)
+    available = width - (x - left)
+    if subtitle:
+        draw.text((x, middle - 10), fit_text(title, title_font, available), font=title_font, fill=TEXT, anchor="lm")
+        draw.text((x, middle + 14), fit_text(subtitle, subtitle_font, available), font=subtitle_font, fill=MUTED, anchor="lm")
+    else:
+        draw.text((x, middle), fit_text(title, title_font, available), font=title_font, fill=TEXT, anchor="lm")
 
 
 class RenderCache:

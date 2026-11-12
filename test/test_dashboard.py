@@ -301,7 +301,8 @@ def test_render_bracket_names_rounds_and_marks_winners():
     with patch("cogs.dashboard.playoffs.TeamPlayerCache.get_team", side_effect=lambda t: {"name": t.upper()}):
         text = render_bracket(bracket)
     assert "__Final__" in text
-    assert "✅ (1) **T1** 2–1 (2) T2 · bo3" in text
+    assert "(1) **T1** 2–1 (2) T2 · bo3" in text
+    assert "✅" not in text
     assert bracket_started(bracket)
 
 

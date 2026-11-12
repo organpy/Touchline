@@ -7,7 +7,7 @@ Board posts, in order:
 
 * ``overview``: season, phase, champion, each division's leader and the zone legend
 * ``division:<id>``: one per division, a standings image coloured by zone (text table fallback)
-* ``brackets:<n>``: during and after the postseason, the brackets (5 per message)
+* ``bracket:<id>``: during and after the postseason, one per bracket: its image (text when the image failed)
 """
 
 from __future__ import annotations
@@ -146,27 +146,43 @@ def division_post(division_id: str, rows: List[Dict[str, Any]], season: Dict[str
     return BoardPost(key=f"division:{division_id}", embed=embed, image=image, filename=filename)
 
 
-def bracket_posts(data: BoardData) -> List[BoardPost]:
-    if not data.season or data.season.get("phase") not in PLAYOFF_PHASES or not data.brackets:
+def bracket_image_key(bracket: Dict[str, Any]) -> str:
+    """Key of a bracket's image in the ``images`` passed to ``board_posts``."""
+    return f"bracket:{bracket.get('id')}"
+
+
+def shows_brackets(data: BoardData) -> bool:
+    return bool(data.season and data.season.get("phase") in PLAYOFF_PHASES and data.brackets)
+
+
+def bracket_posts(data: BoardData, images: Optional[Dict[str, bytes]] = None) -> List[BoardPost]:
+    """One post per bracket: the bracket image, or the text bracket when there is no image."""
+    if not shows_brackets(data):
         return []
     posts = []
-    for start in range(0, len(data.brackets), BRACKETS_PER_POST):
-        chunk = data.brackets[start:start + BRACKETS_PER_POST]
-        embed = discord.Embed(title="🏆 Playoffs" if start == 0 else "🏆 Playoffs (continued)", color=BOARD_COLOR)
-        for bracket in chunk:
-            status = "✅" if bracket.get("status") == "completed" else "▶️"
-            embed.add_field(name=f"{status} {bracket_title(bracket)}"[:256], value=render_bracket(bracket)[:1000], inline=False)
-        posts.append(BoardPost(key=f"brackets:{start // BRACKETS_PER_POST}", embed=embed))
+    for bracket in data.brackets:
+        key = bracket_image_key(bracket)
+        image = (images or {}).get(key)
+        division = LeagueCache.division(bracket.get("division_id"))
+        embed = discord.Embed(title=bracket_title(bracket)[:256], color=_color(division))
+        filename = None
+        if image is not None:
+            filename = f"bracket-{bracket.get('kind')}-{(division or {}).get('code') or 'division'}.png".lower()
+            embed.set_image(url=f"attachment://{filename}")
+        else:
+            embed.description = render_bracket(bracket)[:4000]
+        posts.append(BoardPost(key=key, embed=embed, image=image, filename=filename))
     return posts
 
 
 def board_posts(data: BoardData, images: Optional[Dict[str, bytes]] = None) -> List[BoardPost]:
-    """Every board message in display order. ``images`` maps division id → standings PNG."""
+    """Every board message in display order. ``images`` maps division id → standings PNG and
+    ``bracket:<id>`` → bracket PNG."""
     posts = [BoardPost(key="overview", embed=overview_embed(data))]
     if data.season:
         for division_id, rows in data.by_division().items():
             posts.append(division_post(division_id, rows, data.season, (images or {}).get(division_id)))
-    posts.extend(bracket_posts(data))
+    posts.extend(bracket_posts(data, images))
     return posts
 
 
@@ -191,7 +207,7 @@ def _bracket_result(bracket: Dict[str, Any]) -> str:
 
 
 def postseason_embed(data: BoardData) -> discord.Embed:
-    embed = discord.Embed(title=f"🏆 {data.season.get('name', 'Season')}: the playoffs are set", color=BOARD_COLOR)
+    embed = discord.Embed(title=f"{data.season.get('name', 'Season')}: the playoffs are set", color=BOARD_COLOR)
     for bracket in data.brackets[:BRACKETS_PER_POST]:
         embed.add_field(name=bracket_title(bracket)[:256], value=render_bracket(bracket)[:1000], inline=False)
     if len(data.brackets) > BRACKETS_PER_POST:

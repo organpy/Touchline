@@ -64,8 +64,9 @@ def test_each_zone_gets_a_coloured_stripe_on_its_row():
     top = canvas.PADDING + canvas.ACCENT_HEIGHT + gen.HEADER_HEIGHT + gen.COLUMN_HEIGHT
     stripe_x = canvas.PADDING + gen.INNER_PAD + 1
 
-    assert image.getpixel((stripe_x, top + 5)) == (46, 204, 113)  # first row: promoted
-    assert image.getpixel((stripe_x, top + gen.ROW_HEIGHT + 5)) != (46, 204, 113)  # second row: no zone
+    middle = gen.ROW_HEIGHT // 2
+    assert image.getpixel((stripe_x, top + middle)) == (46, 204, 113)  # first row: promoted
+    assert image.getpixel((stripe_x, top + gen.ROW_HEIGHT + middle)) != (46, 204, 113)  # second row: no zone
 
 
 def test_the_accent_strip_uses_the_given_colour_or_the_default():

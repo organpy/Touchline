@@ -30,7 +30,9 @@ from utils.league_cache import LeagueCache
 from utils.standings_image_generator import generate_simple_standings_image
 from utils.render.limit import render_in_thread
 
-from .render import BoardData, BoardPost, board_posts, pending_announcements
+from cogs.dashboard.playoffs import bracket_image
+
+from .render import BoardData, BoardPost, board_posts, bracket_image_key, pending_announcements, shows_brackets
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +169,15 @@ class BoardService:
                 image = None
             if image is not None:
                 images[division_id] = image.getvalue()
+        if shows_brackets(data):
+            for bracket in data.brackets:
+                try:
+                    picture = await render_in_thread(bracket_image, bracket, data.season.get("name"))
+                except Exception as exc:
+                    logger.warning("Bracket image failed for %s: %s", bracket.get("id"), exc)
+                    picture = None
+                if picture is not None:
+                    images[bracket_image_key(bracket)] = picture
         return images
 
     # ------------------------------------------------------------------ refresh

@@ -167,6 +167,21 @@ def _bracket(kind: str, division_id: str, spots: int, entries: List[Seeded], ser
     }
 
 
+def round_name(round_number: int, last_round: int, kind: Optional[str]) -> str:
+    """Display name of a round: Final / Semifinals / Quarterfinals, counted back from the last round.
+
+    Relegation brackets (losers advance) and promotion/relegation series just number their rounds, since
+    their last round isn't a final anyone wants to reach.
+    """
+    if kind == KIND_PROMO_REL:
+        return "Series"
+    if kind != KIND_RELEGATION:
+        named = {0: "Final", 1: "Semifinals", 2: "Quarterfinals"}.get(last_round - round_number)
+        if named:
+            return named
+    return f"Round {round_number}"
+
+
 # ---------------------------------------------------------------------------- bracket builders
 
 

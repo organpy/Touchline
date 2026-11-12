@@ -8,7 +8,7 @@ from PIL import Image
 
 from utils import match_table_image_generator as gen
 from utils.render import canvas
-from utils.render.theme import DIVIDER, LOSS, PENDING, WIN
+from utils.render.theme import CARD, LOSS, PENDING, WIN
 
 
 @pytest.fixture(autouse=True)
@@ -100,29 +100,48 @@ def test_the_image_grows_with_the_number_of_teams():
     assert five.width > two.width
 
 
-def test_wins_are_green_losses_red_and_unplayed_games_grey_from_the_row_teams_side():
+def colors_in(image, rect):
+    x0, y0, x1, y1 = rect
+    return {image.getpixel((x, y)) for x in range(x0, x1) for y in range(y0, y1)}
+
+
+def score_color(image, rect):
+    """WIN, LOSS or None: the colour a slot's score is written in (slots are neutral; only the text is coloured)."""
+    found = colors_in(image, rect)
+    assert not (WIN in found and LOSS in found)
+    return WIN if WIN in found else LOSS if LOSS in found else None
+
+
+def is_empty_slot(image, rect):
+    """An unplayed game: an outlined slot with nothing in it."""
+    x0, y0, x1, y1 = rect
+    return image.getpixel(((x0 + x1) // 2, y0 + 2)) == PENDING and score_color(image, rect) is None
+
+
+def test_wins_are_green_losses_red_and_unplayed_games_empty_from_the_row_teams_side():
     matches = [game("t1", "t2", 66, 60), game("t2", "t1", 70, 64)]  # t1 won at home, lost away
     image = open_png(render(matches))
     x, y = cell_origin(0, 1, 2)  # row t1, column t2
     home_slot, away_slot = gen._slot_rects(x, y, gen.matchup_layout(2))
 
-    assert image.getpixel((home_slot[0] + 2, home_slot[1] + 2)) == WIN
-    assert image.getpixel((away_slot[0] + 2, away_slot[1] + 2)) == LOSS
+    assert score_color(image, home_slot) == WIN
+    assert score_color(image, away_slot) == LOSS
 
     x, y = cell_origin(1, 0, 2)  # the mirror cell: row t2, column t1 shows the same games from t2's side
     home_slot, away_slot = gen._slot_rects(x, y, gen.matchup_layout(2))
-    assert image.getpixel((home_slot[0] + 2, home_slot[1] + 2)) == WIN  # t2 won its home game 70-64
-    assert image.getpixel((away_slot[0] + 2, away_slot[1] + 2)) == LOSS  # t2 lost its away game 60-66
+    assert score_color(image, home_slot) == WIN  # t2 won its home game 70-64
+    assert score_color(image, away_slot) == LOSS  # t2 lost its away game 60-66
 
 
-def test_games_not_played_yet_are_grey_and_a_team_against_itself_is_dark():
+def test_games_not_played_yet_are_empty_and_a_team_against_itself_has_no_slots():
     image = open_png(render([]))
     x, y = cell_origin(0, 1, 2)
     slot = gen._slot_rects(x, y, gen.matchup_layout(2))[0]
     diagonal = cell_origin(0, 0, 2)
 
-    assert image.getpixel((slot[0] + 2, slot[1] + 2)) == PENDING
-    assert image.getpixel((diagonal[0] + 5, diagonal[1] + 5)) == DIVIDER
+    assert is_empty_slot(image, slot)
+    assert image.getpixel((diagonal[0] + 5, diagonal[1] + 5)) == CARD
+    assert PENDING not in colors_in(image, (diagonal[0], diagonal[1], diagonal[0] + gen.CELL_WIDTH, diagonal[1] + 70))
 
 
 def test_a_grid_layout_also_places_scores_by_slot():
@@ -131,10 +150,10 @@ def test_a_grid_layout_also_places_scores_by_slot():
     x, y = cell_origin(0, 1, 2, games=6)
     slots = gen._slot_rects(x, y, gen.matchup_layout(6))
 
-    assert image.getpixel((slots[0][0] + 2, slots[0][1] + 2)) == WIN    # 1st home game
-    assert image.getpixel((slots[1][0] + 2, slots[1][1] + 2)) == LOSS   # 1st away game (t2 hosted, t1 lost 64-70)
-    assert image.getpixel((slots[2][0] + 2, slots[2][1] + 2)) == LOSS   # 2nd home game 10-20
-    assert image.getpixel((slots[3][0] + 2, slots[3][1] + 2)) == PENDING  # 2nd away game not played
+    assert score_color(image, slots[0]) == WIN    # 1st home game
+    assert score_color(image, slots[1]) == LOSS   # 1st away game (t2 hosted, t1 lost 64-70)
+    assert score_color(image, slots[2]) == LOSS   # 2nd home game 10-20
+    assert is_empty_slot(image, slots[3])         # 2nd away game not played
 
 
 def test_more_games_than_slots_are_ignored():
